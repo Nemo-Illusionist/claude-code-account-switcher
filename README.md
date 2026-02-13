@@ -1,9 +1,11 @@
 # Claude Code Account Switcher (macOS)
 
-Привязка разных аккаунтов Claude Code к разным директориям.
-Работает из консоли — при `cd` автоматически подхватывается нужный аккаунт.
+[Русская версия](README.ru.md)
 
-## Установка
+Bind different Claude Code accounts to different directories.
+On `cd`, the correct account is activated automatically.
+
+## Install
 
 ```bash
 cp claude-switch.sh ~/.claude-switch.sh
@@ -11,78 +13,84 @@ echo 'source ~/.claude-switch.sh' >> ~/.zshrc
 source ~/.zshrc
 ```
 
-## Быстрый старт
+## Quick start
 
 ```bash
-# 1. Добавьте аккаунты (откроется логин Claude)
-claude-acc add personal
+# 1. Add accounts (opens Claude login)
 claude-acc add work
 
-# 2. Задайте дефолтный
-claude-acc default personal
-
-# 3. Привяжите рабочий аккаунт к рабочей папке
+# 2. Link work account to a directory
 cd ~/work
 claude-acc link work
 
-# Готово! При cd в ~/work или любую вложенную папку
-# Claude Code автоматически использует рабочий аккаунт,
-# а везде остальное — личный.
+# Done! cd into ~/work or any subdirectory uses the work account.
+# Everything else uses the standard ~/.claude/ config.
 ```
 
-## Команды
+## Commands
 
-| Команда | Описание |
+| Command | Description |
 | --- | --- |
-| `claude-acc` | Справка |
-| `claude-acc list` | Список всех аккаунтов |
-| `claude-acc add <имя>` | Добавить аккаунт (запустит `claude login`) |
-| `claude-acc remove <имя>` | Удалить аккаунт |
-| `claude-acc default [имя]` | Показать/задать аккаунт по умолчанию |
-| `claude-acc link <имя>` | Привязать аккаунт к текущей директории |
-| `claude-acc unlink` | Убрать привязку с текущей директории |
-| `claude-acc status` | Показать, какой аккаунт сейчас активен |
+| `claude-acc` | Help |
+| `claude-acc list` | List all accounts |
+| `claude-acc add <name>` | Add account (runs `claude login`) |
+| `claude-acc remove <name>` | Remove account |
+| `claude-acc default [name]` | Show/set default account |
+| `claude-acc reset` | Reset default to `~/.claude/` |
+| `claude-acc link <name>` | Link account to current directory |
+| `claude-acc unlink` | Unlink current directory |
+| `claude-acc status` | Show active account |
 
-## Как это работает
+## How it works
 
 ```
 ~/.claude-switch/
 ├── accounts/
-│   ├── personal/    ← конфиг Claude для личного аккаунта
-│   └── work/        ← конфиг Claude для рабочего аккаунта
-├── config           ← default=personal
-└── links            ← привязки: путь=аккаунт
+│   └── work/        ← Claude config for work account
+├── config           ← default=work (or empty for ~/.claude/)
+└── links            ← bindings: path=account
 ```
 
-При смене директории скрипт:
+On directory change:
 
-1. Ищет привязку для текущей директории в `~/.claude-switch/links`
-2. Если нет — поднимается вверх по дереву директорий
-3. Если привязки не найдено — берёт дефолтный аккаунт
-4. Устанавливает `CLAUDE_CONFIG_DIR`
+1. Looks up the current directory in `~/.claude-switch/links`
+2. If not found — walks up the directory tree
+3. If no binding — uses the default account (or `~/.claude/` if none set)
+4. Sets `CLAUDE_CONFIG_DIR`
 
-Это значит, что привязав `~/work` к аккаунту `work`, все вложенные папки
-(`~/work/project-a`, `~/work/project-b/src`) автоматически унаследуют этот аккаунт.
+Linking `~/work` to account `work` means all subdirectories
+(`~/work/project-a`, `~/work/project-b/src`) inherit that account.
 
-## Пример сессии
+## Language
+
+Auto-detected from `LANG`. Override with:
+
+```bash
+export CLAUDE_ACC_LANG=ru  # or en
+```
+
+## Example session
 
 ```bash
 $ claude-acc status
-Активный аккаунт: personal (по умолчанию)
+Active account: ~/.claude/ (standard)
+
+$ claude-acc add work
+Account 'work' created. Starting login...
 
 $ cd ~/work
 $ claude-acc link work
-work → аккаунт 'work'
+work → account 'work'
 
 $ cd ~/work/secret-project
 $ claude-acc status
-Активный аккаунт: work (привязан к work)
+Active account: work (linked to work)
 
 $ cd ~/hobby/my-bot
 $ claude-acc status
-Активный аккаунт: personal (по умолчанию)
+Active account: ~/.claude/ (standard)
 ```
 
-## Лицензия
+## License
 
 MIT
