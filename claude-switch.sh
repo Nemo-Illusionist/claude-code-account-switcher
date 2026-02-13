@@ -51,6 +51,7 @@ _claude_msg_en=(
     help_reset          "Reset default to ~/.claude/"
     help_link           "Link account to current directory"
     help_unlink         "Unlink current directory"
+    help_links          "Show all directory links"
     help_status         "Current account and context"
     help_help           "Help"
     list_empty          "No accounts. Add one: claude-acc add <name>"
@@ -81,6 +82,9 @@ _claude_msg_en=(
     status_linked       "(linked to %s)"
     status_default      "(default)"
     status_standard     "Active account: ~/.claude/ (standard)"
+    links_empty         "No links. Use: claude-acc link <name>"
+    links_header        "Links:"
+    links_active        "← active"
 )
 
 _claude_msg_ru=(
@@ -93,6 +97,7 @@ _claude_msg_ru=(
     help_reset          "Сбросить дефолт на ~/.claude/"
     help_link           "Привязать аккаунт к текущей директории"
     help_unlink         "Убрать привязку с текущей директории"
+    help_links          "Показать все привязки директорий"
     help_status         "Текущий аккаунт и контекст"
     help_help           "Справка"
     list_empty          "Нет аккаунтов. Добавьте: claude-acc add <name>"
@@ -123,6 +128,9 @@ _claude_msg_ru=(
     status_linked       "(привязан к %s)"
     status_default      "(по умолчанию)"
     status_standard     "Активный аккаунт: ~/.claude/ (стандартный)"
+    links_empty         "Нет привязок. Используйте: claude-acc link <name>"
+    links_header        "Привязки:"
+    links_active        "← активна"
 )
 
 _msg() {
@@ -248,6 +256,7 @@ _claude_acc_help() {
     echo "  claude-acc reset             $(_msg help_reset)"
     echo "  claude-acc link <name>       $(_msg help_link)"
     echo "  claude-acc unlink            $(_msg help_unlink)"
+    echo "  claude-acc links             $(_msg help_links)"
     echo "  claude-acc status            $(_msg help_status)"
 }
 
@@ -385,6 +394,28 @@ _claude_acc_unlink() {
     _claude_activate
 }
 
+_claude_acc_links() {
+    if [[ ! -s "$CLAUDE_SWITCH_LINKS" ]]; then
+        _msg links_empty
+        return
+    fi
+
+    _msg links_header
+
+    local active_dir
+    active_dir=$(_claude_find_linked_dir)
+
+    sort "$CLAUDE_SWITCH_LINKS" | while IFS='=' read -r dir account; do
+        [[ -z "$dir" || -z "$account" ]] && continue
+        local display_dir="${dir/#$HOME/~}"
+        if [[ "$dir" == "$active_dir" ]]; then
+            echo "  $display_dir → $account  $(_msg links_active)"
+        else
+            echo "  $display_dir → $account"
+        fi
+    done
+}
+
 _claude_acc_status() {
     local account source_info linked_dir
 
@@ -430,6 +461,7 @@ claude-acc() {
         reset)   _claude_acc_reset ;;
         link)    _claude_acc_link "$@" ;;
         unlink)  _claude_acc_unlink "$@" ;;
+        links)   _claude_acc_links ;;
         status)  _claude_acc_status "$@" ;;
         help)    _claude_acc_help ;;
         *)       _claude_acc_help ;;
@@ -450,6 +482,7 @@ _claude_acc_completion() {
         "reset:$(_msg help_reset)"
         "link:$(_msg help_link)"
         "unlink:$(_msg help_unlink)"
+        "links:$(_msg help_links)"
         "status:$(_msg help_status)"
         "help:$(_msg help_help)"
     )
