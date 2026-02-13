@@ -15,18 +15,18 @@ source ~/.zshrc
 
 ```bash
 # 1. Добавьте аккаунты (откроется логин Claude)
-claude-add personal
-claude-add work
+claude-acc add personal
+claude-acc add work
 
 # 2. Задайте дефолтный
-claude-default personal
+claude-acc default personal
 
 # 3. Привяжите рабочий аккаунт к рабочим репо
 cd ~/work/project-alpha
-claude-use work
+claude-acc link work
 
 cd ~/work/project-beta
-claude-use work
+claude-acc link work
 
 # Готово! При cd в эти репо Claude Code автоматически
 # использует рабочий аккаунт, а везде остальное — личный.
@@ -36,13 +36,14 @@ claude-use work
 
 | Команда | Описание |
 | --- | --- |
-| `claude-accounts` | Список всех аккаунтов |
-| `claude-add <имя>` | Добавить аккаунт (запустит `claude login`) |
-| `claude-remove <имя>` | Удалить аккаунт |
-| `claude-default <имя>` | Задать аккаунт по умолчанию |
-| `claude-use <имя>` | Привязать аккаунт к текущему git-репо |
-| `claude-unuse` | Убрать привязку с текущего репо |
-| `claude-which` | Показать, какой аккаунт сейчас активен |
+| `claude-acc` | Справка |
+| `claude-acc list` | Список всех аккаунтов |
+| `claude-acc add <имя>` | Добавить аккаунт (запустит `claude login`) |
+| `claude-acc remove <имя>` | Удалить аккаунт |
+| `claude-acc default [имя]` | Показать/задать аккаунт по умолчанию |
+| `claude-acc link <имя>` | Привязать аккаунт к текущему git-репо |
+| `claude-acc unlink` | Убрать привязку с текущего репо |
+| `claude-acc status` | Показать, какой аккаунт сейчас активен |
 
 ## Как это работает
 
@@ -65,18 +66,18 @@ claude-use work
 ## Пример сессии
 
 ```bash
-$ claude-which
+$ claude-acc status
 Активный аккаунт: personal (по умолчанию)
 
 $ cd ~/work/secret-project
-$ claude-use work
+$ claude-acc link work
 Репо secret-project → аккаунт 'work'
 
-$ claude-which
+$ claude-acc status
 Активный аккаунт: work (привязан к secret-project)
 
 $ cd ~/hobby/my-bot
-$ claude-which
+$ claude-acc status
 Активный аккаунт: personal (по умолчанию)
 ```
 
