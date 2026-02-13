@@ -66,6 +66,8 @@ _claude_msg_en=(
     add_hint_link       "  claude-acc link %s      — link to current directory"
     remove_usage        "Usage: claude-acc remove <name>"
     remove_not_found    "Account '%s' not found."
+    remove_confirm      "Remove account '%s'? [y/N] "
+    remove_cancelled    "Cancelled."
     remove_deleted      "Account '%s' deleted."
     default_current     "Default: %s"
     default_standard    "Default: ~/.claude/"
@@ -112,6 +114,8 @@ _claude_msg_ru=(
     add_hint_link       "  claude-acc link %s      — привязать к текущей директории"
     remove_usage        "Использование: claude-acc remove <name>"
     remove_not_found    "Аккаунт '%s' не найден."
+    remove_confirm      "Удалить аккаунт '%s'? [y/N] "
+    remove_cancelled    "Отменено."
     remove_deleted      "Аккаунт '%s' удалён."
     default_current     "По умолчанию: %s"
     default_standard    "По умолчанию: ~/.claude/"
@@ -304,6 +308,12 @@ _claude_acc_add() {
 }
 
 _claude_acc_remove() {
+    local force=false
+    if [[ "$1" == "-f" ]]; then
+        force=true
+        shift
+    fi
+
     local name="$1"
     if [[ -z "$name" ]]; then
         _msg remove_usage
@@ -314,6 +324,16 @@ _claude_acc_remove() {
     if [[ ! -d "$acc_dir" ]]; then
         _msg remove_not_found "$name"
         return 1
+    fi
+
+    if [[ "$force" != true ]]; then
+        printf "$(_msg remove_confirm "$name")"
+        local reply
+        read -r reply
+        if [[ "$reply" != [yYдД]* ]]; then
+            _msg remove_cancelled
+            return 1
+        fi
     fi
 
     # Убрать из дефолтного
