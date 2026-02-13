@@ -58,8 +58,27 @@ On directory change:
 3. If no binding — uses the default account (or `~/.claude/` if none set)
 4. Sets `CLAUDE_CONFIG_DIR`
 
-Linking `~/work` to account `work` means all subdirectories
-(`~/work/project-a`, `~/work/project-b/src`) inherit that account.
+## Directory inheritance
+
+Linking a directory applies to **all subdirectories** automatically.
+You don't need to link each project separately:
+
+```
+~/work                  → work      (linked explicitly)
+~/work/project-a        → work      (inherited)
+~/work/project-b        → work      (inherited)
+~/work/project-b/src    → work      (inherited)
+~/personal              → ~/.claude/ (default)
+```
+
+A more specific link always wins. This lets you set exceptions:
+
+```
+~/work                  → work      (linked)
+~/work/project-a        → work      (inherited)
+~/work/secret           → personal  (linked — overrides parent)
+~/work/secret/src       → personal  (inherited from secret)
+```
 
 ## Language
 
