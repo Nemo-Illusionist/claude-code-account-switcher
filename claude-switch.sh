@@ -2,7 +2,7 @@
 # ============================================================
 # Claude Code Account Switcher (macOS / zsh)
 # ============================================================
-# Привязка аккаунтов Claude Code к конкретным репозиториям.
+# Привязка аккаунтов Claude Code к конкретным директориям.
 #
 # Установка: добавьте в ~/.zshrc:
 #   source /path/to/claude-switch.sh
@@ -13,49 +13,77 @@
 #   claude-acc add <name>          — добавить аккаунт (откроет логин)
 #   claude-acc remove <name>       — удалить аккаунт
 #   claude-acc default [name]      — показать/задать аккаунт по умолчанию
-#   claude-acc link <name>         — привязать аккаунт к текущему репо
-#   claude-acc unlink              — убрать привязку с текущего репо
+#   claude-acc link <name>         — привязать аккаунт к текущей директории
+#   claude-acc unlink              — убрать привязку с текущей директории
 #   claude-acc status              — показать активный аккаунт
 # ============================================================
 
 CLAUDE_SWITCH_DIR="$HOME/.claude-switch"
 CLAUDE_SWITCH_ACCOUNTS_DIR="$CLAUDE_SWITCH_DIR/accounts"
 CLAUDE_SWITCH_CONFIG="$CLAUDE_SWITCH_DIR/config"
-CLAUDE_SWITCH_REPOS="$CLAUDE_SWITCH_DIR/repos"
+CLAUDE_SWITCH_LINKS="$CLAUDE_SWITCH_DIR/links"
 
 # --- Инициализация ---
 _claude_switch_init() {
     mkdir -p "$CLAUDE_SWITCH_ACCOUNTS_DIR"
     [[ -f "$CLAUDE_SWITCH_CONFIG" ]] || echo "default=" > "$CLAUDE_SWITCH_CONFIG"
-    [[ -f "$CLAUDE_SWITCH_REPOS" ]]   || touch "$CLAUDE_SWITCH_REPOS"
+    [[ -f "$CLAUDE_SWITCH_LINKS" ]]  || touch "$CLAUDE_SWITCH_LINKS"
+    # Миграция: переименовать repos → links
+    if [[ -f "$CLAUDE_SWITCH_DIR/repos" && ! -s "$CLAUDE_SWITCH_LINKS" ]]; then
+        mv "$CLAUDE_SWITCH_DIR/repos" "$CLAUDE_SWITCH_LINKS"
+    fi
 }
 _claude_switch_init
-
-# --- Получить корень git-репо (или пустую строку) ---
-_claude_git_root() {
-    git -C "${1:-.}" rev-parse --show-toplevel 2>/dev/null
-}
 
 # --- Прочитать дефолтный аккаунт ---
 _claude_default_account() {
     grep '^default=' "$CLAUDE_SWITCH_CONFIG" 2>/dev/null | cut -d= -f2
 }
 
-# --- Найти аккаунт для репо ---
-_claude_repo_account() {
-    local repo_root="$1"
-    [[ -z "$repo_root" ]] && return 1
-    grep -F "${repo_root}=" "$CLAUDE_SWITCH_REPOS" 2>/dev/null | grep "^${repo_root}=" | cut -d= -f2
+# --- Найти аккаунт для директории (точное совпадение) ---
+_claude_dir_account() {
+    local dir="$1"
+    [[ -z "$dir" ]] && return 1
+    grep -F "${dir}=" "$CLAUDE_SWITCH_LINKS" 2>/dev/null | grep "^${dir}=" | head -1 | cut -d= -f2
+}
+
+# --- Найти аккаунт, поднимаясь по дереву директорий ---
+_claude_find_account() {
+    local dir="${1:-$PWD}"
+    local account
+
+    while [[ "$dir" != "/" && -n "$dir" ]]; do
+        account=$(_claude_dir_account "$dir")
+        if [[ -n "$account" ]]; then
+            echo "$account"
+            return 0
+        fi
+        dir="${dir:h}"
+    done
+
+    return 1
+}
+
+# --- Найти директорию привязки (для status) ---
+_claude_find_linked_dir() {
+    local dir="${1:-$PWD}"
+
+    while [[ "$dir" != "/" && -n "$dir" ]]; do
+        if grep -qF "${dir}=" "$CLAUDE_SWITCH_LINKS" 2>/dev/null && \
+           grep -q "^${dir}=" "$CLAUDE_SWITCH_LINKS" 2>/dev/null; then
+            echo "$dir"
+            return 0
+        fi
+        dir="${dir:h}"
+    done
+
+    return 1
 }
 
 # --- Установить CLAUDE_CONFIG_DIR для текущего контекста ---
 _claude_activate() {
-    local repo_root account
-    repo_root=$(_claude_git_root)
-
-    if [[ -n "$repo_root" ]]; then
-        account=$(_claude_repo_account "$repo_root")
-    fi
+    local account
+    account=$(_claude_find_account)
 
     if [[ -z "$account" ]]; then
         account=$(_claude_default_account)
@@ -92,8 +120,9 @@ _claude_acc_help() {
     echo "  claude-acc add <name>        Добавить аккаунт"
     echo "  claude-acc remove <name>     Удалить аккаунт"
     echo "  claude-acc default [name]    Показать/задать дефолтный аккаунт"
-    echo "  claude-acc link <name>       Привязать аккаунт к текущему репо"
-    echo "  claude-acc unlink            Убрать привязку с текущего репо"
+    echo "  claude-acc reset             Сбросить дефолт на ~/.claude/"
+    echo "  claude-acc link <name>       Привязать аккаунт к текущей директории"
+    echo "  claude-acc unlink            Убрать привязку с текущей директории"
     echo "  claude-acc status            Текущий аккаунт и контекст"
 }
 
@@ -137,7 +166,7 @@ _claude_acc_add() {
     echo ""
     echo "Готово. Используйте:"
     echo "  claude-acc default $name   — сделать дефолтным"
-    echo "  claude-acc link $name      — привязать к текущему репо"
+    echo "  claude-acc link $name      — привязать к текущей директории"
 }
 
 _claude_acc_remove() {
@@ -160,8 +189,8 @@ _claude_acc_remove() {
         sed -i '' "s/^default=.*/default=/" "$CLAUDE_SWITCH_CONFIG"
     fi
 
-    # Убрать привязки репо
-    sed -i '' "/=$name$/d" "$CLAUDE_SWITCH_REPOS"
+    # Убрать привязки
+    sed -i '' "/=$name$/d" "$CLAUDE_SWITCH_LINKS"
 
     rm -rf "$acc_dir"
     echo "Аккаунт '$name' удалён."
@@ -176,8 +205,7 @@ _claude_acc_default() {
         if [[ -n "$current" ]]; then
             echo "По умолчанию: $current"
         else
-            echo "Дефолтный аккаунт не задан."
-            echo "Использование: claude-acc default <name>"
+            echo "По умолчанию: ~/.claude/"
         fi
         return
     fi
@@ -197,7 +225,7 @@ _claude_acc_link() {
     local name="$1"
     if [[ -z "$name" ]]; then
         echo "Использование: claude-acc link <name>"
-        echo "Привязывает аккаунт к текущему git-репозиторию."
+        echo "Привязывает аккаунт к текущей директории."
         return 1
     fi
 
@@ -207,44 +235,38 @@ _claude_acc_link() {
         return 1
     fi
 
-    local repo_root
-    repo_root=$(_claude_git_root)
-    if [[ -z "$repo_root" ]]; then
-        echo "Ошибка: текущая директория не в git-репозитории."
-        return 1
-    fi
+    local dir="$PWD"
 
-    # Убрать старую привязку для этого репо, если есть
-    sed -i '' "\|^${repo_root}=|d" "$CLAUDE_SWITCH_REPOS"
+    # Убрать старую привязку для этой директории, если есть
+    sed -i '' "\|^${dir}=|d" "$CLAUDE_SWITCH_LINKS"
 
     # Добавить новую
-    echo "${repo_root}=${name}" >> "$CLAUDE_SWITCH_REPOS"
-    echo "Репо $(basename "$repo_root") → аккаунт '$name'"
+    echo "${dir}=${name}" >> "$CLAUDE_SWITCH_LINKS"
+    echo "$(basename "$dir") → аккаунт '$name'"
     _claude_activate
 }
 
 _claude_acc_unlink() {
-    local repo_root
-    repo_root=$(_claude_git_root)
-    if [[ -z "$repo_root" ]]; then
-        echo "Ошибка: текущая директория не в git-репозитории."
+    local dir="$PWD"
+
+    if ! grep -qF "${dir}=" "$CLAUDE_SWITCH_LINKS" 2>/dev/null || \
+       ! grep -q "^${dir}=" "$CLAUDE_SWITCH_LINKS" 2>/dev/null; then
+        echo "Нет привязки для текущей директории."
         return 1
     fi
 
-    sed -i '' "\|^${repo_root}=|d" "$CLAUDE_SWITCH_REPOS"
-    echo "Привязка убрана для $(basename "$repo_root"). Будет использован дефолтный аккаунт."
+    sed -i '' "\|^${dir}=|d" "$CLAUDE_SWITCH_LINKS"
+    echo "Привязка убрана для $(basename "$dir"). Будет использован дефолтный аккаунт."
     _claude_activate
 }
 
 _claude_acc_status() {
-    local repo_root account source_info
+    local account source_info linked_dir
 
-    repo_root=$(_claude_git_root)
-    if [[ -n "$repo_root" ]]; then
-        account=$(_claude_repo_account "$repo_root")
-        if [[ -n "$account" ]]; then
-            source_info="(привязан к $(basename "$repo_root"))"
-        fi
+    linked_dir=$(_claude_find_linked_dir)
+    if [[ -n "$linked_dir" ]]; then
+        account=$(_claude_dir_account "$linked_dir")
+        source_info="(привязан к $(basename "$linked_dir"))"
     fi
 
     if [[ -z "$account" ]]; then
@@ -257,18 +279,14 @@ _claude_acc_status() {
     if [[ -n "$account" ]]; then
         echo "Активный аккаунт: $account $source_info"
     else
-        echo "Аккаунт не выбран. Настройте:"
-        echo "  claude-acc add <name>      — добавить аккаунт"
-        echo "  claude-acc default <name>  — задать дефолтный"
+        echo "Активный аккаунт: ~/.claude/ (стандартный)"
     fi
+}
 
-    if [[ -n "$repo_root" ]]; then
-        local bound
-        bound=$(_claude_repo_account "$repo_root")
-        if [[ -z "$bound" ]]; then
-            echo "Репо $(basename "$repo_root"): нет привязки (используется дефолт)"
-        fi
-    fi
+_claude_acc_reset() {
+    sed -i '' "s/^default=.*/default=/" "$CLAUDE_SWITCH_CONFIG"
+    echo "Сброшено на ~/.claude/"
+    _claude_activate
 }
 
 # =============================================================
@@ -284,6 +302,7 @@ claude-acc() {
         add)     _claude_acc_add "$@" ;;
         remove)  _claude_acc_remove "$@" ;;
         default) _claude_acc_default "$@" ;;
+        reset)   _claude_acc_reset ;;
         link)    _claude_acc_link "$@" ;;
         unlink)  _claude_acc_unlink "$@" ;;
         status)  _claude_acc_status "$@" ;;
@@ -303,8 +322,9 @@ _claude_acc_completion() {
         'add:Добавить аккаунт'
         'remove:Удалить аккаунт'
         'default:Показать/задать дефолтный аккаунт'
-        'link:Привязать аккаунт к текущему репо'
-        'unlink:Убрать привязку с текущего репо'
+        'reset:Сбросить дефолт на ~/.claude/'
+        'link:Привязать аккаунт к текущей директории'
+        'unlink:Убрать привязку с текущей директории'
         'status:Текущий аккаунт и контекст'
         'help:Справка'
     )
