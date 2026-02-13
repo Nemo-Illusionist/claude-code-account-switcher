@@ -46,6 +46,7 @@ _claude_msg_en=(
     help_commands       "Commands:"
     help_list           "List accounts"
     help_add            "Add account"
+    help_login          "Re-login to an account"
     help_remove         "Remove account"
     help_default        "Show/set default account"
     help_reset          "Reset default to ~/.claude/"
@@ -64,6 +65,10 @@ _claude_msg_en=(
     add_done            "Done. Use:"
     add_hint_default    "  claude-acc default %s   — set as default"
     add_hint_link       "  claude-acc link %s      — link to current directory"
+    login_usage         "Usage: claude-acc login <name>"
+    login_not_found     "Account '%s' not found."
+    login_start         "Logging in to '%s'..."
+    login_done          "Done."
     remove_usage        "Usage: claude-acc remove <name>"
     remove_not_found    "Account '%s' not found."
     remove_confirm      "Remove account '%s'? [y/N] "
@@ -94,6 +99,7 @@ _claude_msg_ru=(
     help_commands       "Команды:"
     help_list           "Список аккаунтов"
     help_add            "Добавить аккаунт"
+    help_login          "Перелогиниться в аккаунт"
     help_remove         "Удалить аккаунт"
     help_default        "Показать/задать дефолтный аккаунт"
     help_reset          "Сбросить дефолт на ~/.claude/"
@@ -112,6 +118,10 @@ _claude_msg_ru=(
     add_done            "Готово. Используйте:"
     add_hint_default    "  claude-acc default %s   — сделать дефолтным"
     add_hint_link       "  claude-acc link %s      — привязать к текущей директории"
+    login_usage         "Использование: claude-acc login <name>"
+    login_not_found     "Аккаунт '%s' не найден."
+    login_start         "Вхожу в '%s'..."
+    login_done          "Готово."
     remove_usage        "Использование: claude-acc remove <name>"
     remove_not_found    "Аккаунт '%s' не найден."
     remove_confirm      "Удалить аккаунт '%s'? [y/N] "
@@ -255,6 +265,7 @@ _claude_acc_help() {
     _msg help_commands
     echo "  claude-acc list              $(_msg help_list)"
     echo "  claude-acc add <name>        $(_msg help_add)"
+    echo "  claude-acc login <name>      $(_msg help_login)"
     echo "  claude-acc remove <name>     $(_msg help_remove)"
     echo "  claude-acc default [name]    $(_msg help_default)"
     echo "  claude-acc reset             $(_msg help_reset)"
@@ -305,6 +316,24 @@ _claude_acc_add() {
     _msg add_done
     _msg add_hint_default "$name"
     _msg add_hint_link "$name"
+}
+
+_claude_acc_login() {
+    local name="$1"
+    if [[ -z "$name" ]]; then
+        _msg login_usage
+        return 1
+    fi
+
+    local acc_dir="$CLAUDE_SWITCH_ACCOUNTS_DIR/$name"
+    if [[ ! -d "$acc_dir" ]]; then
+        _msg login_not_found "$name"
+        return 1
+    fi
+
+    _msg login_start "$name"
+    CLAUDE_CONFIG_DIR="$acc_dir" claude login
+    _msg login_done
 }
 
 _claude_acc_remove() {
@@ -476,6 +505,7 @@ claude-acc() {
     case "$cmd" in
         list)    _claude_acc_list "$@" ;;
         add)     _claude_acc_add "$@" ;;
+        login)   _claude_acc_login "$@" ;;
         remove)  _claude_acc_remove "$@" ;;
         default) _claude_acc_default "$@" ;;
         reset)   _claude_acc_reset ;;
@@ -497,6 +527,7 @@ _claude_acc_completion() {
     subcmds=(
         "list:$(_msg help_list)"
         "add:$(_msg help_add)"
+        "login:$(_msg help_login)"
         "remove:$(_msg help_remove)"
         "default:$(_msg help_default)"
         "reset:$(_msg help_reset)"
@@ -511,7 +542,7 @@ _claude_acc_completion() {
         _describe 'command' subcmds
     elif (( CURRENT == 3 )); then
         case "${words[2]}" in
-            remove|default|link)
+            login|remove|default|link)
                 accounts=("$CLAUDE_SWITCH_ACCOUNTS_DIR"/*(N:t))
                 _describe 'account' accounts
                 ;;
