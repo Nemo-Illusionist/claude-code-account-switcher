@@ -42,6 +42,13 @@ enum Commands {
     Links,
     /// Show active account
     Status,
+    /// Run claude under a specific account
+    Run {
+        name: String,
+        /// Extra arguments passed to claude
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
     /// Output shell activation code (used by shell hook)
     #[command(hide = true)]
     Activate {
@@ -75,6 +82,7 @@ fn main() {
         Some(Commands::Unlink) => commands::unlink::run(&config, &i18n),
         Some(Commands::Links) => commands::links::run(&config, &i18n),
         Some(Commands::Status) => commands::status::run(&config, &i18n),
+        Some(Commands::Run { name, args }) => commands::run::run(&config, &i18n, &name, &args),
         Some(Commands::Activate { shell }) => {
             let syntax = match shell.as_str() {
                 "powershell" | "pwsh" => ShellSyntax::PowerShell,

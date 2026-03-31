@@ -10,4 +10,5 @@ pub mod links;
 pub mod status;
 pub mod activate;
 pub mod init;
+pub mod run;
 pub mod completions;

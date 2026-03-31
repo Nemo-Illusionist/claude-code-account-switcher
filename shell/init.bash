@@ -22,10 +22,10 @@ _claude_acc_complete() {
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
     if [[ $COMP_CWORD -eq 1 ]]; then
-        COMPREPLY=($(compgen -W "list add login remove default reset link unlink links status help" -- "$cur"))
+        COMPREPLY=($(compgen -W "list add login remove default reset link unlink links status run help" -- "$cur"))
     elif [[ $COMP_CWORD -eq 2 ]]; then
         case "$prev" in
-            login|remove)
+            login|remove|run)
                 COMPREPLY=($(compgen -W "$('__CLAUDE_ACC_BIN__' completions accounts)" -- "$cur"))
                 ;;
             default|link)

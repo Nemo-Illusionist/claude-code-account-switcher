@@ -29,12 +29,13 @@ _claude_acc_completion() {
         'unlink:Unlink directory'
         'links:Show all links'
         'status:Current account info'
+        'run:Run claude under a specific account'
     )
     if (( CURRENT == 2 )); then
         _describe 'command' subcmds
     elif (( CURRENT == 3 )); then
         case "${words[2]}" in
-            login|remove)
+            login|remove|run)
                 accounts=(${(f)"$('__CLAUDE_ACC_BIN__' completions accounts)"})
                 _describe 'account' accounts
                 ;;
