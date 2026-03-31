@@ -3,7 +3,9 @@ name = "claude-acc"
 version = "0.1.0"
 edition = "2024"
 description = "Claude Code Account Switcher — bind different accounts to different directories"
+authors = ["Petr Radilov"]
 license = "MIT"
+repository = "https://github.com/Nemo-Illusionist/claude-code-account-switcher"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
