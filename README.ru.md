@@ -1,9 +1,36 @@
-# Claude Code Account Switcher (macOS)
+# Claude Code Account Switcher
 
 Привязка разных аккаунтов Claude Code к разным директориям.
 При `cd` автоматически подхватывается нужный аккаунт.
 
+Кроссплатформенный: macOS, Linux, Windows. Поддержка zsh, bash, PowerShell.
+
 ## Установка
+
+### Из бинарника
+
+Скачайте из [GitHub Releases](https://github.com/Nemo-Illusionist/claude-code-account-switcher/releases) и добавьте в конфиг шелла:
+
+```bash
+# zsh (~/.zshrc)
+eval "$(claude-acc init zsh)"
+
+# bash (~/.bashrc)
+eval "$(claude-acc init bash)"
+```
+
+```powershell
+# PowerShell ($PROFILE)
+Invoke-Expression (& claude-acc init pwsh)
+```
+
+### Из исходников
+
+```bash
+cargo install --path .
+```
+
+### Legacy (только zsh-скрипт)
 
 ```bash
 cp claude-switch.sh ~/.claude-switch.sh
@@ -33,12 +60,15 @@ claude-acc link work
 | `claude-acc` | Справка |
 | `claude-acc list` | Список всех аккаунтов |
 | `claude-acc add <имя>` | Добавить аккаунт (запустит `claude login`) |
+| `claude-acc login <имя>` | Перелогиниться в аккаунт |
 | `claude-acc remove <имя>` | Удалить аккаунт |
 | `claude-acc default [имя]` | Показать/задать дефолтный аккаунт |
 | `claude-acc reset` | Сбросить дефолт на `~/.claude/` |
 | `claude-acc link <имя>` | Привязать аккаунт к текущей директории |
 | `claude-acc unlink` | Убрать привязку с текущей директории |
+| `claude-acc links` | Показать все привязки директорий |
 | `claude-acc status` | Показать активный аккаунт |
+| `claude-acc init <shell>` | Вывести интеграцию для шелла (zsh/bash/pwsh) |
 
 ## Как это работает
 
@@ -50,7 +80,7 @@ claude-acc link work
 └── links            ← привязки: путь=аккаунт
 ```
 
-При смене директории скрипт:
+При смене директории:
 
 1. Ищет привязку для текущей директории в `~/.claude-switch/links`
 2. Если нет — поднимается вверх по дереву директорий

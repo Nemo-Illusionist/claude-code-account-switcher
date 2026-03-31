@@ -1,11 +1,38 @@
-# Claude Code Account Switcher (macOS)
+# Claude Code Account Switcher
 
 [Русская версия](README.ru.md)
 
 Bind different Claude Code accounts to different directories.
 On `cd`, the correct account is activated automatically.
 
+Cross-platform: macOS, Linux, Windows. Supports zsh, bash, PowerShell.
+
 ## Install
+
+### From binary
+
+Download from [GitHub Releases](https://github.com/Nemo-Illusionist/claude-code-account-switcher/releases) and add to your shell config:
+
+```bash
+# zsh (~/.zshrc)
+eval "$(claude-acc init zsh)"
+
+# bash (~/.bashrc)
+eval "$(claude-acc init bash)"
+```
+
+```powershell
+# PowerShell ($PROFILE)
+Invoke-Expression (& claude-acc init pwsh)
+```
+
+### From source
+
+```bash
+cargo install --path .
+```
+
+### Legacy (zsh-only script)
 
 ```bash
 cp claude-switch.sh ~/.claude-switch.sh
@@ -34,12 +61,15 @@ claude-acc link work
 | `claude-acc` | Help |
 | `claude-acc list` | List all accounts |
 | `claude-acc add <name>` | Add account (runs `claude login`) |
+| `claude-acc login <name>` | Re-login to an account |
 | `claude-acc remove <name>` | Remove account |
 | `claude-acc default [name]` | Show/set default account |
 | `claude-acc reset` | Reset default to `~/.claude/` |
 | `claude-acc link <name>` | Link account to current directory |
 | `claude-acc unlink` | Unlink current directory |
+| `claude-acc links` | Show all directory links |
 | `claude-acc status` | Show active account |
+| `claude-acc init <shell>` | Output shell integration (zsh/bash/pwsh) |
 
 ## How it works
 
