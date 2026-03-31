@@ -124,11 +124,22 @@ claude-acc link default
 # hobby → ~/.claude/ (default)
 ```
 
-## Отдельные глобальные настройки для проектов
+## Что переключается
 
-Каждый аккаунт получает свою папку `~/.claude-switch/accounts/<name>/`, которая используется как `CLAUDE_CONFIG_DIR`. Это значит, что у каждого аккаунта свои глобальные `settings.json`, `CLAUDE.md`, hooks и прочие настройки.
+Claude Code хранит данные в двух разных местах:
 
-Это можно использовать для разных глобальных конфигов на разных проектах — даже под одной авторизацией. Просто создайте несколько аккаунтов и войдите с теми же данными:
+| Путь | Содержимое | Переключается через `CLAUDE_CONFIG_DIR`? |
+|---|---|---|
+| `~/.claude/` | credentials, `settings.json`, sessions, projects/ | **Да** |
+| `~/.config/claude-code/` | `CLAUDE.md`, agents, commands, skills | **Нет** |
+
+Switcher корректно переключает **авторизацию** и **settings.json** для каждого аккаунта, но глобальный `CLAUDE.md` (и agents/commands/skills) всегда находится в `~/.config/claude-code/` независимо от активного аккаунта. Это ограничение самого Claude Code ([#3833](https://github.com/anthropics/claude-code/issues/3833)).
+
+## Отдельные настройки для проектов
+
+Каждый аккаунт получает свою папку `~/.claude-switch/accounts/<name>/`, которая используется как `CLAUDE_CONFIG_DIR`. Это значит, что у каждого аккаунта свои `settings.json`, credentials и история проектов.
+
+Это можно использовать для разных настроек на разных проектах — даже под одной авторизацией. Просто создайте несколько аккаунтов и войдите с теми же данными:
 
 ```bash
 # Общий рабочий аккаунт с дефолтными настройками
@@ -136,16 +147,14 @@ claude-acc add work
 cd ~/work
 claude-acc link work
 
-# Тот же логин, но со своими глобальными настройками для конкретного проекта
+# Тот же логин, но со своими настройками для конкретного проекта
 claude-acc add work-ml
 cd ~/work/ml-project
 claude-acc link work-ml
 
-# Теперь можно настраивать глобальные конфиги независимо:
+# Теперь можно настраивать settings независимо:
 # ~/.claude-switch/accounts/work/settings.json       — для всех рабочих проектов
-# ~/.claude-switch/accounts/work/CLAUDE.md            — глобальные правила для work
 # ~/.claude-switch/accounts/work-ml/settings.json     — только для ml-project
-# ~/.claude-switch/accounts/work-ml/CLAUDE.md          — глобальные правила для ml-project
 ```
 
 > Примечание: `claude-acc add` запускает `claude login`, поэтому нужно будет залогиниться повторно (тот же аккаунт, просто новая папка конфига).
