@@ -79,6 +79,47 @@ claude-acc link work
 ~/work/secret/src       → personal  (унаследовано от secret)
 ```
 
+Используйте `default` как зарезервированное имя, чтобы явно вернуться к `~/.claude/`:
+
+```
+~/work                  → work      (привязан)
+~/work/project-a        → work      (унаследовано)
+~/work/hobby            → ~/.claude/ (привязан к default — перекрывает родителя)
+~/work/hobby/sub        → ~/.claude/ (унаследовано от hobby)
+```
+
+```bash
+cd ~/work/hobby
+claude-acc link default
+# hobby → ~/.claude/ (default)
+```
+
+## Отдельные глобальные настройки для проектов
+
+Каждый аккаунт получает свою папку `~/.claude-switch/accounts/<name>/`, которая используется как `CLAUDE_CONFIG_DIR`. Это значит, что у каждого аккаунта свои глобальные `settings.json`, `CLAUDE.md`, hooks и прочие настройки.
+
+Это можно использовать для разных глобальных конфигов на разных проектах — даже под одной авторизацией. Просто создайте несколько аккаунтов и войдите с теми же данными:
+
+```bash
+# Общий рабочий аккаунт с дефолтными настройками
+claude-acc add work
+cd ~/work
+claude-acc link work
+
+# Тот же логин, но со своими глобальными настройками для конкретного проекта
+claude-acc add work-ml
+cd ~/work/ml-project
+claude-acc link work-ml
+
+# Теперь можно настраивать глобальные конфиги независимо:
+# ~/.claude-switch/accounts/work/settings.json       — для всех рабочих проектов
+# ~/.claude-switch/accounts/work/CLAUDE.md            — глобальные правила для work
+# ~/.claude-switch/accounts/work-ml/settings.json     — только для ml-project
+# ~/.claude-switch/accounts/work-ml/CLAUDE.md          — глобальные правила для ml-project
+```
+
+> Примечание: `claude-acc add` запускает `claude login`, поэтому нужно будет залогиниться повторно (тот же аккаунт, просто новая папка конфига).
+
 ## Язык
 
 Определяется автоматически из `LANG`. Можно задать вручную:

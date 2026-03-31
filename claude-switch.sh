@@ -83,6 +83,8 @@ _claude_msg_en=(
     link_desc           "Links account to the current directory."
     link_not_found      "Account '%s' not found. Available:"
     link_done           "%s → account '%s'"
+    link_done_default   "%s → ~/.claude/ (default)"
+    reserved_name       "'%s' is a reserved name."
     unlink_none         "No link for the current directory."
     unlink_done         "Unlinked %s. Default account will be used."
     status_active       "Active account: %s %s"
@@ -136,6 +138,8 @@ _claude_msg_ru=(
     link_desc           "Привязывает аккаунт к текущей директории."
     link_not_found      "Аккаунт '%s' не найден. Доступные:"
     link_done           "%s → аккаунт '%s'"
+    link_done_default   "%s → ~/.claude/ (default)"
+    reserved_name       "'%s' — зарезервированное имя."
     unlink_none         "Нет привязки для текущей директории."
     unlink_done         "Привязка убрана для %s. Будет использован дефолтный аккаунт."
     status_active       "Активный аккаунт: %s %s"
@@ -236,7 +240,9 @@ _claude_activate() {
         account=$(_claude_default_account)
     fi
 
-    if [[ -n "$account" && -d "$CLAUDE_SWITCH_ACCOUNTS_DIR/$account" ]]; then
+    if [[ "$account" == "default" ]]; then
+        unset CLAUDE_CONFIG_DIR
+    elif [[ -n "$account" && -d "$CLAUDE_SWITCH_ACCOUNTS_DIR/$account" ]]; then
         export CLAUDE_CONFIG_DIR="$CLAUDE_SWITCH_ACCOUNTS_DIR/$account"
     else
         unset CLAUDE_CONFIG_DIR
@@ -303,6 +309,11 @@ _claude_acc_add() {
         return 1
     fi
 
+    if [[ "$name" == "default" ]]; then
+        _msg reserved_name "$name"
+        return 1
+    fi
+
     local acc_dir="$CLAUDE_SWITCH_ACCOUNTS_DIR/$name"
     if [[ -d "$acc_dir" ]]; then
         _msg add_exists "$name"
@@ -346,6 +357,11 @@ _claude_acc_remove() {
     local name="$1"
     if [[ -z "$name" ]]; then
         _msg remove_usage
+        return 1
+    fi
+
+    if [[ "$name" == "default" ]]; then
+        _msg reserved_name "$name"
         return 1
     fi
 
@@ -393,6 +409,13 @@ _claude_acc_default() {
         return
     fi
 
+    if [[ "$name" == "default" ]]; then
+        sed -i '' "s/^default=.*/default=/" "$CLAUDE_SWITCH_CONFIG"
+        _msg reset_done
+        _claude_activate
+        return
+    fi
+
     if [[ ! -d "$CLAUDE_SWITCH_ACCOUNTS_DIR/$name" ]]; then
         _msg default_not_found "$name"
         _claude_acc_list
@@ -412,7 +435,7 @@ _claude_acc_link() {
         return 1
     fi
 
-    if [[ ! -d "$CLAUDE_SWITCH_ACCOUNTS_DIR/$name" ]]; then
+    if [[ "$name" != "default" && ! -d "$CLAUDE_SWITCH_ACCOUNTS_DIR/$name" ]]; then
         _msg link_not_found "$name"
         _claude_acc_list
         return 1
@@ -425,7 +448,11 @@ _claude_acc_link() {
 
     # Добавить новую
     echo "${dir}=${name}" >> "$CLAUDE_SWITCH_LINKS"
-    _msg link_done "$(basename "$dir")" "$name"
+    if [[ "$name" == "default" ]]; then
+        _msg link_done_default "$(basename "$dir")"
+    else
+        _msg link_done "$(basename "$dir")" "$name"
+    fi
     _claude_activate
 }
 
@@ -542,8 +569,12 @@ _claude_acc_completion() {
         _describe 'command' subcmds
     elif (( CURRENT == 3 )); then
         case "${words[2]}" in
-            login|remove|default|link)
+            login|remove)
                 accounts=("$CLAUDE_SWITCH_ACCOUNTS_DIR"/*(N:t))
+                _describe 'account' accounts
+                ;;
+            default|link)
+                accounts=("default" "$CLAUDE_SWITCH_ACCOUNTS_DIR"/*(N:t))
                 _describe 'account' accounts
                 ;;
         esac

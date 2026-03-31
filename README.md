@@ -80,6 +80,47 @@ A more specific link always wins. This lets you set exceptions:
 ~/work/secret/src       → personal  (inherited from secret)
 ```
 
+Use `default` as a reserved name to explicitly fall back to `~/.claude/`:
+
+```
+~/work                  → work      (linked)
+~/work/project-a        → work      (inherited)
+~/work/hobby            → ~/.claude/ (linked to default — overrides parent)
+~/work/hobby/sub        → ~/.claude/ (inherited from hobby)
+```
+
+```bash
+cd ~/work/hobby
+claude-acc link default
+# hobby → ~/.claude/ (default)
+```
+
+## Per-project global configs
+
+Each account gets its own `~/.claude-switch/accounts/<name>/` directory, which acts as `CLAUDE_CONFIG_DIR`. This means each account has its own global `settings.json`, `CLAUDE.md`, hooks, and other settings.
+
+You can use this to have different global configs for different projects — even under the same login. Just create multiple accounts and log in with the same credentials:
+
+```bash
+# Shared work account with default settings
+claude-acc add work
+cd ~/work
+claude-acc link work
+
+# Same login, but with its own global settings for a specific project
+claude-acc add work-ml
+cd ~/work/ml-project
+claude-acc link work-ml
+
+# Now edit global configs independently:
+# ~/.claude-switch/accounts/work/settings.json       — for all work projects
+# ~/.claude-switch/accounts/work/CLAUDE.md            — global rules for work
+# ~/.claude-switch/accounts/work-ml/settings.json     — only for ml-project
+# ~/.claude-switch/accounts/work-ml/CLAUDE.md          — global rules for ml-project
+```
+
+> Note: `claude-acc add` runs `claude login`, so you'll need to log in again (same account, just a new config directory).
+
 ## Language
 
 Auto-detected from `LANG`. Override with:
