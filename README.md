@@ -127,14 +127,18 @@ claude-acc link default
 
 ## What gets switched
 
-Claude Code stores data in two separate locations:
+`CLAUDE_CONFIG_DIR` relocates the entire `~/.claude/` directory, including ([docs](https://code.claude.com/docs/en/settings)):
 
-| Path | Contents | Switched by `CLAUDE_CONFIG_DIR`? |
-|---|---|---|
-| `~/.claude/` | credentials, `settings.json`, sessions, projects/ | **Yes** |
-| `~/.config/claude-code/` | `CLAUDE.md`, agents, commands, skills | **No** |
+| File | Description |
+|---|---|
+| `settings.json` | User-level settings |
+| `CLAUDE.md` | Global memory / instructions |
+| `agents/` | Subagents |
+| `.credentials.json` | Auth credentials |
+| `projects/` | Per-project global configs |
+| sessions, history, etc. | Runtime data |
 
-This means the switcher correctly handles **authorization** and **settings.json** per account, but the global `CLAUDE.md` (and agents/commands/skills) always lives in `~/.config/claude-code/` regardless of which account is active. This is a limitation of Claude Code itself ([#3833](https://github.com/anthropics/claude-code/issues/3833)).
+Each account gets its own copy of all these files in `~/.claude-switch/accounts/<name>/`.
 
 ## Per-project settings
 
