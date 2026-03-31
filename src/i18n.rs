@@ -122,6 +122,24 @@ impl I18n {
             // reserved
             (Msg::ReservedName(ref n), Lang::En) => format!("'{}' is a reserved name.", n),
             (Msg::ReservedName(ref n), Lang::Ru) => format!("'{}' — зарезервированное имя.", n),
+
+            // install
+            (Msg::InstallUpToDate(ref v), Lang::En) => format!("Already up to date (v{}).", v),
+            (Msg::InstallUpToDate(ref v), Lang::Ru) => format!("Уже актуальная версия (v{}).", v),
+            (Msg::InstallUpdating(ref old, ref new), Lang::En) => format!("Updating v{} → v{}...", old, new),
+            (Msg::InstallUpdating(ref old, ref new), Lang::Ru) => format!("Обновление v{} → v{}...", old, new),
+            (Msg::InstallCopying(ref v), Lang::En) => format!("Installing v{}...", v),
+            (Msg::InstallCopying(ref v), Lang::Ru) => format!("Установка v{}...", v),
+            (Msg::InstallDone(ref p), Lang::En) => format!("Binary installed: {}", p),
+            (Msg::InstallDone(ref p), Lang::Ru) => format!("Бинарник установлен: {}", p),
+            (Msg::InstallShellAlready(ref f), Lang::En) => format!("Shell integration already in {}", f),
+            (Msg::InstallShellAlready(ref f), Lang::Ru) => format!("Shell-интеграция уже в {}", f),
+            (Msg::InstallShellUpdated(ref f), Lang::En) => format!("Shell integration updated in {}", f),
+            (Msg::InstallShellUpdated(ref f), Lang::Ru) => format!("Shell-интеграция обновлена в {}", f),
+            (Msg::InstallShellAdded(ref f), Lang::En) => format!("Shell integration added to {}", f),
+            (Msg::InstallShellAdded(ref f), Lang::Ru) => format!("Shell-интеграция добавлена в {}", f),
+            (Msg::InstallShellManual(ref line), Lang::En) => format!("Add this to your shell config:\n  {}", line),
+            (Msg::InstallShellManual(ref line), Lang::Ru) => format!("Добавьте в конфиг шелла:\n  {}", line),
         }
     }
 
@@ -172,4 +190,12 @@ pub enum Msg {
     LinksHeader,
     LinksActive,
     ReservedName(String),
+    InstallUpToDate(String),
+    InstallUpdating(String, String),
+    InstallCopying(String),
+    InstallDone(String),
+    InstallShellAlready(String),
+    InstallShellUpdated(String),
+    InstallShellAdded(String),
+    InstallShellManual(String),
 }

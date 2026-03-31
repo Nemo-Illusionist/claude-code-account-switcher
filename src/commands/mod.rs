@@ -11,4 +11,5 @@ pub mod status;
 pub mod activate;
 pub mod init;
 pub mod run;
+pub mod install;
 pub mod completions;

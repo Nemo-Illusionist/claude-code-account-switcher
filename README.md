@@ -11,25 +11,24 @@ Cross-platform: macOS, Linux, Windows. Supports zsh, bash, PowerShell.
 
 ### From binary
 
-Download from [GitHub Releases](https://github.com/Nemo-Illusionist/claude-code-account-switcher/releases) and add to your shell config:
+Download from [GitHub Releases](https://github.com/Nemo-Illusionist/claude-code-account-switcher/releases), then run:
 
 ```bash
-# zsh (~/.zshrc)
-eval "$(claude-acc init zsh)"
-
-# bash (~/.bashrc)
-eval "$(claude-acc init bash)"
+claude-acc install
 ```
 
-```powershell
-# PowerShell ($PROFILE)
-Invoke-Expression (& claude-acc init pwsh)
-```
+This will:
+- Copy the binary to `~/.claude-switch/bin/claude-acc`
+- Auto-detect your shell (zsh/bash/PowerShell)
+- Add shell integration to your rc file
+
+To update, download the new version and run `claude-acc install` again.
 
 ### From source
 
 ```bash
 cargo install --path .
+claude-acc install
 ```
 
 ### Legacy (zsh-only script)
@@ -69,7 +68,8 @@ claude-acc link work
 | `claude-acc unlink` | Unlink current directory |
 | `claude-acc links` | Show all directory links |
 | `claude-acc status` | Show active account |
-| `claude-acc init <shell>` | Output shell integration (zsh/bash/pwsh) |
+| `claude-acc run <name>` | Run claude under a specific account |
+| `claude-acc install` | Install binary and shell integration |
 
 ## How it works
 

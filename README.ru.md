@@ -9,25 +9,24 @@
 
 ### Из бинарника
 
-Скачайте из [GitHub Releases](https://github.com/Nemo-Illusionist/claude-code-account-switcher/releases) и добавьте в конфиг шелла:
+Скачайте из [GitHub Releases](https://github.com/Nemo-Illusionist/claude-code-account-switcher/releases), затем:
 
 ```bash
-# zsh (~/.zshrc)
-eval "$(claude-acc init zsh)"
-
-# bash (~/.bashrc)
-eval "$(claude-acc init bash)"
+claude-acc install
 ```
 
-```powershell
-# PowerShell ($PROFILE)
-Invoke-Expression (& claude-acc init pwsh)
-```
+Это:
+- Скопирует бинарник в `~/.claude-switch/bin/claude-acc`
+- Определит ваш шелл (zsh/bash/PowerShell)
+- Добавит интеграцию в rc-файл
+
+Для обновления — скачайте новую версию и снова запустите `claude-acc install`.
 
 ### Из исходников
 
 ```bash
 cargo install --path .
+claude-acc install
 ```
 
 ### Legacy (только zsh-скрипт)
@@ -68,7 +67,8 @@ claude-acc link work
 | `claude-acc unlink` | Убрать привязку с текущей директории |
 | `claude-acc links` | Показать все привязки директорий |
 | `claude-acc status` | Показать активный аккаунт |
-| `claude-acc init <shell>` | Вывести интеграцию для шелла (zsh/bash/pwsh) |
+| `claude-acc run <имя>` | Запустить claude под конкретным аккаунтом |
+| `claude-acc install` | Установить бинарник и shell-интеграцию |
 
 ## Как это работает
 

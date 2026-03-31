@@ -49,13 +49,16 @@ enum Commands {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
+    /// Install binary and shell integration
+    Install,
     /// Output shell activation code (used by shell hook)
     #[command(hide = true)]
     Activate {
         #[arg(long, default_value = "posix")]
         shell: String,
     },
-    /// Output shell integration code
+    /// Output shell integration code (used internally by eval)
+    #[command(hide = true)]
     Init { shell: String },
     /// Output completion data (used by shell completions)
     #[command(hide = true)]
@@ -83,6 +86,7 @@ fn main() {
         Some(Commands::Links) => commands::links::run(&config, &i18n),
         Some(Commands::Status) => commands::status::run(&config, &i18n),
         Some(Commands::Run { name, args }) => commands::run::run(&config, &i18n, &name, &args),
+        Some(Commands::Install) => commands::install::run(&config, &i18n),
         Some(Commands::Activate { shell }) => {
             let syntax = match shell.as_str() {
                 "powershell" | "pwsh" => ShellSyntax::PowerShell,
