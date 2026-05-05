@@ -198,6 +198,26 @@ impl I18n {
             (Msg::InstallShellManual(ref line), Lang::Ru) => {
                 format!("Добавьте в конфиг шелла:\n  {}", line)
             }
+
+            // doctor
+            (Msg::DoctorHeader(n), Lang::En) => format!("Auditing {} account(s):", n),
+            (Msg::DoctorHeader(n), Lang::Ru) => format!("Проверка {} аккаунт(ов):", n),
+            (Msg::DoctorNoToken(ref name), Lang::En) => {
+                format!("no token (run: claude-acc login {})", name)
+            }
+            (Msg::DoctorNoToken(ref name), Lang::Ru) => {
+                format!("нет токена (запустите: claude-acc login {})", name)
+            }
+            (Msg::DoctorOffline, Lang::En) => s("token present, but API unreachable"),
+            (Msg::DoctorOffline, Lang::Ru) => s("токен есть, API недоступен"),
+            (Msg::DoctorAllOk, Lang::En) => s("All accounts healthy."),
+            (Msg::DoctorAllOk, Lang::Ru) => s("Все аккаунты в порядке."),
+            (Msg::DoctorPartial(ok, total), Lang::En) => {
+                format!("{} of {} accounts healthy.", ok, total)
+            }
+            (Msg::DoctorPartial(ok, total), Lang::Ru) => {
+                format!("{} из {} аккаунтов в порядке.", ok, total)
+            }
         }
     }
 
@@ -257,4 +277,9 @@ pub enum Msg {
     InstallShellUpdated(String),
     InstallShellAdded(String),
     InstallShellManual(String),
+    DoctorHeader(usize),
+    DoctorNoToken(String),
+    DoctorOffline,
+    DoctorAllOk,
+    DoctorPartial(usize, usize),
 }

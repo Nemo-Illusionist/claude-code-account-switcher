@@ -75,6 +75,7 @@ claude-acc link work
 | `claude-acc links` | Show all directory links |
 | `claude-acc status` | Show active account |
 | `claude-acc run <name>` | Run claude under a specific account |
+| `claude-acc doctor` | Audit each account's actual OAuth identity |
 | `claude-acc install` | Install binary and shell integration |
 
 ## How it works
@@ -178,6 +179,25 @@ claude-acc link work-ml
 ```
 
 > Note: `claude-acc add` runs `claude login`, so you'll need to log in again (same account, just a new config directory).
+
+## Auditing identities (`doctor`)
+
+`claude-acc add` and `claude-acc login` both run `claude auth login` under a per-account `CLAUDE_CONFIG_DIR`. Whatever Anthropic account you sign in with becomes the identity for that directory — and there's no built-in surface to see which account is actually behind a given config dir. If you accidentally log in with the wrong identity (browser auto-fill, a stale tab), the switch is silent: rate limits, conversation history, and billing leak across what you thought were isolated accounts.
+
+`claude-acc doctor` reads each account's OAuth token from the macOS Keychain (with a `.credentials.json` fallback for non-Keychain installs), calls `https://api.anthropic.com/api/oauth/profile`, and prints the live email + UUID:
+
+```
+$ claude-acc doctor
+Auditing 2 account(s):
+  ✓ work      alice@anthropic.com  uuid=aa6c22d5-…
+  ? personal  no token (run: claude-acc login personal)
+
+1 of 2 accounts healthy.
+```
+
+It's purely a read-only audit — nothing is intercepted, no `claude` invocation is gated. Run it whenever you want to confirm a config dir is bound to the identity you expect. Requires `security`, `curl`, `jq`, and `shasum` (all preinstalled on macOS); the Rust binary uses native `serde_json` and `sha2` instead and only shells out to `security` and `curl`.
+
+> **macOS only for now.** The Keychain hashing scheme is reverse-engineered from Claude Code's internals, so non-macOS platforms (where Claude Code uses libsecret / Credential Manager) aren't covered yet.
 
 ## Language
 

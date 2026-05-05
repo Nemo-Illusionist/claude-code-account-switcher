@@ -37,6 +37,7 @@ _claude_acc_completion() {
         'links:Show all links'
         'status:Current account info'
         'run:Run claude under a specific account'
+        'doctor:Audit each account OAuth identity'
     )
     if (( CURRENT == 2 )); then
         _describe 'command' subcmds
