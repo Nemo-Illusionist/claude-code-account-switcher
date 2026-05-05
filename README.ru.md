@@ -196,6 +196,20 @@ $ claude-acc doctor
 
 Это исключительно read-only аудит — ничего не перехватывается, запуск `claude` не блокируется. Запускайте когда хочется убедиться, что за config dir стоит ожидаемая личность. Требует `security`, `curl`, `jq`, `shasum` (всё предустановлено на macOS); Rust-бинарник использует нативные `serde_json` и `sha2`, шеллаутит только `security` и `curl`.
 
+`doctor` ещё кэширует результат в `~/.claude-switch/accounts/<name>/.account-info.json`, чтобы `list` и `status` показывали email рядом с каждым аккаунтом без повторных API-запросов:
+
+```
+$ claude-acc list
+Аккаунты Claude Code:
+  ★ work       (по умолчанию)  alice@anthropic.com  3д назад
+    personal                   bob@anthropic.com    1ч назад *
+
+$ claude-acc status
+Активный аккаунт: work <alice@anthropic.com> (привязан к my-project)
+```
+
+`*` после email означает что OAuth-токен изменился с момента записи кэша. Чаще всего это рутинный refresh токена (identity та же) — но если вы запускали `claude auth login` напрямую между запусками `doctor`, это напоминание что стоит перепроверить. Запустите `claude-acc doctor`, чтобы обновить кэш.
+
 > **Пока только macOS.** Схема хеширования Keychain reverse-engineered из внутренностей Claude Code; на других платформах (где используется libsecret / Credential Manager) пока не работает.
 
 ## Язык

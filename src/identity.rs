@@ -14,8 +14,9 @@
 // might change.
 
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use sha2::{Digest, Sha256};
 
@@ -37,7 +38,13 @@ pub fn audit_account(acc_dir: &Path) -> AuditResult {
         return AuditResult::NoToken;
     };
     match fetch_profile(&token) {
-        Some(p) => AuditResult::Ok(p),
+        Some(p) => {
+            // Side effect: refresh the cache so list/status can show the
+            // identity without re-hitting the API. Errors here are silent —
+            // doctor's own output is the source of truth for this run.
+            let _ = write_cache(acc_dir, &p, &token);
+            AuditResult::Ok(p)
+        }
         None => AuditResult::Offline,
     }
 }
@@ -88,6 +95,93 @@ fn extract_access_token(raw: &str) -> Option<String> {
         .get("accessToken")?
         .as_str()
         .map(|s| s.to_string())
+}
+
+// --- Cache (.account-info.json) ---
+//
+// Written by `doctor` on every successful API audit. Read by `list` and
+// `status` so they can show the email / fetched_at without hitting the API.
+//
+// `token_hash` is sha256(access_token) truncated to 16 hex chars. Used as a
+// soft signal: if the current keychain token's hash matches what we cached,
+// the cache is "stable since last verify". If it differs, the token has
+// rotated since cache write — which is most often a routine OAuth refresh
+// (identity unchanged) but could also be a re-auth to a different account.
+// Callers display a `*` marker on mismatch and let the user decide whether
+// to re-run `doctor`.
+
+pub struct CachedInfo {
+    pub email: Option<String>,
+    #[allow(dead_code)] // serialized for doctor's stable-uuid comparison in future phases
+    pub uuid: Option<String>,
+    #[allow(dead_code)]
+    pub org: Option<String>,
+    pub fetched_at: Option<u64>,
+    pub token_hash: Option<String>,
+}
+
+fn cache_path(acc_dir: &Path) -> PathBuf {
+    acc_dir.join(".account-info.json")
+}
+
+pub fn write_cache(acc_dir: &Path, profile: &Profile, token: &str) -> std::io::Result<()> {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let body = serde_json::json!({
+        "email": profile.email,
+        "uuid": profile.uuid,
+        "org": profile.organization,
+        "fetched_at": now,
+        "token_hash": token_hash(token),
+    });
+    let serialized = serde_json::to_string_pretty(&body).map_err(std::io::Error::other)?;
+    fs::write(cache_path(acc_dir), serialized)
+}
+
+pub fn read_cache(acc_dir: &Path) -> Option<CachedInfo> {
+    let content = fs::read_to_string(cache_path(acc_dir)).ok()?;
+    let v: serde_json::Value = serde_json::from_str(&content).ok()?;
+    Some(CachedInfo {
+        email: v.get("email").and_then(|x| x.as_str()).map(String::from),
+        uuid: v.get("uuid").and_then(|x| x.as_str()).map(String::from),
+        org: v.get("org").and_then(|x| x.as_str()).map(String::from),
+        fetched_at: v.get("fetched_at").and_then(|x| x.as_u64()),
+        token_hash: v
+            .get("token_hash")
+            .and_then(|x| x.as_str())
+            .map(String::from),
+    })
+}
+
+pub fn token_hash(token: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(token.as_bytes());
+    let digest = hasher.finalize();
+    digest
+        .iter()
+        .take(8)
+        .map(|b| format!("{:02x}", b))
+        .collect()
+}
+
+/// Hash of the *current* keychain token for `acc_dir`, for comparing against
+/// `CachedInfo::token_hash`. Returns `None` if no keychain token (e.g. not on
+/// macOS, no Claude Code login, or `security` failed) — caller treats `None`
+/// as "can't verify, skip the marker".
+pub fn current_token_hash(acc_dir: &Path) -> Option<String> {
+    read_token(acc_dir).map(|t| token_hash(&t))
+}
+
+/// Seconds elapsed since `fetched_at`. Returns `None` if the timestamp looks
+/// invalid (in the future, or epoch).
+pub fn seconds_since(fetched_at: u64) -> Option<u64> {
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).ok()?.as_secs();
+    if fetched_at == 0 || fetched_at > now {
+        return None;
+    }
+    Some(now - fetched_at)
 }
 
 fn whoami_short() -> Option<String> {

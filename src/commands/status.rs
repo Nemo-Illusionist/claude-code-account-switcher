@@ -1,5 +1,6 @@
 use crate::config::AppConfig;
 use crate::i18n::{I18n, Msg};
+use crate::identity;
 use crate::resolve;
 
 pub fn run(config: &AppConfig, i18n: &I18n) {
@@ -15,16 +16,37 @@ pub fn run(config: &AppConfig, i18n: &I18n) {
                 .and_then(|n| n.to_str())
                 .unwrap_or(ld);
             let info = i18n.msg(Msg::StatusLinked(dir_name.to_string()));
-            i18n.print(Msg::StatusActive(acc.clone(), info));
+            i18n.print(Msg::StatusActive(label(config, acc), info));
             return;
         }
     }
 
     if let Ok(Some(ref acc)) = config.get_default() {
         let info = i18n.msg(Msg::StatusDefault);
-        i18n.print(Msg::StatusActive(acc.clone(), info));
+        i18n.print(Msg::StatusActive(label(config, acc), info));
         return;
     }
 
     i18n.print(Msg::StatusStandard);
+}
+
+/// "<acc>" or "<acc> <email>" or "<acc> <email *>" depending on what's
+/// cached. The trailing `*` flags drift between cached and current
+/// keychain token (see commands/list.rs for the full convention).
+fn label(config: &AppConfig, acc: &str) -> String {
+    let acc_dir = config.account_path(acc);
+    let Some(cache) = identity::read_cache(&acc_dir) else {
+        return acc.to_string();
+    };
+    let Some(email) = cache.email else {
+        return acc.to_string();
+    };
+    let drift = match (
+        cache.token_hash.as_deref(),
+        identity::current_token_hash(&acc_dir),
+    ) {
+        (Some(cached), Some(current)) if cached != current => " *",
+        _ => "",
+    };
+    format!("{} <{}{}>", acc, email, drift)
 }
