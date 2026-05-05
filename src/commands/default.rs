@@ -1,10 +1,18 @@
 use crate::config::{AppConfig, validate_name};
 use crate::i18n::{I18n, Msg};
+use crate::identity;
 
 pub fn run(config: &AppConfig, i18n: &I18n, name: Option<&str>) {
     match name {
         None => match config.get_default().ok().flatten() {
-            Some(current) => i18n.print(Msg::DefaultCurrent(current)),
+            Some(current) => {
+                let acc_dir = config.account_path(&current);
+                let label = match identity::read_cache(&acc_dir).and_then(|c| c.email) {
+                    Some(email) => format!("{} <{}>", current, email),
+                    None => current,
+                };
+                i18n.print(Msg::DefaultCurrent(label));
+            }
             None => i18n.print(Msg::DefaultStandard),
         },
         Some("default") => {

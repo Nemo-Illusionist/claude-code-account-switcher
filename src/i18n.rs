@@ -46,6 +46,8 @@ impl I18n {
             (Msg::ListHeader, Lang::Ru) => s("Аккаунты Claude Code:"),
             (Msg::ListDefault, Lang::En) => s("(default)"),
             (Msg::ListDefault, Lang::Ru) => s("(по умолчанию)"),
+            (Msg::ListStandard, Lang::En) => s("(standard)"),
+            (Msg::ListStandard, Lang::Ru) => s("(стандартный)"),
 
             // add
             (Msg::AddExists(ref n), Lang::En) => format!("Account '{}' already exists.", n),
@@ -239,6 +241,7 @@ pub enum Msg {
     ListEmpty,
     ListHeader,
     ListDefault,
+    ListStandard,
     AddExists(String),
     AddCreated(String),
     AddDone,
