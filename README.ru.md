@@ -208,6 +208,19 @@ $ claude-acc status
 Активный аккаунт: ~/.claude/ (стандартный)
 ```
 
+## Релизы
+
+Релизы автоматизированы через [release-please](https://github.com/googleapis/release-please). На каждый push в `master` action читает [conventional commits](https://www.conventionalcommits.org/ru/v1.0.0/) и держит открытой одну "Release PR" с бампом версии и changelog. Мерж этой PR создаёт тег и собирает кроссплатформенные бинарники (macOS x64/arm64, Linux x64/arm64, Windows x64), приклеивая их к релизу.
+
+Префиксы коммитов для корректного bump:
+
+| Префикс | Bump |
+|---|---|
+| `feat:` | minor (`0.1.0 → 0.2.0`) |
+| `fix:` / `perf:` / `refactor:` / `docs:` | patch (`0.1.0 → 0.1.1`) |
+| `feat!:` или `BREAKING CHANGE:` в теле | major (`0.1.0 → 1.0.0`) |
+| `chore:` / `ci:` / `build:` / `style:` / `test:` | без релиза |
+
 ## Лицензия
 
 MIT

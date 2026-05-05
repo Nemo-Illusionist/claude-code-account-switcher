@@ -209,6 +209,19 @@ $ claude-acc status
 Active account: ~/.claude/ (standard)
 ```
 
+## Releases
+
+Releases are managed automatically by [release-please](https://github.com/googleapis/release-please). On every push to `master`, an action reads the [conventional-commit](https://www.conventionalcommits.org/) messages and keeps a rolling "Release PR" open with a version bump and changelog. Merging that PR creates a tag and triggers cross-platform binary builds (macOS x64/arm64, Linux x64/arm64, Windows x64) that are attached to the release.
+
+Use these commit-message prefixes so the bump is correct:
+
+| Prefix | Bump |
+|---|---|
+| `feat:` | minor (`0.1.0 → 0.2.0`) |
+| `fix:` / `perf:` / `refactor:` / `docs:` | patch (`0.1.0 → 0.1.1`) |
+| `feat!:` or any commit with `BREAKING CHANGE:` in the body | major (`0.1.0 → 1.0.0`) |
+| `chore:` / `ci:` / `build:` / `style:` / `test:` | no release |
+
 ## License
 
 MIT
