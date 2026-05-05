@@ -27,7 +27,17 @@ pub fn run(config: &AppConfig, i18n: &I18n) {
         return;
     }
 
-    i18n.print(Msg::StatusStandard);
+    // Standard ~/.claude/ — show email if doctor cached one for it.
+    let standard_label = standard_label(config);
+    if standard_label != "~/.claude/" {
+        // Cache exists; format follows StatusActive for visual consistency.
+        i18n.print(Msg::StatusActive(
+            standard_label,
+            i18n.msg(Msg::ListStandard),
+        ));
+    } else {
+        i18n.print(Msg::StatusStandard);
+    }
 }
 
 /// "<acc>" or "<acc> <email>" or "<acc> <email *>" depending on what's
@@ -49,4 +59,25 @@ fn label(config: &AppConfig, acc: &str) -> String {
         _ => "",
     };
     format!("{} <{}{}>", acc, email, drift)
+}
+
+/// "~/.claude/" or "~/.claude/ <email>" or "~/.claude/ <email *>".
+fn standard_label(config: &AppConfig) -> String {
+    let cache_path = identity::default_cache_path(&config.base_dir);
+    let Some(cache) = identity::read_cache_at(&cache_path) else {
+        return "~/.claude/".to_string();
+    };
+    let Some(email) = cache.email else {
+        return "~/.claude/".to_string();
+    };
+    let drift = match (
+        cache.token_hash.as_deref(),
+        identity::standard_token_dir()
+            .as_deref()
+            .and_then(identity::current_token_hash),
+    ) {
+        (Some(cached), Some(current)) if cached != current => " *",
+        _ => "",
+    };
+    format!("~/.claude/ <{}{}>", email, drift)
 }

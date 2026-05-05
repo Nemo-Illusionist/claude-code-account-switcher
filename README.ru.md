@@ -196,17 +196,23 @@ $ claude-acc doctor
 
 Это исключительно read-only аудит — ничего не перехватывается, запуск `claude` не блокируется. Запускайте когда хочется убедиться, что за config dir стоит ожидаемая личность. Требует `security`, `curl`, `jq`, `shasum` (всё предустановлено на macOS); Rust-бинарник использует нативные `serde_json` и `sha2`, шеллаутит только `security` и `curl`.
 
-`doctor` ещё кэширует результат в `~/.claude-switch/accounts/<name>/.account-info.json`, чтобы `list` и `status` показывали email рядом с каждым аккаунтом без повторных API-запросов:
+`doctor` ещё кэширует результат в `~/.claude-switch/accounts/<name>/.account-info.json`, чтобы `list`, `status` и `default` показывали email рядом с каждым аккаунтом без повторных API-запросов:
 
 ```
 $ claude-acc list
 Аккаунты Claude Code:
-  ★ work       (по умолчанию)  alice@anthropic.com  3д назад
-    personal                   bob@anthropic.com    1ч назад *
+  ★ work       (по умолчанию)  alice@anthropic.com   3д назад
+    personal                   bob@anthropic.com     1ч назад *
+    ~/.claude/                 charlie@personal.com  3д назад    (стандартный)
 
 $ claude-acc status
 Активный аккаунт: work <alice@anthropic.com> (привязан к my-project)
+
+$ claude-acc default
+По умолчанию: work <alice@anthropic.com>
 ```
+
+`doctor` аудитит и стандартный `~/.claude/` (неуправляемая личность, к которой claude обращается когда нет ни link'а, ни настроенного default'а). Его кэш лежит в `~/.claude-switch/default.account-info.json`. Строка `~/.claude/` появляется в `list` только если вы реально залогинены в Claude Code со стандартным config-dir (или если `doctor` уже закэшировал identity для него).
 
 `*` после email означает что OAuth-токен изменился с момента записи кэша. Чаще всего это рутинный refresh токена (identity та же) — но если вы запускали `claude auth login` напрямую между запусками `doctor`, это напоминание что стоит перепроверить. Запустите `claude-acc doctor`, чтобы обновить кэш.
 

@@ -63,6 +63,7 @@ _claude_msg_en=(
     list_empty          "No accounts. Add one: claude-acc add <name>"
     list_header         "Claude Code accounts:"
     list_default        "(default)"
+    list_standard       "(standard)"
     add_usage           "Usage: claude-acc add <name>"
     add_example         "Example: claude-acc add personal"
     add_exists          "Account '%s' already exists."
@@ -129,6 +130,7 @@ _claude_msg_ru=(
     list_empty          "Нет аккаунтов. Добавьте: claude-acc add <name>"
     list_header         "Аккаунты Claude Code:"
     list_default        "(по умолчанию)"
+    list_standard       "(стандартный)"
     add_usage           "Использование: claude-acc add <name>"
     add_example         "Пример:        claude-acc add personal"
     add_exists          "Аккаунт '%s' уже существует."
@@ -429,6 +431,16 @@ _claude_acc_list() {
             echo "    $acc$suffix"
         fi
     done
+
+    # Unmanaged ~/.claude/ — show row only if there's a real keychain login
+    # there OR an existing default cache (i.e. doctor has audited it before).
+    local std_token std_cache
+    std_token=$(_claude_acc_token "$(_claude_acc_default_token_dir)")
+    std_cache=$(_claude_acc_default_cache_path)
+    if [[ -n "$std_token" || -f "$std_cache" ]]; then
+        suffix=$(_claude_acc_default_suffix)
+        echo "    ~/.claude/$suffix  $(_msg list_standard)"
+    fi
 }
 
 _claude_acc_add() {
@@ -537,10 +549,13 @@ _claude_acc_remove() {
 _claude_acc_default() {
     local name="$1"
     if [[ -z "$name" ]]; then
-        local current
+        local current email label
         current=$(_claude_default_account)
         if [[ -n "$current" ]]; then
-            _msg default_current "$current"
+            label="$current"
+            email=$(_claude_acc_cache_email "$current")
+            [[ -n "$email" ]] && label="$current <$email>"
+            _msg default_current "$label"
         else
             _msg default_standard
         fi
@@ -660,7 +675,15 @@ _claude_acc_status() {
         fi
         _msg status_active "$label" "$source_info"
     else
-        _msg status_standard
+        # Standard ~/.claude/ — surface email if `doctor` has cached one.
+        local std_email std_drift
+        std_email=$(_claude_acc_default_email)
+        if [[ -n "$std_email" ]]; then
+            std_drift=$(_claude_acc_default_drift_marker)
+            _msg status_active "~/.claude/ <${std_email}${std_drift}>" "$(_msg list_standard)"
+        else
+            _msg status_standard
+        fi
     fi
 }
 
@@ -736,12 +759,21 @@ _claude_acc_cache_path() {
     echo "$1/.account-info.json"
 }
 
+# Cache for the unmanaged ~/.claude/ ("standard / default") config dir.
+# Lives in our switch dir, never inside ~/.claude/ itself.
+_claude_acc_default_cache_path() {
+    echo "$CLAUDE_SWITCH_DIR/default.account-info.json"
+}
+
+_claude_acc_default_token_dir() {
+    echo "$HOME/.claude"
+}
+
 _claude_acc_write_cache() {
-    local acc_dir="$1" email="$2" uuid="$3" org="$4" token="$5"
-    local now hash cache
+    local cache="$1" email="$2" uuid="$3" org="$4" token="$5"
+    local now hash
     now=$(date +%s)
     hash=$(_claude_acc_token_hash "$token")
-    cache=$(_claude_acc_cache_path "$acc_dir")
     jq -n \
         --arg email "$email" \
         --arg uuid "$uuid" \
@@ -800,6 +832,44 @@ _claude_acc_relative_time() {
     if [[ "$lang" == "ru" ]]; then echo "${n}${unit} назад"; else echo "${n}${unit} ago"; fi
 }
 
+_claude_acc_default_email() {
+    jq -r '.email // empty' "$(_claude_acc_default_cache_path)" 2>/dev/null
+}
+
+_claude_acc_default_drift_marker() {
+    local cached current
+    cached=$(jq -r '.token_hash // empty' "$(_claude_acc_default_cache_path)" 2>/dev/null)
+    [[ -z "$cached" || "$cached" == "null" ]] && return 0
+    current=$(_claude_acc_token_hash "$(_claude_acc_token "$(_claude_acc_default_token_dir)")")
+    [[ -z "$current" ]] && return 0
+    [[ "$cached" != "$current" ]] && printf ' *'
+}
+
+# Suffix for the unmanaged ~/.claude/ row in `list`. Empty if no cache or
+# no email; otherwise "  email  3d ago" with optional ` *` drift marker.
+_claude_acc_default_suffix() {
+    local cache email fetched now secs when drift
+    cache=$(_claude_acc_default_cache_path)
+    [[ ! -f "$cache" ]] && return 0
+    email=$(jq -r '.email // empty' "$cache" 2>/dev/null)
+    [[ -z "$email" ]] && return 0
+    fetched=$(jq -r '.fetched_at // empty' "$cache" 2>/dev/null)
+    when=""
+    if [[ -n "$fetched" && "$fetched" != "null" ]]; then
+        now=$(date +%s)
+        if (( fetched <= now )); then
+            secs=$(( now - fetched ))
+            when=$(_claude_acc_relative_time "$secs")
+        fi
+    fi
+    drift=$(_claude_acc_default_drift_marker)
+    if [[ -n "$when" ]]; then
+        printf '  %s  %s%s' "$email" "$when" "$drift"
+    else
+        printf '  %s%s' "$email" "$drift"
+    fi
+}
+
 # Rendered "  email  3d ago" / "  email  3d ago *" / "" suffix for list/status.
 _claude_acc_identity_suffix() {
     local name="$1" email when secs drift
@@ -827,20 +897,30 @@ _claude_acc_doctor() {
     done
 
     local accounts=("$CLAUDE_SWITCH_ACCOUNTS_DIR"/*(N:t))
-    if [[ ${#accounts} -eq 0 ]]; then
+    local standard_label="~/.claude/"
+    local standard_dir
+    standard_dir=$(_claude_acc_default_token_dir)
+    local standard_present=0
+    [[ -n "$(_claude_acc_token "$standard_dir")" ]] && standard_present=1
+
+    if (( ${#accounts} == 0 && standard_present == 0 )); then
         _msg list_empty
         return 0
     fi
 
-    _msg doctor_header "${#accounts}"
+    local total=$(( ${#accounts} + standard_present ))
+    _msg doctor_header "$total"
 
     # Compute label width for aligned output.
     local width=0 acc
     for acc in "${accounts[@]}"; do
         (( ${#acc} > width )) && width=${#acc}
     done
+    if (( standard_present )); then
+        (( ${#standard_label} > width )) && width=${#standard_label}
+    fi
 
-    local healthy=0 token identity email uuid org rest
+    local healthy=0 token identity email uuid org rest cache_path
     for acc in "${accounts[@]}"; do
         local acc_dir="$CLAUDE_SWITCH_ACCOUNTS_DIR/$acc"
         token=$(_claude_acc_token "$acc_dir")
@@ -858,17 +938,37 @@ _claude_acc_doctor() {
         uuid="${rest%%	*}"
         org="${rest#*	}"
         [[ "$org" == "$rest" ]] && org=""
-        _claude_acc_write_cache "$acc_dir" "$email" "$uuid" "$org" "$token"
+        cache_path=$(_claude_acc_cache_path "$acc_dir")
+        _claude_acc_write_cache "$cache_path" "$email" "$uuid" "$org" "$token"
         printf "  ✓ %-${width}s  %s  uuid=%s\n" "$acc" "$email" "$uuid"
         (( healthy++ ))
     done
 
+    if (( standard_present )); then
+        token=$(_claude_acc_token "$standard_dir")
+        identity=$(_claude_acc_identity "$token")
+        if [[ -z "$identity" ]]; then
+            printf "  ? %-${width}s  %s\n" "$standard_label" "$(_msg doctor_offline)"
+        else
+            email="${identity%%	*}"
+            rest="${identity#*	}"
+            uuid="${rest%%	*}"
+            org="${rest#*	}"
+            [[ "$org" == "$rest" ]] && org=""
+            cache_path=$(_claude_acc_default_cache_path)
+            _claude_acc_write_cache "$cache_path" "$email" "$uuid" "$org" "$token"
+            printf "  ✓ %-${width}s  %s  uuid=%s  (%s)\n" \
+                "$standard_label" "$email" "$uuid" "$(_msg list_standard)"
+            (( healthy++ ))
+        fi
+    fi
+
     echo ""
-    if (( healthy == ${#accounts} )); then
+    if (( healthy == total )); then
         _msg doctor_all_ok
         return 0
     else
-        _msg doctor_partial "$healthy" "${#accounts}"
+        _msg doctor_partial "$healthy" "$total"
         return 1
     fi
 }

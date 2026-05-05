@@ -34,7 +34,31 @@ pub enum AuditResult {
 }
 
 pub fn audit_account(acc_dir: &Path) -> AuditResult {
-    let Some(token) = read_token(acc_dir) else {
+    let cache = acc_dir.join(".account-info.json");
+    audit_at(acc_dir, &cache)
+}
+
+/// Audit the standard `~/.claude/` config dir — the un-managed identity that
+/// claude falls back to when no link / configured default applies. Cache lives
+/// inside our switch dir (`default.account-info.json`), never inside
+/// `~/.claude/` itself.
+pub fn audit_default(switch_dir: &Path) -> AuditResult {
+    let Some(claude_dir) = standard_token_dir() else {
+        return AuditResult::NoToken;
+    };
+    audit_at(&claude_dir, &default_cache_path(switch_dir))
+}
+
+pub fn standard_token_dir() -> Option<PathBuf> {
+    dirs::home_dir().map(|h| h.join(".claude"))
+}
+
+pub fn default_cache_path(switch_dir: &Path) -> PathBuf {
+    switch_dir.join("default.account-info.json")
+}
+
+fn audit_at(token_dir: &Path, cache_path: &Path) -> AuditResult {
+    let Some(token) = read_token(token_dir) else {
         return AuditResult::NoToken;
     };
     match fetch_profile(&token) {
@@ -42,7 +66,7 @@ pub fn audit_account(acc_dir: &Path) -> AuditResult {
             // Side effect: refresh the cache so list/status can show the
             // identity without re-hitting the API. Errors here are silent —
             // doctor's own output is the source of truth for this run.
-            let _ = write_cache(acc_dir, &p, &token);
+            let _ = write_cache_at(cache_path, &p, &token);
             AuditResult::Ok(p)
         }
         None => AuditResult::Offline,
@@ -120,28 +144,12 @@ pub struct CachedInfo {
     pub token_hash: Option<String>,
 }
 
-fn cache_path(acc_dir: &Path) -> PathBuf {
-    acc_dir.join(".account-info.json")
-}
-
-pub fn write_cache(acc_dir: &Path, profile: &Profile, token: &str) -> std::io::Result<()> {
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-    let body = serde_json::json!({
-        "email": profile.email,
-        "uuid": profile.uuid,
-        "org": profile.organization,
-        "fetched_at": now,
-        "token_hash": token_hash(token),
-    });
-    let serialized = serde_json::to_string_pretty(&body).map_err(std::io::Error::other)?;
-    fs::write(cache_path(acc_dir), serialized)
-}
-
 pub fn read_cache(acc_dir: &Path) -> Option<CachedInfo> {
-    let content = fs::read_to_string(cache_path(acc_dir)).ok()?;
+    read_cache_at(&acc_dir.join(".account-info.json"))
+}
+
+pub fn read_cache_at(path: &Path) -> Option<CachedInfo> {
+    let content = fs::read_to_string(path).ok()?;
     let v: serde_json::Value = serde_json::from_str(&content).ok()?;
     Some(CachedInfo {
         email: v.get("email").and_then(|x| x.as_str()).map(String::from),
@@ -155,6 +163,22 @@ pub fn read_cache(acc_dir: &Path) -> Option<CachedInfo> {
     })
 }
 
+fn write_cache_at(path: &Path, profile: &Profile, token: &str) -> std::io::Result<()> {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let body = serde_json::json!({
+        "email": profile.email,
+        "uuid": profile.uuid,
+        "org": profile.organization,
+        "fetched_at": now,
+        "token_hash": token_hash(token),
+    });
+    let serialized = serde_json::to_string_pretty(&body).map_err(std::io::Error::other)?;
+    fs::write(path, serialized)
+}
+
 pub fn token_hash(token: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(token.as_bytes());
@@ -166,12 +190,13 @@ pub fn token_hash(token: &str) -> String {
         .collect()
 }
 
-/// Hash of the *current* keychain token for `acc_dir`, for comparing against
-/// `CachedInfo::token_hash`. Returns `None` if no keychain token (e.g. not on
-/// macOS, no Claude Code login, or `security` failed) — caller treats `None`
-/// as "can't verify, skip the marker".
-pub fn current_token_hash(acc_dir: &Path) -> Option<String> {
-    read_token(acc_dir).map(|t| token_hash(&t))
+/// Hash of the *current* keychain token for `token_dir`, for comparing
+/// against `CachedInfo::token_hash`. `token_dir` is either an account dir
+/// under `~/.claude-switch/accounts/` or `~/.claude/` for the standard
+/// fallback. Returns `None` if no token (not on macOS, not logged in, or
+/// `security` failed) — caller treats `None` as "can't verify, skip marker".
+pub fn current_token_hash(token_dir: &Path) -> Option<String> {
+    read_token(token_dir).map(|t| token_hash(&t))
 }
 
 /// Seconds elapsed since `fetched_at`. Returns `None` if the timestamp looks

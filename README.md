@@ -197,17 +197,23 @@ Auditing 2 account(s):
 
 It's purely a read-only audit — nothing is intercepted, no `claude` invocation is gated. Run it whenever you want to confirm a config dir is bound to the identity you expect. Requires `security`, `curl`, `jq`, and `shasum` (all preinstalled on macOS); the Rust binary uses native `serde_json` and `sha2` instead and only shells out to `security` and `curl`.
 
-`doctor` also caches the result to `~/.claude-switch/accounts/<name>/.account-info.json` so `list` and `status` can show the email next to each account without re-hitting the API:
+`doctor` also caches the result to `~/.claude-switch/accounts/<name>/.account-info.json` so `list`, `status`, and `default` can show the email next to each account without re-hitting the API:
 
 ```
 $ claude-acc list
 Claude Code accounts:
-  ★ work       (default)  alice@anthropic.com  3d ago
-    personal              bob@anthropic.com    1h ago *
+  ★ work       (default)  alice@anthropic.com   3d ago
+    personal              bob@anthropic.com     1h ago *
+    ~/.claude/            charlie@personal.com  3d ago    (standard)
 
 $ claude-acc status
 Active account: work <alice@anthropic.com> (linked to my-project)
+
+$ claude-acc default
+Default: work <alice@anthropic.com>
 ```
+
+`doctor` audits the standard `~/.claude/` config too (the unmanaged identity used when no link / configured default applies). Its cache lives at `~/.claude-switch/default.account-info.json`. The `~/.claude/` row appears in `list` only after you've actually logged into Claude Code with the standard config (or after `doctor` has cached an identity for it).
 
 The `*` after an email means the OAuth token has rotated since the cache was written. Most often this is a routine OAuth refresh (identity unchanged) — but if you ran `claude auth login` directly between `doctor` runs, this is your reminder to re-verify. Run `claude-acc doctor` to refresh the cache.
 
