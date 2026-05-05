@@ -200,6 +200,7 @@ impl I18n {
             }
 
             // doctor
+            (Msg::RelativeTime(secs), lang) => relative_time(secs, lang),
             (Msg::DoctorHeader(n), Lang::En) => format!("Auditing {} account(s):", n),
             (Msg::DoctorHeader(n), Lang::Ru) => format!("Проверка {} аккаунт(ов):", n),
             (Msg::DoctorNoToken(ref name), Lang::En) => {
@@ -282,4 +283,31 @@ pub enum Msg {
     DoctorOffline,
     DoctorAllOk,
     DoctorPartial(usize, usize),
+    RelativeTime(u64),
+}
+
+fn relative_time(secs: u64, lang: Lang) -> String {
+    if secs < 60 {
+        return match lang {
+            Lang::En => "just now".to_string(),
+            Lang::Ru => "только что".to_string(),
+        };
+    }
+    let (n, unit_en, unit_ru) = if secs < 3600 {
+        (secs / 60, "m", "м")
+    } else if secs < 86400 {
+        (secs / 3600, "h", "ч")
+    } else if secs < 604800 {
+        (secs / 86400, "d", "д")
+    } else if secs < 2592000 {
+        (secs / 604800, "w", "н")
+    } else if secs < 31536000 {
+        (secs / 2592000, "mo", "мес")
+    } else {
+        (secs / 31536000, "y", "г")
+    };
+    match lang {
+        Lang::En => format!("{}{} ago", n, unit_en),
+        Lang::Ru => format!("{}{} назад", n, unit_ru),
+    }
 }

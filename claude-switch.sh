@@ -420,11 +420,13 @@ _claude_acc_list() {
     fi
 
     _msg list_header
+    local suffix
     for acc in "${accounts[@]}"; do
+        suffix=$(_claude_acc_identity_suffix "$acc")
         if [[ "$acc" == "$default_acc" ]]; then
-            echo "  ★ $acc  $(_msg list_default)"
+            echo "  ★ $acc  $(_msg list_default)$suffix"
         else
-            echo "    $acc"
+            echo "    $acc$suffix"
         fi
     done
 }
@@ -650,7 +652,13 @@ _claude_acc_status() {
     fi
 
     if [[ -n "$account" ]]; then
-        _msg status_active "$account" "$source_info"
+        local label="$account" email drift
+        email=$(_claude_acc_cache_email "$account")
+        if [[ -n "$email" ]]; then
+            drift=$(_claude_acc_cache_drift_marker "$account")
+            label="$account <${email}${drift}>"
+        fi
+        _msg status_active "$label" "$source_info"
     else
         _msg status_standard
     fi
@@ -706,7 +714,7 @@ _claude_acc_token() {
     jq -r '.claudeAiOauth.accessToken // empty' "$acc_dir/.credentials.json" 2>/dev/null
 }
 
-# Echoes "<email>\t<uuid>" or empty on failure.
+# Echoes "<email>\t<uuid>\t<org>" or empty on failure.
 _claude_acc_identity() {
     local token="$1"
     [[ -z "$token" ]] && return 1
@@ -714,7 +722,99 @@ _claude_acc_identity() {
         -H "Authorization: Bearer $token" \
         -H "anthropic-beta: oauth-2025-04-20" \
         https://api.anthropic.com/api/oauth/profile 2>/dev/null \
-        | jq -r '"\(.account.email // "<unknown>")\t\(.account.uuid // "<unknown>")"' 2>/dev/null
+        | jq -r '"\(.account.email // "<unknown>")\t\(.account.uuid // "<unknown>")\t\(.organization.name // "")"' 2>/dev/null
+}
+
+# sha256(token)[0:16] — used as cache invalidation signal.
+_claude_acc_token_hash() {
+    local token="$1"
+    [[ -z "$token" ]] && return 1
+    printf '%s' "$token" | shasum -a 256 2>/dev/null | cut -c1-16
+}
+
+_claude_acc_cache_path() {
+    echo "$1/.account-info.json"
+}
+
+_claude_acc_write_cache() {
+    local acc_dir="$1" email="$2" uuid="$3" org="$4" token="$5"
+    local now hash cache
+    now=$(date +%s)
+    hash=$(_claude_acc_token_hash "$token")
+    cache=$(_claude_acc_cache_path "$acc_dir")
+    jq -n \
+        --arg email "$email" \
+        --arg uuid "$uuid" \
+        --arg org "$org" \
+        --argjson fetched_at "$now" \
+        --arg token_hash "$hash" \
+        '{email:$email, uuid:$uuid, org:$org, fetched_at:$fetched_at, token_hash:$token_hash}' \
+        > "$cache" 2>/dev/null
+}
+
+_claude_acc_cache_email() {
+    local acc_dir="$CLAUDE_SWITCH_ACCOUNTS_DIR/$1"
+    jq -r '.email // empty' "$(_claude_acc_cache_path "$acc_dir")" 2>/dev/null
+}
+
+# Echoes seconds elapsed since cache write, or empty if no/invalid cache.
+_claude_acc_cache_age() {
+    local acc_dir="$CLAUDE_SWITCH_ACCOUNTS_DIR/$1"
+    local fetched now
+    fetched=$(jq -r '.fetched_at // empty' "$(_claude_acc_cache_path "$acc_dir")" 2>/dev/null)
+    [[ -z "$fetched" || "$fetched" == "null" ]] && return 1
+    now=$(date +%s)
+    (( fetched > now )) && return 1
+    echo $(( now - fetched ))
+}
+
+# Prints " *" when current keychain token differs from the one cached at
+# last `doctor` run. Empty otherwise (including: no cache, no current
+# token, no token_hash field — i.e. when we can't compare safely).
+_claude_acc_cache_drift_marker() {
+    local acc_dir="$CLAUDE_SWITCH_ACCOUNTS_DIR/$1"
+    local cached current
+    cached=$(jq -r '.token_hash // empty' "$(_claude_acc_cache_path "$acc_dir")" 2>/dev/null)
+    [[ -z "$cached" || "$cached" == "null" ]] && return 0
+    current=$(_claude_acc_token_hash "$(_claude_acc_token "$acc_dir")")
+    [[ -z "$current" ]] && return 0
+    [[ "$cached" != "$current" ]] && printf ' *'
+}
+
+# Format a seconds count like 0/45/3600/86400 → "just now"/"45m ago"/"1h ago"/"1d ago".
+# Locale follows _claude_acc_lang.
+_claude_acc_relative_time() {
+    local secs="$1" lang n unit
+    lang=$(_claude_acc_lang)
+    if (( secs < 60 )); then
+        [[ "$lang" == "ru" ]] && echo "только что" || echo "just now"
+        return
+    fi
+    if   (( secs < 3600 ));     then n=$(( secs / 60 ));      [[ "$lang" == "ru" ]] && unit="м"   || unit="m"
+    elif (( secs < 86400 ));    then n=$(( secs / 3600 ));    [[ "$lang" == "ru" ]] && unit="ч"   || unit="h"
+    elif (( secs < 604800 ));   then n=$(( secs / 86400 ));   [[ "$lang" == "ru" ]] && unit="д"   || unit="d"
+    elif (( secs < 2592000 ));  then n=$(( secs / 604800 ));  [[ "$lang" == "ru" ]] && unit="н"   || unit="w"
+    elif (( secs < 31536000 )); then n=$(( secs / 2592000 )); [[ "$lang" == "ru" ]] && unit="мес" || unit="mo"
+    else                             n=$(( secs / 31536000 ));[[ "$lang" == "ru" ]] && unit="г"   || unit="y"
+    fi
+    if [[ "$lang" == "ru" ]]; then echo "${n}${unit} назад"; else echo "${n}${unit} ago"; fi
+}
+
+# Rendered "  email  3d ago" / "  email  3d ago *" / "" suffix for list/status.
+_claude_acc_identity_suffix() {
+    local name="$1" email when secs drift
+    email=$(_claude_acc_cache_email "$name")
+    [[ -z "$email" ]] && return 0
+    secs=$(_claude_acc_cache_age "$name")
+    if [[ -n "$secs" ]]; then
+        when=$(_claude_acc_relative_time "$secs")
+    fi
+    drift=$(_claude_acc_cache_drift_marker "$name")
+    if [[ -n "$when" ]]; then
+        printf '  %s  %s%s' "$email" "$when" "$drift"
+    else
+        printf '  %s%s' "$email" "$drift"
+    fi
 }
 
 _claude_acc_doctor() {
@@ -740,7 +840,7 @@ _claude_acc_doctor() {
         (( ${#acc} > width )) && width=${#acc}
     done
 
-    local healthy=0 token identity email uuid
+    local healthy=0 token identity email uuid org rest
     for acc in "${accounts[@]}"; do
         local acc_dir="$CLAUDE_SWITCH_ACCOUNTS_DIR/$acc"
         token=$(_claude_acc_token "$acc_dir")
@@ -754,7 +854,11 @@ _claude_acc_doctor() {
             continue
         fi
         email="${identity%%	*}"
-        uuid="${identity#*	}"
+        rest="${identity#*	}"
+        uuid="${rest%%	*}"
+        org="${rest#*	}"
+        [[ "$org" == "$rest" ]] && org=""
+        _claude_acc_write_cache "$acc_dir" "$email" "$uuid" "$org" "$token"
         printf "  ✓ %-${width}s  %s  uuid=%s\n" "$acc" "$email" "$uuid"
         (( healthy++ ))
     done
