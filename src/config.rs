@@ -170,3 +170,58 @@ impl AppConfig {
         fs::write(self.links_path(), content)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validate_name_accepts_alphanumeric() {
+        assert!(validate_name("work"));
+        assert!(validate_name("personal-2"));
+        assert!(validate_name("a_b"));
+        assert!(validate_name("WORK"));
+        assert!(validate_name("123"));
+        assert!(validate_name("a"));
+    }
+
+    #[test]
+    fn validate_name_rejects_empty() {
+        assert!(!validate_name(""));
+    }
+
+    #[test]
+    fn validate_name_rejects_path_separators_and_traversal() {
+        assert!(!validate_name("a/b"));
+        assert!(!validate_name("../etc"));
+        assert!(!validate_name(".."));
+        assert!(!validate_name("."));
+    }
+
+    #[test]
+    fn validate_name_rejects_whitespace() {
+        assert!(!validate_name("a b"));
+        assert!(!validate_name("a\tb"));
+        assert!(!validate_name(" leading"));
+    }
+
+    #[test]
+    fn validate_name_rejects_regex_metachars() {
+        assert!(!validate_name("a.b"));
+        assert!(!validate_name("a[b"));
+        assert!(!validate_name("a+b"));
+        assert!(!validate_name("a*b"));
+    }
+
+    #[test]
+    fn validate_name_rejects_links_format_break() {
+        // `=` would corrupt the path=name links file format.
+        assert!(!validate_name("a=b"));
+    }
+
+    #[test]
+    fn validate_name_rejects_unicode() {
+        assert!(!validate_name("работа"));
+        assert!(!validate_name("café"));
+    }
+}

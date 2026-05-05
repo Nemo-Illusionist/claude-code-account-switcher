@@ -174,3 +174,79 @@ fn update_eval_line(content: &str, new_eval: &str) -> String {
     result.push('\n');
     result
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn detects_quoted_path_eval_line() {
+        assert!(is_claude_acc_init_line(
+            r#"eval "$('/Users/me/.claude-switch/bin/claude-acc' init zsh)""#
+        ));
+    }
+
+    #[test]
+    fn detects_powershell_invocation() {
+        assert!(is_claude_acc_init_line(
+            "Invoke-Expression (& 'C:\\Users\\me\\.claude-switch\\bin\\claude-acc' init pwsh)"
+        ));
+    }
+
+    #[test]
+    fn ignores_unrelated_lines() {
+        assert!(!is_claude_acc_init_line("# Claude Code Account Switcher"));
+        assert!(!is_claude_acc_init_line("alias claudey='claude --foo'"));
+        assert!(!is_claude_acc_init_line("export PATH=/some/bin:$PATH"));
+    }
+
+    #[test]
+    fn ignores_partial_match_without_eval() {
+        // mentions claude-acc and "init" but not as an eval line
+        assert!(!is_claude_acc_init_line(
+            "# claude-acc init zsh runs on shell startup"
+        ));
+    }
+
+    #[test]
+    fn update_eval_line_replaces_single_match() {
+        let input = "\
+# unrelated
+eval \"$('/old/path/claude-acc' init zsh)\"
+# trailing
+";
+        let new_eval = "eval \"$('/new/path/claude-acc' init zsh)\"";
+        let out = update_eval_line(input, new_eval);
+        assert!(out.contains("/new/path/claude-acc"));
+        assert!(!out.contains("/old/path/claude-acc"));
+        assert!(out.contains("# unrelated"));
+        assert!(out.contains("# trailing"));
+    }
+
+    #[test]
+    fn update_eval_line_dedupes_multiple_matches_and_drops_orphan_headers() {
+        let input = "\
+# preamble
+
+# Claude Code Account Switcher
+eval \"$('/p1/claude-acc' init zsh)\"
+
+# Claude Code Account Switcher
+eval \"$('/p2/claude-acc' init zsh)\"
+
+# Claude Code Account Switcher
+eval \"$('/p3/claude-acc' init zsh)\"
+";
+        let new_eval = "eval \"$('/new/claude-acc' init zsh)\"";
+        let out = update_eval_line(input, new_eval);
+
+        // Exactly one eval line, exactly one header.
+        assert_eq!(out.matches("eval \"$(").count(), 1, "got: {out}");
+        assert_eq!(
+            out.matches("# Claude Code Account Switcher").count(),
+            1,
+            "got: {out}"
+        );
+        assert!(out.contains("/new/claude-acc"));
+    }
+}

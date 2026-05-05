@@ -249,3 +249,61 @@ fn fetch_profile(token: &str) -> Option<Profile> {
             .map(|s| s.to_string()),
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn token_hash_is_deterministic() {
+        let a = token_hash("the-quick-brown-fox");
+        let b = token_hash("the-quick-brown-fox");
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn token_hash_diverges_on_different_input() {
+        assert_ne!(token_hash("foo"), token_hash("bar"));
+    }
+
+    #[test]
+    fn token_hash_is_16_hex_chars() {
+        let h = token_hash("anything");
+        assert_eq!(h.len(), 16, "got {h:?}");
+        assert!(
+            h.chars().all(|c| c.is_ascii_hexdigit()),
+            "non-hex char in {h:?}"
+        );
+    }
+
+    #[test]
+    fn seconds_since_rejects_zero() {
+        assert_eq!(seconds_since(0), None);
+    }
+
+    #[test]
+    fn seconds_since_rejects_future_timestamp() {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        assert_eq!(seconds_since(now + 86_400), None);
+    }
+
+    #[test]
+    fn seconds_since_returns_diff_for_past_timestamp() {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        // 100 seconds ago — give the diff a 5-second slack for slow runners.
+        let diff = seconds_since(now - 100).expect("expected Some");
+        assert!((95..=105).contains(&diff), "got diff {diff}");
+    }
+
+    #[test]
+    fn read_cache_at_missing_returns_none() {
+        let p = std::path::PathBuf::from("/definitely/does/not/exist/.account-info.json");
+        assert!(read_cache_at(&p).is_none());
+    }
+}
