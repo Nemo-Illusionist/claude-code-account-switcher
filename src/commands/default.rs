@@ -3,12 +3,10 @@ use crate::i18n::{I18n, Msg};
 
 pub fn run(config: &AppConfig, i18n: &I18n, name: Option<&str>) {
     match name {
-        None => {
-            match config.get_default().ok().flatten() {
-                Some(current) => i18n.print(Msg::DefaultCurrent(current)),
-                None => i18n.print(Msg::DefaultStandard),
-            }
-        }
+        None => match config.get_default().ok().flatten() {
+            Some(current) => i18n.print(Msg::DefaultCurrent(current)),
+            None => i18n.print(Msg::DefaultStandard),
+        },
         Some("default") => {
             config.clear_default().expect("Failed to update config");
             i18n.print(Msg::ResetDone);

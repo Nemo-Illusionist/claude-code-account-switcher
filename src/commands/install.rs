@@ -1,8 +1,8 @@
-use std::fs;
-use std::path::PathBuf;
 use crate::config::AppConfig;
 use crate::i18n::{I18n, Msg};
 use crate::ide;
+use std::fs;
+use std::path::{Path, PathBuf};
 
 pub fn run(config: &AppConfig, i18n: &I18n) {
     let bin_dir = config.base_dir.join("bin");
@@ -30,7 +30,10 @@ pub fn run(config: &AppConfig, i18n: &I18n) {
                 ensure_shell_integration(config, i18n);
                 return;
             }
-            i18n.print(Msg::InstallUpdating(installed_version.clone(), current_version.to_string()));
+            i18n.print(Msg::InstallUpdating(
+                installed_version.clone(),
+                current_version.to_string(),
+            ));
         }
     } else {
         i18n.print(Msg::InstallCopying(current_version.to_string()));
@@ -45,15 +48,13 @@ pub fn run(config: &AppConfig, i18n: &I18n) {
         fs::set_permissions(&target, fs::Permissions::from_mode(0o755)).ok();
     }
 
-    i18n.print(Msg::InstallDone(
-        target.to_str().unwrap_or("").to_string(),
-    ));
+    i18n.print(Msg::InstallDone(target.to_str().unwrap_or("").to_string()));
 
     ensure_ide_integration(config, &target);
     ensure_shell_integration(config, i18n);
 }
 
-fn ensure_ide_integration(config: &AppConfig, claude_acc_bin: &PathBuf) {
+fn ensure_ide_integration(config: &AppConfig, claude_acc_bin: &Path) {
     // Best-effort: errors here shouldn't block install. The shell integration
     // and binary copy already happened.
     let _ = ide::install_wrapper(config, claude_acc_bin);
@@ -76,7 +77,10 @@ fn ensure_shell_integration(config: &AppConfig, i18n: &I18n) {
 
         // Match any line that mentions claude-acc + init (handles quoting
         // around the binary path, like 'claude-acc' init zsh).
-        let init_line_count = content.lines().filter(|l| is_claude_acc_init_line(l)).count();
+        let init_line_count = content
+            .lines()
+            .filter(|l| is_claude_acc_init_line(l))
+            .count();
         let has_exact_match = content.lines().any(|l| l.trim() == eval_line.trim());
 
         if init_line_count == 0 {
@@ -84,7 +88,10 @@ fn ensure_shell_integration(config: &AppConfig, i18n: &I18n) {
             if !content.ends_with('\n') && !content.is_empty() {
                 content.push('\n');
             }
-            content.push_str(&format!("\n# Claude Code Account Switcher\n{}\n", eval_line));
+            content.push_str(&format!(
+                "\n# Claude Code Account Switcher\n{}\n",
+                eval_line
+            ));
             fs::write(&rc, content).expect("Failed to update rc file");
             i18n.print(Msg::InstallShellAdded(rc.to_string_lossy().to_string()));
         } else if init_line_count == 1 && has_exact_match {
@@ -118,10 +125,10 @@ fn detect_shell_and_rc() -> (String, Option<PathBuf>) {
     }
 
     // Check for PowerShell profile
-    if let Ok(profile) = std::env::var("PROFILE") {
-        if !profile.is_empty() {
-            return ("pwsh".to_string(), Some(PathBuf::from(profile)));
-        }
+    if let Ok(profile) = std::env::var("PROFILE")
+        && !profile.is_empty()
+    {
+        return ("pwsh".to_string(), Some(PathBuf::from(profile)));
     }
 
     // Fallback: check common rc files
@@ -136,7 +143,8 @@ fn detect_shell_and_rc() -> (String, Option<PathBuf>) {
 }
 
 fn is_claude_acc_init_line(line: &str) -> bool {
-    line.contains("claude-acc") && line.contains("init")
+    line.contains("claude-acc")
+        && line.contains("init")
         && (line.contains("eval") || line.contains("Invoke-Expression"))
 }
 

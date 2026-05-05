@@ -69,7 +69,9 @@ enum Commands {
 fn main() {
     let cli = Cli::parse();
     let config = AppConfig::new();
-    config.init().expect("Failed to initialize config directory");
+    config
+        .init()
+        .expect("Failed to initialize config directory");
     let i18n = I18n::new();
 
     match cli.command {
@@ -79,7 +81,9 @@ fn main() {
         Some(Commands::List) => commands::list::run(&config, &i18n),
         Some(Commands::Add { name }) => commands::add::run(&config, &i18n, &name),
         Some(Commands::Login { name }) => commands::login::run(&config, &i18n, &name),
-        Some(Commands::Remove { force, name }) => commands::remove::run(&config, &i18n, &name, force),
+        Some(Commands::Remove { force, name }) => {
+            commands::remove::run(&config, &i18n, &name, force)
+        }
         Some(Commands::Default { name }) => commands::default::run(&config, &i18n, name.as_deref()),
         Some(Commands::Reset) => commands::reset::run(&config, &i18n),
         Some(Commands::Link { name }) => commands::link::run(&config, &i18n, &name),

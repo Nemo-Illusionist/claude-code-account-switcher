@@ -12,10 +12,10 @@ impl Lang {
                 _ => Lang::En,
             };
         }
-        if let Ok(v) = std::env::var("LANG") {
-            if v.starts_with("ru") {
-                return Lang::Ru;
-            }
+        if let Ok(v) = std::env::var("LANG")
+            && v.starts_with("ru")
+        {
+            return Lang::Ru;
         }
         Lang::En
     }
@@ -27,7 +27,9 @@ pub struct I18n {
 
 impl I18n {
     pub fn new() -> Self {
-        Self { lang: Lang::detect() }
+        Self {
+            lang: Lang::detect(),
+        }
     }
 
     pub fn msg(&self, key: Msg) -> String {
@@ -48,14 +50,27 @@ impl I18n {
             // add
             (Msg::AddExists(ref n), Lang::En) => format!("Account '{}' already exists.", n),
             (Msg::AddExists(ref n), Lang::Ru) => format!("Аккаунт '{}' уже существует.", n),
-            (Msg::AddCreated(ref n), Lang::En) => format!("Account '{}' created. Starting login...", n),
-            (Msg::AddCreated(ref n), Lang::Ru) => format!("Аккаунт '{}' создан. Запускаю логин...", n),
+            (Msg::AddCreated(ref n), Lang::En) => {
+                format!("Account '{}' created. Starting login...", n)
+            }
+            (Msg::AddCreated(ref n), Lang::Ru) => {
+                format!("Аккаунт '{}' создан. Запускаю логин...", n)
+            }
             (Msg::AddDone, Lang::En) => s("Done. Use:"),
             (Msg::AddDone, Lang::Ru) => s("Готово. Используйте:"),
-            (Msg::AddHintDefault(ref n), Lang::En) => format!("  claude-acc default {}   — set as default", n),
-            (Msg::AddHintDefault(ref n), Lang::Ru) => format!("  claude-acc default {}   — сделать дефолтным", n),
-            (Msg::AddHintLink(ref n), Lang::En) => format!("  claude-acc link {}      — link to current directory", n),
-            (Msg::AddHintLink(ref n), Lang::Ru) => format!("  claude-acc link {}      — привязать к текущей директории", n),
+            (Msg::AddHintDefault(ref n), Lang::En) => {
+                format!("  claude-acc default {}   — set as default", n)
+            }
+            (Msg::AddHintDefault(ref n), Lang::Ru) => {
+                format!("  claude-acc default {}   — сделать дефолтным", n)
+            }
+            (Msg::AddHintLink(ref n), Lang::En) => {
+                format!("  claude-acc link {}      — link to current directory", n)
+            }
+            (Msg::AddHintLink(ref n), Lang::Ru) => format!(
+                "  claude-acc link {}      — привязать к текущей директории",
+                n
+            ),
 
             // login
             (Msg::LoginNotFound(ref n), Lang::En) => format!("Account '{}' not found.", n),
@@ -80,16 +95,24 @@ impl I18n {
             (Msg::DefaultCurrent(ref n), Lang::Ru) => format!("По умолчанию: {}", n),
             (Msg::DefaultStandard, Lang::En) => s("Default: ~/.claude/"),
             (Msg::DefaultStandard, Lang::Ru) => s("По умолчанию: ~/.claude/"),
-            (Msg::DefaultNotFound(ref n), Lang::En) => format!("Account '{}' not found. Available:", n),
-            (Msg::DefaultNotFound(ref n), Lang::Ru) => format!("Аккаунт '{}' не найден. Доступные:", n),
+            (Msg::DefaultNotFound(ref n), Lang::En) => {
+                format!("Account '{}' not found. Available:", n)
+            }
+            (Msg::DefaultNotFound(ref n), Lang::Ru) => {
+                format!("Аккаунт '{}' не найден. Доступные:", n)
+            }
             (Msg::DefaultSet(ref n), Lang::En) => format!("Default account: {}", n),
             (Msg::DefaultSet(ref n), Lang::Ru) => format!("Аккаунт по умолчанию: {}", n),
             (Msg::ResetDone, Lang::En) => s("Reset to ~/.claude/"),
             (Msg::ResetDone, Lang::Ru) => s("Сброшено на ~/.claude/"),
 
             // link
-            (Msg::LinkNotFound(ref n), Lang::En) => format!("Account '{}' not found. Available:", n),
-            (Msg::LinkNotFound(ref n), Lang::Ru) => format!("Аккаунт '{}' не найден. Доступные:", n),
+            (Msg::LinkNotFound(ref n), Lang::En) => {
+                format!("Account '{}' not found. Available:", n)
+            }
+            (Msg::LinkNotFound(ref n), Lang::Ru) => {
+                format!("Аккаунт '{}' не найден. Доступные:", n)
+            }
             (Msg::LinkDone(ref dir, ref n), Lang::En) => format!("{} → account '{}'", dir, n),
             (Msg::LinkDone(ref dir, ref n), Lang::Ru) => format!("{} → аккаунт '{}'", dir, n),
             (Msg::LinkDoneDefault(ref dir), Lang::En) => format!("{} → ~/.claude/ (default)", dir),
@@ -98,12 +121,21 @@ impl I18n {
             // unlink
             (Msg::UnlinkNone, Lang::En) => s("No link for the current directory."),
             (Msg::UnlinkNone, Lang::Ru) => s("Нет привязки для текущей директории."),
-            (Msg::UnlinkDone(ref dir), Lang::En) => format!("Unlinked {}. Default account will be used.", dir),
-            (Msg::UnlinkDone(ref dir), Lang::Ru) => format!("Привязка убрана для {}. Будет использован дефолтный аккаунт.", dir),
+            (Msg::UnlinkDone(ref dir), Lang::En) => {
+                format!("Unlinked {}. Default account will be used.", dir)
+            }
+            (Msg::UnlinkDone(ref dir), Lang::Ru) => format!(
+                "Привязка убрана для {}. Будет использован дефолтный аккаунт.",
+                dir
+            ),
 
             // status
-            (Msg::StatusActive(ref n, ref info), Lang::En) => format!("Active account: {} {}", n, info),
-            (Msg::StatusActive(ref n, ref info), Lang::Ru) => format!("Активный аккаунт: {} {}", n, info),
+            (Msg::StatusActive(ref n, ref info), Lang::En) => {
+                format!("Active account: {} {}", n, info)
+            }
+            (Msg::StatusActive(ref n, ref info), Lang::Ru) => {
+                format!("Активный аккаунт: {} {}", n, info)
+            }
             (Msg::StatusLinked(ref dir), Lang::En) => format!("(linked to {})", dir),
             (Msg::StatusLinked(ref dir), Lang::Ru) => format!("(привязан к {})", dir),
             (Msg::StatusDefault, Lang::En) => s("(default)"),
@@ -124,26 +156,48 @@ impl I18n {
             (Msg::ReservedName(ref n), Lang::Ru) => format!("'{}' — зарезервированное имя.", n),
 
             // name validation
-            (Msg::NameInvalid, Lang::En) => s("Account name must contain only letters, digits, hyphens, and underscores."),
-            (Msg::NameInvalid, Lang::Ru) => s("Имя аккаунта может содержать только буквы, цифры, дефисы и подчёркивания."),
+            (Msg::NameInvalid, Lang::En) => {
+                s("Account name must contain only letters, digits, hyphens, and underscores.")
+            }
+            (Msg::NameInvalid, Lang::Ru) => {
+                s("Имя аккаунта может содержать только буквы, цифры, дефисы и подчёркивания.")
+            }
 
             // install
             (Msg::InstallUpToDate(ref v), Lang::En) => format!("Already up to date (v{}).", v),
             (Msg::InstallUpToDate(ref v), Lang::Ru) => format!("Уже актуальная версия (v{}).", v),
-            (Msg::InstallUpdating(ref old, ref new), Lang::En) => format!("Updating v{} → v{}...", old, new),
-            (Msg::InstallUpdating(ref old, ref new), Lang::Ru) => format!("Обновление v{} → v{}...", old, new),
+            (Msg::InstallUpdating(ref old, ref new), Lang::En) => {
+                format!("Updating v{} → v{}...", old, new)
+            }
+            (Msg::InstallUpdating(ref old, ref new), Lang::Ru) => {
+                format!("Обновление v{} → v{}...", old, new)
+            }
             (Msg::InstallCopying(ref v), Lang::En) => format!("Installing v{}...", v),
             (Msg::InstallCopying(ref v), Lang::Ru) => format!("Установка v{}...", v),
             (Msg::InstallDone(ref p), Lang::En) => format!("Binary installed: {}", p),
             (Msg::InstallDone(ref p), Lang::Ru) => format!("Бинарник установлен: {}", p),
-            (Msg::InstallShellAlready(ref f), Lang::En) => format!("Shell integration already in {}", f),
+            (Msg::InstallShellAlready(ref f), Lang::En) => {
+                format!("Shell integration already in {}", f)
+            }
             (Msg::InstallShellAlready(ref f), Lang::Ru) => format!("Shell-интеграция уже в {}", f),
-            (Msg::InstallShellUpdated(ref f), Lang::En) => format!("Shell integration updated in {}", f),
-            (Msg::InstallShellUpdated(ref f), Lang::Ru) => format!("Shell-интеграция обновлена в {}", f),
-            (Msg::InstallShellAdded(ref f), Lang::En) => format!("Shell integration added to {}", f),
-            (Msg::InstallShellAdded(ref f), Lang::Ru) => format!("Shell-интеграция добавлена в {}", f),
-            (Msg::InstallShellManual(ref line), Lang::En) => format!("Add this to your shell config:\n  {}", line),
-            (Msg::InstallShellManual(ref line), Lang::Ru) => format!("Добавьте в конфиг шелла:\n  {}", line),
+            (Msg::InstallShellUpdated(ref f), Lang::En) => {
+                format!("Shell integration updated in {}", f)
+            }
+            (Msg::InstallShellUpdated(ref f), Lang::Ru) => {
+                format!("Shell-интеграция обновлена в {}", f)
+            }
+            (Msg::InstallShellAdded(ref f), Lang::En) => {
+                format!("Shell integration added to {}", f)
+            }
+            (Msg::InstallShellAdded(ref f), Lang::Ru) => {
+                format!("Shell-интеграция добавлена в {}", f)
+            }
+            (Msg::InstallShellManual(ref line), Lang::En) => {
+                format!("Add this to your shell config:\n  {}", line)
+            }
+            (Msg::InstallShellManual(ref line), Lang::Ru) => {
+                format!("Добавьте в конфиг шелла:\n  {}", line)
+            }
         }
     }
 

@@ -1,6 +1,6 @@
-use std::process::Command;
 use crate::config::{AppConfig, validate_name};
 use crate::i18n::{I18n, Msg};
+use std::process::Command;
 
 pub fn run(config: &AppConfig, i18n: &I18n, name: &str) {
     if !validate_name(name) {
