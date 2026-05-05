@@ -75,7 +75,8 @@ claude-acc link work
 | `claude-acc links` | Show all directory links |
 | `claude-acc status` | Show active account |
 | `claude-acc run <name>` | Run claude under a specific account |
-| `claude-acc doctor` | Audit each account's actual OAuth identity |
+| `claude-acc whoami` | Print the email (or name) of the active account |
+| `claude-acc doctor [--json]` | Audit each account's actual OAuth identity |
 | `claude-acc install` | Install binary and shell integration |
 
 ## How it works
@@ -214,6 +215,19 @@ Default: work <alice@anthropic.com>
 ```
 
 `doctor` audits the standard `~/.claude/` config too (the unmanaged identity used when no link / configured default applies). Its cache lives at `~/.claude-switch/default.account-info.json`. The `~/.claude/` row appears in `list` only after you've actually logged into Claude Code with the standard config (or after `doctor` has cached an identity for it).
+
+For scripting, `claude-acc doctor --json` emits the same audit information as a single JSON document — and `claude-acc whoami` prints just the email (or account name fallback) of the active account, suitable for shell prompts:
+
+```bash
+# Use in a prompt:
+PS1='[$(claude-acc whoami)] \$ '
+
+# Or in a script:
+case "$(claude-acc whoami)" in
+    alice@anthropic.com) echo "work" ;;
+    *)                   echo "other" ;;
+esac
+```
 
 The `*` after an email means the OAuth token has rotated since the cache was written. Most often this is a routine OAuth refresh (identity unchanged) — but if you ran `claude auth login` directly between `doctor` runs, this is your reminder to re-verify. Run `claude-acc doctor` to refresh the cache.
 
