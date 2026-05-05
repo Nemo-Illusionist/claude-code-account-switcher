@@ -59,6 +59,7 @@ _claude_msg_en=(
     help_status         "Current account and context"
     help_run            "Run claude under a specific account"
     help_doctor         "Audit each account OAuth identity (email, UUID)"
+    help_whoami         "Print active account email (or name fallback)"
     help_help           "Help"
     list_empty          "No accounts. Add one: claude-acc add <name>"
     list_header         "Claude Code accounts:"
@@ -126,6 +127,7 @@ _claude_msg_ru=(
     help_status         "Текущий аккаунт и контекст"
     help_run            "Запустить claude под конкретным аккаунтом"
     help_doctor         "Аудит OAuth-личности каждого аккаунта (email, UUID)"
+    help_whoami         "Email активного аккаунта (или имя как fallback)"
     help_help           "Справка"
     list_empty          "Нет аккаунтов. Добавьте: claude-acc add <name>"
     list_header         "Аккаунты Claude Code:"
@@ -408,7 +410,8 @@ _claude_acc_help() {
     echo "  claude-acc links             $(_msg help_links)"
     echo "  claude-acc status            $(_msg help_status)"
     echo "  claude-acc run <name> [...]  $(_msg help_run)"
-    echo "  claude-acc doctor            $(_msg help_doctor)"
+    echo "  claude-acc doctor [--json]   $(_msg help_doctor)"
+    echo "  claude-acc whoami            $(_msg help_whoami)"
 }
 
 _claude_acc_list() {
@@ -888,6 +891,12 @@ _claude_acc_identity_suffix() {
 }
 
 _claude_acc_doctor() {
+    local json=0
+    if [[ "$1" == "--json" ]]; then
+        json=1
+        shift
+    fi
+
     local dep
     for dep in security curl jq shasum; do
         if ! command -v "$dep" >/dev/null 2>&1; then
@@ -902,6 +911,11 @@ _claude_acc_doctor() {
     standard_dir=$(_claude_acc_default_token_dir)
     local standard_present=0
     [[ -n "$(_claude_acc_token "$standard_dir")" ]] && standard_present=1
+
+    if (( json )); then
+        _claude_acc_doctor_json "${accounts[@]}" "$standard_present"
+        return $?
+    fi
 
     if (( ${#accounts} == 0 && standard_present == 0 )); then
         _msg list_empty
@@ -973,6 +987,106 @@ _claude_acc_doctor() {
     fi
 }
 
+# JSON form of `doctor`. Last positional arg is the standard_present flag (0/1);
+# preceding args are managed-account names. Schema matches the Rust binary —
+# see src/commands/doctor.rs.
+_claude_acc_doctor_json() {
+    local args=("$@")
+    local n=${#args[@]}
+    local standard_present="${args[$n]}"
+    local accounts=("${(@)args[1,$((n-1))]}")
+    local default_acc
+    default_acc=$(_claude_default_account)
+    local any_problem=0
+
+    local entries="[]"
+    local acc acc_dir token identity audit_status email uuid org rest is_default entry
+    for acc in "${accounts[@]}"; do
+        acc_dir="$CLAUDE_SWITCH_ACCOUNTS_DIR/$acc"
+        token=$(_claude_acc_token "$acc_dir")
+        if [[ -z "$token" ]]; then
+            audit_status="no_token"; email=""; uuid=""
+        else
+            identity=$(_claude_acc_identity "$token")
+            if [[ -z "$identity" ]]; then
+                audit_status="offline"; email=""; uuid=""
+                any_problem=1
+            else
+                audit_status="ok"
+                email="${identity%%	*}"
+                rest="${identity#*	}"
+                uuid="${rest%%	*}"
+                org="${rest#*	}"
+                [[ "$org" == "$rest" ]] && org=""
+                _claude_acc_write_cache "$(_claude_acc_cache_path "$acc_dir")" \
+                    "$email" "$uuid" "$org" "$token"
+            fi
+        fi
+        is_default=false
+        [[ "$acc" == "$default_acc" ]] && is_default=true
+        entry=$(jq -n \
+            --arg name "$acc" --arg status "$audit_status" \
+            --arg email "$email" --arg uuid "$uuid" \
+            --argjson is_default "$is_default" \
+            '{name:$name, status:$status,
+              email:(if $email == "" then null else $email end),
+              uuid:(if $uuid == "" then null else $uuid end),
+              default:$is_default}')
+        entries=$(jq --argjson e "$entry" '. + [$e]' <<< "$entries")
+    done
+
+    local standard="null"
+    if (( standard_present )); then
+        token=$(_claude_acc_token "$standard_dir" 2>/dev/null) || \
+            token=$(_claude_acc_token "$(_claude_acc_default_token_dir)")
+        identity=$(_claude_acc_identity "$token")
+        if [[ -z "$identity" ]]; then
+            audit_status="offline"; email=""; uuid=""
+            any_problem=1
+        else
+            audit_status="ok"
+            email="${identity%%	*}"
+            rest="${identity#*	}"
+            uuid="${rest%%	*}"
+            org="${rest#*	}"
+            [[ "$org" == "$rest" ]] && org=""
+            _claude_acc_write_cache "$(_claude_acc_default_cache_path)" \
+                "$email" "$uuid" "$org" "$token"
+        fi
+        standard=$(jq -n \
+            --arg name "~/.claude/" --arg status "$audit_status" \
+            --arg email "$email" --arg uuid "$uuid" \
+            '{name:$name, status:$status,
+              email:(if $email == "" then null else $email end),
+              uuid:(if $uuid == "" then null else $uuid end)}')
+    fi
+
+    jq -n --argjson accounts "$entries" --argjson standard "$standard" \
+        '{accounts:$accounts, standard:$standard}'
+    return $any_problem
+}
+
+# `whoami` — emit the most-identifying string for the active account.
+# Order: cached email > account name > literal "default" for standard.
+_claude_acc_whoami() {
+    local linked_dir account email
+    linked_dir=$(_claude_find_linked_dir)
+    if [[ -n "$linked_dir" ]]; then
+        account=$(_claude_dir_account "$linked_dir")
+    fi
+    [[ -z "$account" ]] && account=$(_claude_default_account)
+
+    if [[ -n "$account" && "$account" != "default" ]]; then
+        email=$(_claude_acc_cache_email "$account")
+        echo "${email:-$account}"
+        return 0
+    fi
+
+    # Standard ~/.claude/.
+    email=$(_claude_acc_default_email)
+    echo "${email:-default}"
+}
+
 # =============================================================
 # Единая точка входа
 # =============================================================
@@ -993,7 +1107,8 @@ claude-acc() {
         links)   _claude_acc_links ;;
         status)  _claude_acc_status "$@" ;;
         run)     _claude_acc_run "$@" ;;
-        doctor)  _claude_acc_doctor ;;
+        doctor)  _claude_acc_doctor "$@" ;;
+        whoami)  _claude_acc_whoami ;;
         help)    _claude_acc_help ;;
         *)       _claude_acc_help ;;
     esac
@@ -1018,6 +1133,7 @@ _claude_acc_completion() {
         "status:$(_msg help_status)"
         "run:$(_msg help_run)"
         "doctor:$(_msg help_doctor)"
+        "whoami:$(_msg help_whoami)"
         "help:$(_msg help_help)"
     )
 

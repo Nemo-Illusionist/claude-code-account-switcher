@@ -38,6 +38,7 @@ _claude_acc_completion() {
         'status:Current account info'
         'run:Run claude under a specific account'
         'doctor:Audit each account OAuth identity'
+        'whoami:Print active account email'
     )
     if (( CURRENT == 2 )); then
         _describe 'command' subcmds

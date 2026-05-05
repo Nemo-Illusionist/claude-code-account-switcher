@@ -52,7 +52,13 @@ enum Commands {
         args: Vec<String>,
     },
     /// Audit each account's actual OAuth identity (email, UUID)
-    Doctor,
+    Doctor {
+        /// Output as JSON (suitable for scripting)
+        #[arg(long)]
+        json: bool,
+    },
+    /// Print the email or account name of the active account
+    Whoami,
     /// Install binary and shell integration
     Install,
     /// Output shell activation code (used by shell hook)
@@ -94,7 +100,10 @@ fn main() {
         Some(Commands::Links) => commands::links::run(&config, &i18n),
         Some(Commands::Status) => commands::status::run(&config, &i18n),
         Some(Commands::Run { name, args }) => commands::run::run(&config, &i18n, &name, &args),
-        Some(Commands::Doctor) => std::process::exit(commands::doctor::run(&config, &i18n)),
+        Some(Commands::Doctor { json }) => {
+            std::process::exit(commands::doctor::run(&config, &i18n, json))
+        }
+        Some(Commands::Whoami) => commands::whoami::run(&config),
         Some(Commands::Install) => commands::install::run(&config, &i18n),
         Some(Commands::Activate { shell }) => {
             let syntax = match shell.as_str() {

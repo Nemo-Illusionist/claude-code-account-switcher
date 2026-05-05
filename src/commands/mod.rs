@@ -14,3 +14,4 @@ pub mod reset;
 pub mod run;
 pub mod status;
 pub mod unlink;
+pub mod whoami;

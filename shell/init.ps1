@@ -27,7 +27,7 @@ Register-ArgumentCompleter -CommandName claude-acc -ScriptBlock {
     $count = $words.Count
 
     if ($count -le 2) {
-        $cmds = @('list','add','login','remove','default','reset','link','unlink','links','status','run','doctor','help')
+        $cmds = @('list','add','login','remove','default','reset','link','unlink','links','status','run','doctor','whoami','help')
         $cmds | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
             [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
         }

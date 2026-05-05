@@ -74,7 +74,8 @@ claude-acc link work
 | `claude-acc links` | Показать все привязки директорий |
 | `claude-acc status` | Показать активный аккаунт |
 | `claude-acc run <имя>` | Запустить claude под конкретным аккаунтом |
-| `claude-acc doctor` | Аудит реальной OAuth-личности каждого аккаунта |
+| `claude-acc whoami` | Email (или имя) активного аккаунта |
+| `claude-acc doctor [--json]` | Аудит реальной OAuth-личности каждого аккаунта |
 | `claude-acc install` | Установить бинарник и shell-интеграцию |
 
 ## Как это работает
@@ -213,6 +214,19 @@ $ claude-acc default
 ```
 
 `doctor` аудитит и стандартный `~/.claude/` (неуправляемая личность, к которой claude обращается когда нет ни link'а, ни настроенного default'а). Его кэш лежит в `~/.claude-switch/default.account-info.json`. Строка `~/.claude/` появляется в `list` только если вы реально залогинены в Claude Code со стандартным config-dir (или если `doctor` уже закэшировал identity для него).
+
+Для скриптов `claude-acc doctor --json` отдаёт те же данные одним JSON-документом — а `claude-acc whoami` печатает email (или имя аккаунта как fallback) активного аккаунта, удобно для shell-prompt:
+
+```bash
+# В prompt:
+PS1='[$(claude-acc whoami)] \$ '
+
+# В скрипте:
+case "$(claude-acc whoami)" in
+    alice@anthropic.com) echo "work" ;;
+    *)                   echo "other" ;;
+esac
+```
 
 `*` после email означает что OAuth-токен изменился с момента записи кэша. Чаще всего это рутинный refresh токена (identity та же) — но если вы запускали `claude auth login` напрямую между запусками `doctor`, это напоминание что стоит перепроверить. Запустите `claude-acc doctor`, чтобы обновить кэш.
 
