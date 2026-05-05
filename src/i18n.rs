@@ -314,3 +314,55 @@ fn relative_time(secs: u64, lang: Lang) -> String {
         Lang::Ru => format!("{}{} назад", n, unit_ru),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn relative_time_under_minute_says_just_now() {
+        assert_eq!(relative_time(0, Lang::En), "just now");
+        assert_eq!(relative_time(59, Lang::En), "just now");
+        assert_eq!(relative_time(0, Lang::Ru), "только что");
+        assert_eq!(relative_time(59, Lang::Ru), "только что");
+    }
+
+    #[test]
+    fn relative_time_minute_boundary() {
+        assert_eq!(relative_time(60, Lang::En), "1m ago");
+        assert_eq!(relative_time(60, Lang::Ru), "1м назад");
+        assert_eq!(relative_time(3599, Lang::En), "59m ago");
+    }
+
+    #[test]
+    fn relative_time_hour_boundary() {
+        assert_eq!(relative_time(3600, Lang::En), "1h ago");
+        assert_eq!(relative_time(3600, Lang::Ru), "1ч назад");
+        assert_eq!(relative_time(86399, Lang::En), "23h ago");
+    }
+
+    #[test]
+    fn relative_time_day_boundary() {
+        assert_eq!(relative_time(86_400, Lang::En), "1d ago");
+        assert_eq!(relative_time(86_400, Lang::Ru), "1д назад");
+        assert_eq!(relative_time(604_799, Lang::En), "6d ago");
+    }
+
+    #[test]
+    fn relative_time_week_boundary() {
+        assert_eq!(relative_time(604_800, Lang::En), "1w ago");
+        assert_eq!(relative_time(604_800, Lang::Ru), "1н назад");
+    }
+
+    #[test]
+    fn relative_time_month_boundary() {
+        assert_eq!(relative_time(2_592_000, Lang::En), "1mo ago");
+        assert_eq!(relative_time(2_592_000, Lang::Ru), "1мес назад");
+    }
+
+    #[test]
+    fn relative_time_year_boundary() {
+        assert_eq!(relative_time(31_536_000, Lang::En), "1y ago");
+        assert_eq!(relative_time(31_536_000, Lang::Ru), "1г назад");
+    }
+}
