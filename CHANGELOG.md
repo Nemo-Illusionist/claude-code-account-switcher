@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.0](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.3.0...v0.4.0) (2026-05-05)
+
+
+### Features
+
+* cache doctor result and show email in `list` / `status` ([#20](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/20)) ([0073e3a](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/0073e3af641c3e41ba303753b0d2d74cc87b6172))
+* surface ~/.claude/ standard identity in doctor / list / status / default ([#22](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/22)) ([e1ac28c](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/e1ac28c6ffadf71dd4ab3274e3298de7e4c81302))
+
 ## [0.3.0](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.2.1...v0.3.0) (2026-05-05)
 
 
