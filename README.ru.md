@@ -94,6 +94,15 @@ claude-acc link default
 # hobby → ~/.claude/ (default)
 ```
 
+## Интеграция с IDE
+
+JetBrains IDE (PhpStorm, IntelliJ и т.п.) и VSCode запускают `claude` напрямую, не source-я ваш shell-конфиг. Без этого `CLAUDE_CONFIG_DIR` не выставится и подхватится не тот аккаунт. Чтобы это работало для не-default аккаунтов, `claude-switch.sh` при загрузке устанавливает две вещи:
+
+- Wrapper `~/.claude-switch/bin/claude`, который определяет аккаунт для `$PWD` и `exec`-ает реальный `claude`. `~/.claude-switch/bin` добавляется в начало `PATH`, так что и терминал, и IDE прозрачно подхватывают wrapper. Wrapper сам source-ит `claude-switch.sh`, поэтому переиспользует ту же логику lookup'а что и `cd`-хук — нет дублирования.
+- Symlink `~/.claude-switch/accounts/<name>/ide → ~/.claude/ide` для каждого аккаунта. Claude Code пишет lock-файлы IDE в `$CLAUDE_CONFIG_DIR/ide/`, а IDE-плагины ищут их в `~/.claude/ide/`. Symlink приводит обе стороны к одному месту.
+
+Никаких ручных шагов не нужно — достаточно `source ~/.claude-switch.sh` как в [Установке](#установка).
+
 ## Отдельные глобальные настройки для проектов
 
 Каждый аккаунт получает свою папку `~/.claude-switch/accounts/<name>/`, которая используется как `CLAUDE_CONFIG_DIR`. Это значит, что у каждого аккаунта свои глобальные `settings.json`, `CLAUDE.md`, hooks и прочие настройки.
