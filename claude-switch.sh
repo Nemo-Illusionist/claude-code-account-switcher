@@ -60,6 +60,7 @@ _claude_msg_en=(
     help_run            "Run claude under a specific account"
     help_doctor         "Audit each account OAuth identity (email, UUID)"
     help_whoami         "Print active account email (or name fallback)"
+    help_clone_settings "Copy ~/.claude/ config into an existing account"
     help_help           "Help"
     list_empty          "No accounts. Add one: claude-acc add <name>"
     list_header         "Claude Code accounts:"
@@ -93,6 +94,9 @@ _claude_msg_en=(
     link_done_default   "%s → ~/.claude/ (default)"
     reserved_name       "'%s' is a reserved name."
     name_invalid        "Account name must contain only letters, digits, hyphens, and underscores."
+    seed_copied         "  copied: %s"
+    seed_nothing        "  nothing to copy from ~/.claude/"
+    clone_settings_usage "Usage: claude-acc clone-settings <name>"
     run_usage           "Usage: claude-acc run <name> [args...]"
     run_not_found       "Account '%s' not found."
     doctor_header       "Auditing %d account(s):"
@@ -128,6 +132,7 @@ _claude_msg_ru=(
     help_run            "Запустить claude под конкретным аккаунтом"
     help_doctor         "Аудит OAuth-личности каждого аккаунта (email, UUID)"
     help_whoami         "Email активного аккаунта (или имя как fallback)"
+    help_clone_settings "Скопировать конфиг ~/.claude/ в существующий аккаунт"
     help_help           "Справка"
     list_empty          "Нет аккаунтов. Добавьте: claude-acc add <name>"
     list_header         "Аккаунты Claude Code:"
@@ -161,6 +166,9 @@ _claude_msg_ru=(
     link_done_default   "%s → ~/.claude/ (default)"
     reserved_name       "'%s' — зарезервированное имя."
     name_invalid        "Имя аккаунта может содержать только буквы, цифры, дефисы и подчёркивания."
+    seed_copied         "  скопировано: %s"
+    seed_nothing        "  нечего копировать из ~/.claude/"
+    clone_settings_usage "Использование: claude-acc clone-settings <name>"
     run_usage           "Использование: claude-acc run <name> [args...]"
     run_not_found       "Аккаунт '%s' не найден."
     doctor_header       "Проверка %d аккаунт(ов):"
@@ -412,6 +420,8 @@ _claude_acc_help() {
     echo "  claude-acc run <name> [...]  $(_msg help_run)"
     echo "  claude-acc doctor [--json]   $(_msg help_doctor)"
     echo "  claude-acc whoami            $(_msg help_whoami)"
+    echo "  claude-acc add -s <name>     $(_msg help_add) (seeded from ~/.claude/)"
+    echo "  claude-acc clone-settings <name>  $(_msg help_clone_settings)"
 }
 
 _claude_acc_list() {
@@ -447,7 +457,14 @@ _claude_acc_list() {
 }
 
 _claude_acc_add() {
-    local name="$1"
+    local seed_flag=0 name=""
+    while (( $# > 0 )); do
+        case "$1" in
+            -s|--seed) seed_flag=1; shift ;;
+            *)         name="$1"; shift ;;
+        esac
+    done
+
     if [[ -z "$name" ]]; then
         _msg add_usage
         _msg add_example
@@ -470,6 +487,7 @@ _claude_acc_add() {
     mkdir -p "$acc_dir"
     mkdir -p "$HOME/.claude/ide"
     ln -sfn "$HOME/.claude/ide" "$acc_dir/ide"
+    (( seed_flag )) && _claude_acc_seed_from_default "$acc_dir"
     _msg add_created "$name"
     CLAUDE_CONFIG_DIR="$acc_dir" claude auth login
     echo ""
@@ -694,6 +712,58 @@ _claude_acc_reset() {
     sed -i '' "s/^default=.*/default=/" "$CLAUDE_SWITCH_CONFIG"
     _msg reset_done
     _claude_activate
+}
+
+# Seed an account dir with the user's standard ~/.claude/ config (curated set).
+# Skips files that already exist. Mirrors `seed::copy_user_config` in the
+# Rust binary — see src/seed.rs for the rationale on what's copied / not.
+_claude_acc_seed_from_default() {
+    local target="$1"
+    local source="$HOME/.claude"
+    [[ ! -d "$source" ]] && return 0
+
+    local files=(settings.json CLAUDE.md)
+    local dirs=(agents commands output-styles skills)
+    local any=0 f d count
+
+    for f in "${files[@]}"; do
+        if [[ -f "$source/$f" && ! -e "$target/$f" ]]; then
+            cp "$source/$f" "$target/$f"
+            _msg seed_copied "$f"
+            any=1
+        fi
+    done
+
+    for d in "${dirs[@]}"; do
+        if [[ -d "$source/$d" && ! -e "$target/$d" ]]; then
+            # Skip empty source dirs.
+            count=$(find "$source/$d" -type f 2>/dev/null | wc -l | tr -d ' ')
+            (( count == 0 )) && continue
+            cp -R "$source/$d" "$target/$d"
+            local plural=""
+            (( count != 1 )) && plural="s"
+            _msg seed_copied "$d/ ($count file$plural)"
+            any=1
+        fi
+    done
+
+    (( any == 0 )) && _msg seed_nothing
+    return 0
+}
+
+_claude_acc_clone_settings() {
+    local name="$1"
+    if [[ -z "$name" ]]; then
+        _msg clone_settings_usage
+        return 1
+    fi
+    _claude_validate_name "$name" || return 1
+    local acc_dir="$CLAUDE_SWITCH_ACCOUNTS_DIR/$name"
+    if [[ ! -d "$acc_dir" ]]; then
+        _msg login_not_found "$name"
+        return 1
+    fi
+    _claude_acc_seed_from_default "$acc_dir"
 }
 
 # Run claude under a specific account — one-shot, doesn't change links or
@@ -1110,6 +1180,7 @@ claude-acc() {
         run)     _claude_acc_run "$@" ;;
         doctor)  _claude_acc_doctor "$@" ;;
         whoami)  _claude_acc_whoami ;;
+        clone-settings) _claude_acc_clone_settings "$@" ;;
         help)    _claude_acc_help ;;
         *)       _claude_acc_help ;;
     esac
@@ -1135,6 +1206,7 @@ _claude_acc_completion() {
         "run:$(_msg help_run)"
         "doctor:$(_msg help_doctor)"
         "whoami:$(_msg help_whoami)"
+        "clone-settings:$(_msg help_clone_settings)"
         "help:$(_msg help_help)"
     )
 
@@ -1142,7 +1214,7 @@ _claude_acc_completion() {
         _describe 'command' subcmds
     elif (( CURRENT == 3 )); then
         case "${words[2]}" in
-            login|remove|run)
+            login|remove|run|clone-settings)
                 accounts=("$CLAUDE_SWITCH_ACCOUNTS_DIR"/*(N:t))
                 _describe 'account' accounts
                 ;;

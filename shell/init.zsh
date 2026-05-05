@@ -39,12 +39,13 @@ _claude_acc_completion() {
         'run:Run claude under a specific account'
         'doctor:Audit each account OAuth identity'
         'whoami:Print active account email'
+        'clone-settings:Copy ~/.claude/ config into account'
     )
     if (( CURRENT == 2 )); then
         _describe 'command' subcmds
     elif (( CURRENT == 3 )); then
         case "${words[2]}" in
-            login|remove|run)
+            login|remove|run|clone-settings)
                 accounts=(${(f)"$('__CLAUDE_ACC_BIN__' completions accounts)"})
                 _describe 'account' accounts
                 ;;

@@ -65,7 +65,8 @@ claude-acc link work
 | --- | --- |
 | `claude-acc` | Help |
 | `claude-acc list` | List all accounts |
-| `claude-acc add <name>` | Add account (runs `claude login`) |
+| `claude-acc add <name>` | Add account (runs `claude login`); add `-s` / `--seed` to seed from `~/.claude/` |
+| `claude-acc clone-settings <name>` | Copy `settings.json` / `CLAUDE.md` / `agents/` / etc. from `~/.claude/` into an existing account |
 | `claude-acc login <name>` | Re-login to an account |
 | `claude-acc remove <name>` | Remove account |
 | `claude-acc default [name]` | Show/set default account |
@@ -156,6 +157,31 @@ No manual setup required — `claude-acc install` does both. New accounts create
 | sessions, history, etc. | Runtime data |
 
 Each account gets its own copy of all these files in `~/.claude-switch/accounts/<name>/`.
+
+## Inheriting `~/.claude/` config
+
+A fresh `claude-acc add work` produces an empty config dir — no `settings.json`, no `CLAUDE.md`, no custom agents. If you want the new account to start with the same setup as your standard `~/.claude/`, use the `-s` / `--seed` flag, or run `clone-settings` retroactively:
+
+```bash
+claude-acc add -s work               # seed at creation time
+claude-acc clone-settings work       # seed an existing account
+```
+
+Both copy a curated set of files from `~/.claude/`:
+
+**Copied** (configuration / personalization):
+- `settings.json` (env vars, permissions, hooks references, statusline, plugins, language)
+- `CLAUDE.md` (global memory)
+- `agents/`, `commands/`, `output-styles/`, `skills/` (custom assets)
+
+**Not copied** (per-account state — would defeat the isolation):
+- `.credentials.json` (auth token — re-acquired via `claude auth login`)
+- `settings.local.json` (per-machine local overrides)
+- `projects/`, `todos/`, `statsig/` (sessions, runtime state, telemetry)
+- `hooks/`, `plugins/` (settings.json references these by absolute path; copying duplicates files for nothing)
+- `.account-info.json` (the doctor cache)
+
+Existing files in the target are skipped — `clone-settings` is a one-shot seed, not a sync.
 
 ## Per-project settings
 
