@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.4.0...v0.5.0) (2026-05-05)
+
+
+### Features
+
+* `claude-acc whoami` and `doctor --json` ([#25](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/25)) ([2e93aef](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/2e93aef9c445482f159c4e60cbcce72952f1cbd4))
+
 ## [0.4.0](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.3.0...v0.4.0) (2026-05-05)
 
 
