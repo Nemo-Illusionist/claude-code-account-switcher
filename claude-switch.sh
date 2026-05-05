@@ -88,6 +88,7 @@ _claude_msg_en=(
     link_done           "%s → account '%s'"
     link_done_default   "%s → ~/.claude/ (default)"
     reserved_name       "'%s' is a reserved name."
+    name_invalid        "Account name must contain only letters, digits, hyphens, and underscores."
     unlink_none         "No link for the current directory."
     unlink_done         "Unlinked %s. Default account will be used."
     status_active       "Active account: %s %s"
@@ -143,6 +144,7 @@ _claude_msg_ru=(
     link_done           "%s → аккаунт '%s'"
     link_done_default   "%s → ~/.claude/ (default)"
     reserved_name       "'%s' — зарезервированное имя."
+    name_invalid        "Имя аккаунта может содержать только буквы, цифры, дефисы и подчёркивания."
     unlink_none         "Нет привязки для текущей директории."
     unlink_done         "Привязка убрана для %s. Будет использован дефолтный аккаунт."
     status_active       "Активный аккаунт: %s %s"
@@ -176,6 +178,18 @@ _msg() {
 # =============================================================
 # Ядро
 # =============================================================
+
+# --- Валидация имени аккаунта ---
+# Allowed: ASCII letters, digits, hyphens, underscores. Rejects path
+# separators, regex metacharacters, whitespace, and unicode — anything
+# that could be unsafe inside file paths or grep/sed patterns.
+_claude_validate_name() {
+    local name="$1"
+    if [[ ! "$name" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+        _msg name_invalid
+        return 1
+    fi
+}
 
 # --- Инициализация ---
 _claude_switch_init() {
@@ -243,6 +257,35 @@ WRAPPER_EOF
 }
 _claude_switch_init
 
+# --- Безопасные операции с файлом links ---
+# Используем pure-shell обработку вместо grep/sed по двум причинам:
+# 1. Пути могут содержать regex-метасимволы (`.`, `[`, `+` и т.п. — частая
+#    история на macOS), которые ломают anchored-grep over-match'ем.
+# 2. `sed -i ''` для удаления строки тоже трактует pattern как regex.
+# `[[ "$line" == "${dir}="* ]]` использует glob-pattern с буквальной частью
+# и единственным `*` в конце — никаких сюрпризов с метасимволами в `$dir`.
+
+_claude_links_has_dir() {
+    local dir="$1"
+    [[ -z "$dir" || ! -f "$CLAUDE_SWITCH_LINKS" ]] && return 1
+    local line
+    while IFS= read -r line; do
+        [[ "$line" == "${dir}="* ]] && return 0
+    done < "$CLAUDE_SWITCH_LINKS"
+    return 1
+}
+
+_claude_links_remove_dir() {
+    local dir="$1"
+    [[ -z "$dir" || ! -f "$CLAUDE_SWITCH_LINKS" ]] && return 0
+    local tmpfile line
+    tmpfile=$(mktemp) || return 1
+    while IFS= read -r line; do
+        [[ "$line" == "${dir}="* ]] || printf '%s\n' "$line"
+    done < "$CLAUDE_SWITCH_LINKS" > "$tmpfile"
+    mv "$tmpfile" "$CLAUDE_SWITCH_LINKS"
+}
+
 # --- Прочитать дефолтный аккаунт ---
 _claude_default_account() {
     grep '^default=' "$CLAUDE_SWITCH_CONFIG" 2>/dev/null | cut -d= -f2
@@ -251,8 +294,15 @@ _claude_default_account() {
 # --- Найти аккаунт для директории (точное совпадение) ---
 _claude_dir_account() {
     local dir="$1"
-    [[ -z "$dir" ]] && return 1
-    grep -F "${dir}=" "$CLAUDE_SWITCH_LINKS" 2>/dev/null | grep "^${dir}=" | head -1 | cut -d= -f2
+    [[ -z "$dir" || ! -f "$CLAUDE_SWITCH_LINKS" ]] && return 1
+    local line
+    while IFS= read -r line; do
+        if [[ "$line" == "${dir}="* ]]; then
+            echo "${line#*=}"
+            return 0
+        fi
+    done < "$CLAUDE_SWITCH_LINKS"
+    return 1
 }
 
 # --- Найти аккаунт, поднимаясь по дереву директорий ---
@@ -277,8 +327,7 @@ _claude_find_linked_dir() {
     local dir="${1:-$PWD}"
 
     while [[ "$dir" != "/" && -n "$dir" ]]; do
-        if grep -qF "${dir}=" "$CLAUDE_SWITCH_LINKS" 2>/dev/null && \
-           grep -q "^${dir}=" "$CLAUDE_SWITCH_LINKS" 2>/dev/null; then
+        if _claude_links_has_dir "$dir"; then
             echo "$dir"
             return 0
         fi
@@ -371,6 +420,8 @@ _claude_acc_add() {
         return 1
     fi
 
+    _claude_validate_name "$name" || return 1
+
     local acc_dir="$CLAUDE_SWITCH_ACCOUNTS_DIR/$name"
     if [[ -d "$acc_dir" ]]; then
         _msg add_exists "$name"
@@ -381,7 +432,7 @@ _claude_acc_add() {
     mkdir -p "$HOME/.claude/ide"
     ln -sfn "$HOME/.claude/ide" "$acc_dir/ide"
     _msg add_created "$name"
-    CLAUDE_CONFIG_DIR="$acc_dir" claude login
+    CLAUDE_CONFIG_DIR="$acc_dir" claude auth login
     echo ""
     _msg add_done
     _msg add_hint_default "$name"
@@ -395,6 +446,8 @@ _claude_acc_login() {
         return 1
     fi
 
+    _claude_validate_name "$name" || return 1
+
     local acc_dir="$CLAUDE_SWITCH_ACCOUNTS_DIR/$name"
     if [[ ! -d "$acc_dir" ]]; then
         _msg login_not_found "$name"
@@ -402,7 +455,7 @@ _claude_acc_login() {
     fi
 
     _msg login_start "$name"
-    CLAUDE_CONFIG_DIR="$acc_dir" claude login
+    CLAUDE_CONFIG_DIR="$acc_dir" claude auth login
     _msg login_done
 }
 
@@ -423,6 +476,8 @@ _claude_acc_remove() {
         _msg reserved_name "$name"
         return 1
     fi
+
+    _claude_validate_name "$name" || return 1
 
     local acc_dir="$CLAUDE_SWITCH_ACCOUNTS_DIR/$name"
     if [[ ! -d "$acc_dir" ]]; then
@@ -475,6 +530,8 @@ _claude_acc_default() {
         return
     fi
 
+    _claude_validate_name "$name" || return 1
+
     if [[ ! -d "$CLAUDE_SWITCH_ACCOUNTS_DIR/$name" ]]; then
         _msg default_not_found "$name"
         _claude_acc_list
@@ -494,6 +551,10 @@ _claude_acc_link() {
         return 1
     fi
 
+    if [[ "$name" != "default" ]]; then
+        _claude_validate_name "$name" || return 1
+    fi
+
     if [[ "$name" != "default" && ! -d "$CLAUDE_SWITCH_ACCOUNTS_DIR/$name" ]]; then
         _msg link_not_found "$name"
         _claude_acc_list
@@ -503,7 +564,7 @@ _claude_acc_link() {
     local dir="$PWD"
 
     # Убрать старую привязку для этой директории, если есть
-    sed -i '' "\|^${dir}=|d" "$CLAUDE_SWITCH_LINKS"
+    _claude_links_remove_dir "$dir"
 
     # Добавить новую
     echo "${dir}=${name}" >> "$CLAUDE_SWITCH_LINKS"
@@ -518,13 +579,12 @@ _claude_acc_link() {
 _claude_acc_unlink() {
     local dir="$PWD"
 
-    if ! grep -qF "${dir}=" "$CLAUDE_SWITCH_LINKS" 2>/dev/null || \
-       ! grep -q "^${dir}=" "$CLAUDE_SWITCH_LINKS" 2>/dev/null; then
+    if ! _claude_links_has_dir "$dir"; then
         _msg unlink_none
         return 1
     fi
 
-    sed -i '' "\|^${dir}=|d" "$CLAUDE_SWITCH_LINKS"
+    _claude_links_remove_dir "$dir"
     _msg unlink_done "$(basename "$dir")"
     _claude_activate
 }
