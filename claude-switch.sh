@@ -29,7 +29,7 @@ CLAUDE_SWITCH_SCRIPT="${(%):-%x}"
 CLAUDE_SWITCH_SCRIPT="${CLAUDE_SWITCH_SCRIPT:A}"
 
 # =============================================================
-# Локализация / i18n
+# Localization / i18n
 # =============================================================
 
 _claude_acc_lang() {
@@ -200,10 +200,10 @@ _msg() {
 }
 
 # =============================================================
-# Ядро
+# Core
 # =============================================================
 
-# --- Валидация имени аккаунта ---
+# --- Account name validation ---
 # Allowed: ASCII letters, digits, hyphens, underscores. Rejects path
 # separators, regex metacharacters, whitespace, and unicode — anything
 # that could be unsafe inside file paths or grep/sed patterns.
@@ -215,24 +215,24 @@ _claude_validate_name() {
     fi
 }
 
-# --- Инициализация ---
+# --- Init ---
 _claude_switch_init() {
     mkdir -p "$CLAUDE_SWITCH_ACCOUNTS_DIR"
     mkdir -p "$CLAUDE_SWITCH_BIN"
     [[ -f "$CLAUDE_SWITCH_CONFIG" ]] || echo "default=" > "$CLAUDE_SWITCH_CONFIG"
     [[ -f "$CLAUDE_SWITCH_LINKS" ]]  || touch "$CLAUDE_SWITCH_LINKS"
-    # Миграция: переименовать repos → links
+    # Migration: rename repos → links
     if [[ -f "$CLAUDE_SWITCH_DIR/repos" && ! -s "$CLAUDE_SWITCH_LINKS" ]]; then
         mv "$CLAUDE_SWITCH_DIR/repos" "$CLAUDE_SWITCH_LINKS"
     fi
-    # Обеспечить ide/ symlinks и wrapper для IDE-интеграции
+    # Set up ide/ symlinks and the IDE-integration wrapper
     _claude_ensure_ide_symlinks
     _claude_ensure_wrapper
 }
 
-# --- Создать ide/ symlinks для всех аккаунтов ---
-# Все аккаунты указывают на ~/.claude/ide/ чтобы IDE-плагины (PhpStorm, VSCode)
-# всегда находили lock-файлы Claude Code в стандартном месте.
+# --- Create ide/ symlinks for every account ---
+# Every account points at ~/.claude/ide/ so IDE plugins (PhpStorm, VSCode)
+# always find Claude Code's lock files in the canonical location.
 _claude_ensure_ide_symlinks() {
     local ide_dir="$HOME/.claude/ide"
     mkdir -p "$ide_dir"
@@ -245,15 +245,15 @@ _claude_ensure_ide_symlinks() {
     done
 }
 
-# --- Создать wrapper-скрипт ~/.claude-switch/bin/claude ---
-# Нужен чтобы IDE (PhpStorm и др.) запускали claude с правильным CLAUDE_CONFIG_DIR.
-# IDE запускает бинарник напрямую без .zshrc, поэтому wrapper сам source-ит
-# claude-switch.sh — это поднимает _claude_activate против $PWD и переиспользует
-# ту же логику lookup'а что и терминальный chpwd-хук (без дублирования кода).
+# --- Create wrapper script ~/.claude-switch/bin/claude ---
+# IDEs (PhpStorm etc.) launch claude directly without sourcing .zshrc, so
+# CLAUDE_CONFIG_DIR wouldn't be set. The wrapper sources claude-switch.sh
+# itself — that runs _claude_activate against $PWD and reuses the same
+# lookup logic as the terminal chpwd hook (no code duplication).
 _claude_ensure_wrapper() {
     local wrapper="$CLAUDE_SWITCH_BIN/claude"
 
-    # Перегенерировать только если wrapper отсутствует или старее главного скрипта
+    # Regenerate only if wrapper is missing or older than the main script
     if [[ -x "$wrapper" && "$wrapper" -nt "$CLAUDE_SWITCH_SCRIPT" ]]; then
         return
     fi
@@ -281,13 +281,13 @@ WRAPPER_EOF
 }
 _claude_switch_init
 
-# --- Безопасные операции с файлом links ---
-# Используем pure-shell обработку вместо grep/sed по двум причинам:
-# 1. Пути могут содержать regex-метасимволы (`.`, `[`, `+` и т.п. — частая
-#    история на macOS), которые ломают anchored-grep over-match'ем.
-# 2. `sed -i ''` для удаления строки тоже трактует pattern как regex.
-# `[[ "$line" == "${dir}="* ]]` использует glob-pattern с буквальной частью
-# и единственным `*` в конце — никаких сюрпризов с метасимволами в `$dir`.
+# --- Safe operations on the links file ---
+# Pure-shell processing instead of grep/sed for two reasons:
+# 1. Paths can contain regex metacharacters (`.`, `[`, `+` etc. — common
+#    on macOS) which break anchored-grep with over-matching.
+# 2. `sed -i ''` for line deletion also treats the pattern as regex.
+# `[[ "$line" == "${dir}="* ]]` uses a glob pattern with a literal prefix
+# and a single trailing `*` — no surprises with metacharacters in `$dir`.
 
 _claude_links_has_dir() {
     local dir="$1"
@@ -310,12 +310,12 @@ _claude_links_remove_dir() {
     mv "$tmpfile" "$CLAUDE_SWITCH_LINKS"
 }
 
-# --- Прочитать дефолтный аккаунт ---
+# --- Read configured default account ---
 _claude_default_account() {
     grep '^default=' "$CLAUDE_SWITCH_CONFIG" 2>/dev/null | cut -d= -f2
 }
 
-# --- Найти аккаунт для директории (точное совпадение) ---
+# --- Look up account for a directory (exact match) ---
 _claude_dir_account() {
     local dir="$1"
     [[ -z "$dir" || ! -f "$CLAUDE_SWITCH_LINKS" ]] && return 1
@@ -329,7 +329,7 @@ _claude_dir_account() {
     return 1
 }
 
-# --- Найти аккаунт, поднимаясь по дереву директорий ---
+# --- Resolve account by walking up the directory tree ---
 _claude_find_account() {
     local dir="${1:-$PWD}"
     local account
@@ -346,7 +346,7 @@ _claude_find_account() {
     return 1
 }
 
-# --- Найти директорию привязки (для status) ---
+# --- Find the directory that owns the active link (for status) ---
 _claude_find_linked_dir() {
     local dir="${1:-$PWD}"
 
@@ -361,7 +361,7 @@ _claude_find_linked_dir() {
     return 1
 }
 
-# --- Установить CLAUDE_CONFIG_DIR для текущего контекста ---
+# --- Set CLAUDE_CONFIG_DIR for the current context ---
 _claude_activate() {
     local account
     account=$(_claude_find_account)
@@ -379,20 +379,20 @@ _claude_activate() {
     fi
 }
 
-# --- Хук на cd: автоматически переключает аккаунт ---
+# --- chpwd hook: auto-switch account on cd ---
 _claude_chpwd_hook() {
     _claude_activate
 }
 
-# Регистрируем хук (zsh вызывает chpwd при каждой смене директории)
+# Register the hook (zsh calls chpwd on every directory change)
 autoload -Uz add-zsh-hook
 add-zsh-hook chpwd _claude_chpwd_hook
 
-# Активировать сразу для текущей директории
+# Activate immediately for the current directory
 _claude_activate
 
 # =============================================================
-# Подкоманды
+# Subcommands
 # =============================================================
 
 _claude_acc_help() {
@@ -534,14 +534,14 @@ _claude_acc_remove() {
         fi
     fi
 
-    # Убрать из дефолтного
+    # Clear default if it was this account
     local default_acc
     default_acc=$(_claude_default_account)
     if [[ "$default_acc" == "$name" ]]; then
         sed -i '' "s/^default=.*/default=/" "$CLAUDE_SWITCH_CONFIG"
     fi
 
-    # Убрать привязки
+    # Drop links pointing at this account
     sed -i '' "/=$name$/d" "$CLAUDE_SWITCH_LINKS"
 
     rm -rf "$acc_dir"
@@ -605,10 +605,10 @@ _claude_acc_link() {
 
     local dir="$PWD"
 
-    # Убрать старую привязку для этой директории, если есть
+    # Drop existing link for this directory, if any
     _claude_links_remove_dir "$dir"
 
-    # Добавить новую
+    # Append the new one
     echo "${dir}=${name}" >> "$CLAUDE_SWITCH_LINKS"
     if [[ "$name" == "default" ]]; then
         _msg link_done_default "$(basename "$dir")"
@@ -696,8 +696,9 @@ _claude_acc_reset() {
     _claude_activate
 }
 
-# Запустить claude под конкретным аккаунтом, без привязки и без смены текущей.
-# `default` — запуск без CLAUDE_CONFIG_DIR (стандартный ~/.claude/).
+# Run claude under a specific account — one-shot, doesn't change links or
+# the current shell's active account. `default` runs without
+# CLAUDE_CONFIG_DIR (standard ~/.claude/).
 _claude_acc_run() {
     local name="$1"
     if [[ -z "$name" ]]; then
@@ -1088,7 +1089,7 @@ _claude_acc_whoami() {
 }
 
 # =============================================================
-# Единая точка входа
+# Single entry point
 # =============================================================
 
 claude-acc() {
@@ -1115,7 +1116,7 @@ claude-acc() {
 }
 
 # =============================================================
-# Автодополнение (zsh)
+# Tab completion (zsh)
 # =============================================================
 
 _claude_acc_completion() {
@@ -1156,9 +1157,9 @@ _claude_acc_completion() {
 compdef _claude_acc_completion claude-acc
 
 # =============================================================
-# PATH: поставить wrapper впереди настоящего claude
+# PATH: put the wrapper ahead of the real claude
 # =============================================================
-# Добавляем только если ещё не в PATH, чтобы не дублировать при повторном source.
+# Only prepend if not already in PATH, to avoid duplication on re-source.
 if [[ ":$PATH:" != *":$CLAUDE_SWITCH_BIN:"* ]]; then
     export PATH="$CLAUDE_SWITCH_BIN:$PATH"
 fi
