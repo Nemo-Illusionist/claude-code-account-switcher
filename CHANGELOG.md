@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.2.0...v0.2.1) (2026-05-05)
+
+
+### Documentation
+
+* migration guide between Rust and shell distributions ([#11](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/11)) ([82226a1](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/82226a1ae4ed914d3b0070835ed934b0e3f8a2bd))
+
 ## [0.2.0](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.1.0...v0.2.0) (2026-05-05)
 
 
