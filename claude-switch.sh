@@ -57,6 +57,7 @@ _claude_msg_en=(
     help_unlink         "Unlink current directory"
     help_links          "Show all directory links"
     help_status         "Current account and context"
+    help_run            "Run claude under a specific account"
     help_help           "Help"
     list_empty          "No accounts. Add one: claude-acc add <name>"
     list_header         "Claude Code accounts:"
@@ -89,6 +90,8 @@ _claude_msg_en=(
     link_done_default   "%s → ~/.claude/ (default)"
     reserved_name       "'%s' is a reserved name."
     name_invalid        "Account name must contain only letters, digits, hyphens, and underscores."
+    run_usage           "Usage: claude-acc run <name> [args...]"
+    run_not_found       "Account '%s' not found."
     unlink_none         "No link for the current directory."
     unlink_done         "Unlinked %s. Default account will be used."
     status_active       "Active account: %s %s"
@@ -113,6 +116,7 @@ _claude_msg_ru=(
     help_unlink         "Убрать привязку с текущей директории"
     help_links          "Показать все привязки директорий"
     help_status         "Текущий аккаунт и контекст"
+    help_run            "Запустить claude под конкретным аккаунтом"
     help_help           "Справка"
     list_empty          "Нет аккаунтов. Добавьте: claude-acc add <name>"
     list_header         "Аккаунты Claude Code:"
@@ -145,6 +149,8 @@ _claude_msg_ru=(
     link_done_default   "%s → ~/.claude/ (default)"
     reserved_name       "'%s' — зарезервированное имя."
     name_invalid        "Имя аккаунта может содержать только буквы, цифры, дефисы и подчёркивания."
+    run_usage           "Использование: claude-acc run <name> [args...]"
+    run_not_found       "Аккаунт '%s' не найден."
     unlink_none         "Нет привязки для текущей директории."
     unlink_done         "Привязка убрана для %s. Будет использован дефолтный аккаунт."
     status_active       "Активный аккаунт: %s %s"
@@ -385,6 +391,7 @@ _claude_acc_help() {
     echo "  claude-acc unlink            $(_msg help_unlink)"
     echo "  claude-acc links             $(_msg help_links)"
     echo "  claude-acc status            $(_msg help_status)"
+    echo "  claude-acc run <name> [...]  $(_msg help_run)"
 }
 
 _claude_acc_list() {
@@ -640,6 +647,32 @@ _claude_acc_reset() {
     _claude_activate
 }
 
+# Запустить claude под конкретным аккаунтом, без привязки и без смены текущей.
+# `default` — запуск без CLAUDE_CONFIG_DIR (стандартный ~/.claude/).
+_claude_acc_run() {
+    local name="$1"
+    if [[ -z "$name" ]]; then
+        _msg run_usage
+        return 1
+    fi
+    shift
+
+    if [[ "$name" == "default" ]]; then
+        command claude "$@"
+        return $?
+    fi
+
+    _claude_validate_name "$name" || return 1
+
+    local acc_dir="$CLAUDE_SWITCH_ACCOUNTS_DIR/$name"
+    if [[ ! -d "$acc_dir" ]]; then
+        _msg run_not_found "$name"
+        return 1
+    fi
+
+    CLAUDE_CONFIG_DIR="$acc_dir" command claude "$@"
+}
+
 # =============================================================
 # Единая точка входа
 # =============================================================
@@ -659,6 +692,7 @@ claude-acc() {
         unlink)  _claude_acc_unlink "$@" ;;
         links)   _claude_acc_links ;;
         status)  _claude_acc_status "$@" ;;
+        run)     _claude_acc_run "$@" ;;
         help)    _claude_acc_help ;;
         *)       _claude_acc_help ;;
     esac
@@ -681,6 +715,7 @@ _claude_acc_completion() {
         "unlink:$(_msg help_unlink)"
         "links:$(_msg help_links)"
         "status:$(_msg help_status)"
+        "run:$(_msg help_run)"
         "help:$(_msg help_help)"
     )
 
@@ -688,7 +723,7 @@ _claude_acc_completion() {
         _describe 'command' subcmds
     elif (( CURRENT == 3 )); then
         case "${words[2]}" in
-            login|remove)
+            login|remove|run)
                 accounts=("$CLAUDE_SWITCH_ACCOUNTS_DIR"/*(N:t))
                 _describe 'account' accounts
                 ;;
