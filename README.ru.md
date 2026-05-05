@@ -1,9 +1,41 @@
-# Claude Code Account Switcher (macOS)
+# Claude Code Account Switcher
 
 Привязка разных аккаунтов Claude Code к разным директориям.
 При `cd` автоматически подхватывается нужный аккаунт.
 
+Два варианта дистрибуции:
+
+- **Rust CLI** (`claude-acc`) — кроссплатформенный: macOS, Linux, Windows; zsh, bash, PowerShell. **Рекомендуется.**
+- **Shell-скрипт** (`claude-switch.sh`) — только zsh, ориентирован на macOS. Один файл, без бинарника и компиляции.
+
+Оба варианта используют одинаковый on-disk формат (`~/.claude-switch/`), так что переключаться между ними можно без миграции.
+
 ## Установка
+
+### Rust CLI (рекомендуется)
+
+Скачайте из [GitHub Releases](https://github.com/Nemo-Illusionist/claude-code-account-switcher/releases), затем:
+
+```bash
+claude-acc install
+```
+
+Это:
+- Скопирует бинарник в `~/.claude-switch/bin/claude-acc`
+- Установит IDE-wrapper в `~/.claude-switch/bin/claude` (см. [Интеграция с IDE](#интеграция-с-ide))
+- Определит ваш шелл (zsh/bash/PowerShell)
+- Добавит интеграцию в rc-файл
+
+Для обновления — скачайте новую версию и снова запустите `claude-acc install`.
+
+#### Из исходников
+
+```bash
+cargo install --path .
+claude-acc install
+```
+
+### Shell-скрипт (только zsh)
 
 ```bash
 cp claude-switch.sh ~/.claude-switch.sh
@@ -33,12 +65,16 @@ claude-acc link work
 | `claude-acc` | Справка |
 | `claude-acc list` | Список всех аккаунтов |
 | `claude-acc add <имя>` | Добавить аккаунт (запустит `claude login`) |
+| `claude-acc login <имя>` | Перелогиниться в аккаунт |
 | `claude-acc remove <имя>` | Удалить аккаунт |
 | `claude-acc default [имя]` | Показать/задать дефолтный аккаунт |
 | `claude-acc reset` | Сбросить дефолт на `~/.claude/` |
 | `claude-acc link <имя>` | Привязать аккаунт к текущей директории |
 | `claude-acc unlink` | Убрать привязку с текущей директории |
+| `claude-acc links` | Показать все привязки директорий |
 | `claude-acc status` | Показать активный аккаунт |
+| `claude-acc run <имя>` | Запустить claude под конкретным аккаунтом |
+| `claude-acc install` | Установить бинарник и shell-интеграцию |
 
 ## Как это работает
 
@@ -50,7 +86,7 @@ claude-acc link work
 └── links            ← привязки: путь=аккаунт
 ```
 
-При смене директории скрипт:
+При смене директории:
 
 1. Ищет привязку для текущей директории в `~/.claude-switch/links`
 2. Если нет — поднимается вверх по дереву директорий
@@ -96,18 +132,33 @@ claude-acc link default
 
 ## Интеграция с IDE
 
-JetBrains IDE (PhpStorm, IntelliJ и т.п.) и VSCode запускают `claude` напрямую, не source-я ваш shell-конфиг. Без этого `CLAUDE_CONFIG_DIR` не выставится и подхватится не тот аккаунт. Чтобы это работало для не-default аккаунтов, `claude-switch.sh` при загрузке устанавливает две вещи:
+JetBrains IDE (PhpStorm, IntelliJ и т.п.) и VSCode запускают `claude` напрямую, не source-я ваш shell-конфиг. Без этого `CLAUDE_CONFIG_DIR` не выставится и подхватится не тот аккаунт. Чтобы это работало для не-default аккаунтов, `claude-acc install` ставит две вещи:
 
-- Wrapper `~/.claude-switch/bin/claude`, который определяет аккаунт для `$PWD` и `exec`-ает реальный `claude`. `~/.claude-switch/bin` добавляется в начало `PATH`, так что и терминал, и IDE прозрачно подхватывают wrapper. Wrapper сам source-ит `claude-switch.sh`, поэтому переиспользует ту же логику lookup'а что и `cd`-хук — нет дублирования.
+- Wrapper `~/.claude-switch/bin/claude`, который определяет аккаунт для текущей директории (через `claude-acc activate`) и `exec`-ает реальный `claude`. `~/.claude-switch/bin` добавляется в начало `PATH` (через shell-init), так что и терминал, и IDE прозрачно подхватывают wrapper.
 - Symlink `~/.claude-switch/accounts/<name>/ide → ~/.claude/ide` для каждого аккаунта. Claude Code пишет lock-файлы IDE в `$CLAUDE_CONFIG_DIR/ide/`, а IDE-плагины ищут их в `~/.claude/ide/`. Symlink приводит обе стороны к одному месту.
 
-Никаких ручных шагов не нужно — достаточно `source ~/.claude-switch.sh` как в [Установке](#установка).
+Никаких ручных шагов не нужно — `claude-acc install` делает обе вещи. Новые аккаунты, создаваемые через `claude-acc add`, получают `ide/` symlink автоматически.
 
-## Отдельные глобальные настройки для проектов
+## Что переключается
 
-Каждый аккаунт получает свою папку `~/.claude-switch/accounts/<name>/`, которая используется как `CLAUDE_CONFIG_DIR`. Это значит, что у каждого аккаунта свои глобальные `settings.json`, `CLAUDE.md`, hooks и прочие настройки.
+`CLAUDE_CONFIG_DIR` перемещает всю директорию `~/.claude/`, включая ([docs](https://code.claude.com/docs/en/settings)):
 
-Это можно использовать для разных глобальных конфигов на разных проектах — даже под одной авторизацией. Просто создайте несколько аккаунтов и войдите с теми же данными:
+| Файл | Описание |
+|---|---|
+| `settings.json` | Пользовательские настройки |
+| `CLAUDE.md` | Глобальная память / инструкции |
+| `agents/` | Субагенты |
+| `.credentials.json` | Данные авторизации |
+| `projects/` | Глобальные конфиги по проектам |
+| sessions, history и т.д. | Runtime-данные |
+
+Каждый аккаунт получает свою копию всех этих файлов в `~/.claude-switch/accounts/<name>/`.
+
+## Отдельные настройки для проектов
+
+Каждый аккаунт получает свою папку `~/.claude-switch/accounts/<name>/`, которая используется как `CLAUDE_CONFIG_DIR`. Это значит, что у каждого аккаунта свои `settings.json`, credentials и история проектов.
+
+Это можно использовать для разных настроек на разных проектах — даже под одной авторизацией. Просто создайте несколько аккаунтов и войдите с теми же данными:
 
 ```bash
 # Общий рабочий аккаунт с дефолтными настройками
@@ -115,16 +166,14 @@ claude-acc add work
 cd ~/work
 claude-acc link work
 
-# Тот же логин, но со своими глобальными настройками для конкретного проекта
+# Тот же логин, но со своими настройками для конкретного проекта
 claude-acc add work-ml
 cd ~/work/ml-project
 claude-acc link work-ml
 
-# Теперь можно настраивать глобальные конфиги независимо:
+# Теперь можно настраивать settings независимо:
 # ~/.claude-switch/accounts/work/settings.json       — для всех рабочих проектов
-# ~/.claude-switch/accounts/work/CLAUDE.md            — глобальные правила для work
 # ~/.claude-switch/accounts/work-ml/settings.json     — только для ml-project
-# ~/.claude-switch/accounts/work-ml/CLAUDE.md          — глобальные правила для ml-project
 ```
 
 > Примечание: `claude-acc add` запускает `claude login`, поэтому нужно будет залогиниться повторно (тот же аккаунт, просто новая папка конфига).
@@ -158,6 +207,19 @@ $ cd ~/hobby/my-bot
 $ claude-acc status
 Активный аккаунт: ~/.claude/ (стандартный)
 ```
+
+## Релизы
+
+Релизы автоматизированы через [release-please](https://github.com/googleapis/release-please). На каждый push в `master` action читает [conventional commits](https://www.conventionalcommits.org/ru/v1.0.0/) и держит открытой одну "Release PR" с бампом версии и changelog. Мерж этой PR создаёт тег и собирает кроссплатформенные бинарники (macOS x64/arm64, Linux x64/arm64, Windows x64), приклеивая их к релизу.
+
+Префиксы коммитов для корректного bump:
+
+| Префикс | Bump |
+|---|---|
+| `feat:` | minor (`0.1.0 → 0.2.0`) |
+| `fix:` / `perf:` / `refactor:` / `docs:` | patch (`0.1.0 → 0.1.1`) |
+| `feat!:` или `BREAKING CHANGE:` в теле | major (`0.1.0 → 1.0.0`) |
+| `chore:` / `ci:` / `build:` / `style:` / `test:` | без релиза |
 
 ## Лицензия
 
