@@ -208,6 +208,31 @@ $ claude-acc status
 Активный аккаунт: ~/.claude/ (стандартный)
 ```
 
+## Переключение между Rust и shell
+
+Оба варианта читают и пишут одни и те же файлы в `~/.claude-switch/`:
+
+```
+~/.claude-switch/
+├── accounts/        ← CLAUDE_CONFIG_DIR для каждого аккаунта
+├── config           ← дефолтный аккаунт
+└── links            ← привязки директория ↔ аккаунт
+```
+
+Поэтому переключаться можно без пересоздания аккаунтов и перепривязок. Шаги:
+
+**Shell → Rust:**
+1. Установить Rust-бинарник: скачать из [Releases](https://github.com/Nemo-Illusionist/claude-code-account-switcher/releases) и запустить `claude-acc install`. Эта команда сама добавит свою shell-init строку.
+2. Удалить строку `source ~/.claude-switch.sh` из `~/.zshrc` (за активацию теперь отвечает Rust-init).
+3. По желанию — `rm ~/.claude-switch.sh`.
+
+**Rust → shell:**
+1. `cp claude-switch.sh ~/.claude-switch.sh`, добавить `source ~/.claude-switch.sh` в `~/.zshrc`.
+2. Удалить строку `eval "$(... claude-acc init zsh)"` из `~/.zshrc`.
+3. По желанию — `rm ~/.claude-switch/bin/claude-acc ~/.claude-switch/bin/claude` (wrapper). Shell-версия пересоздаст свой wrapper при `source`.
+
+Учётные данные аккаунтов, привязки и дефолт сохраняются как есть.
+
 ## Релизы
 
 Релизы автоматизированы через [release-please](https://github.com/googleapis/release-please). На каждый push в `master` action читает [conventional commits](https://www.conventionalcommits.org/ru/v1.0.0/) и держит открытой одну "Release PR" с бампом версии и changelog. Мерж этой PR создаёт тег и собирает кроссплатформенные бинарники (macOS x64/arm64, Linux x64/arm64, Windows x64), приклеивая их к релизу.

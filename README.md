@@ -209,6 +209,31 @@ $ claude-acc status
 Active account: ~/.claude/ (standard)
 ```
 
+## Switching between Rust and shell
+
+Both versions read and write the same files under `~/.claude-switch/`:
+
+```
+~/.claude-switch/
+├── accounts/        ← per-account CLAUDE_CONFIG_DIR
+├── config           ← default account
+└── links            ← directory ↔ account bindings
+```
+
+So you can move from one to the other without re-creating accounts or relinking directories. Steps:
+
+**Shell → Rust:**
+1. Install the Rust binary: download from [Releases](https://github.com/Nemo-Illusionist/claude-code-account-switcher/releases) and run `claude-acc install`. The Rust install command writes its own shell-init line.
+2. Remove the `source ~/.claude-switch.sh` line from your `~/.zshrc` (the Rust init handles activation now).
+3. Optionally `rm ~/.claude-switch.sh`.
+
+**Rust → shell:**
+1. `cp claude-switch.sh ~/.claude-switch.sh` and add `source ~/.claude-switch.sh` to `~/.zshrc`.
+2. Remove the `eval "$(... claude-acc init zsh)"` line from `~/.zshrc`.
+3. Optionally `rm ~/.claude-switch/bin/claude-acc ~/.claude-switch/bin/claude` (the wrapper). The shell version regenerates its own wrapper on `source`.
+
+Account credentials, links, and the `default` setting carry over without any changes.
+
 ## Releases
 
 Releases are managed automatically by [release-please](https://github.com/googleapis/release-please). On every push to `master`, an action reads the [conventional-commit](https://www.conventionalcommits.org/) messages and keeps a rolling "Release PR" open with a version bump and changelog. Merging that PR creates a tag and triggers cross-platform binary builds (macOS x64/arm64, Linux x64/arm64, Windows x64) that are attached to the release.
