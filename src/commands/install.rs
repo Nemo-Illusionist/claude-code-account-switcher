@@ -74,17 +74,12 @@ fn ensure_shell_integration(config: &AppConfig, i18n: &I18n) {
     if let Some(rc) = rc_path {
         let content = fs::read_to_string(&rc).unwrap_or_default();
 
-        if content.contains("claude-acc init") {
-            // Already has some form of claude-acc init
-            if content.contains(bin_str) {
-                i18n.print(Msg::InstallShellAlready(rc.to_string_lossy().to_string()));
-            } else {
-                // Update old eval line to point to new binary
-                let updated = update_eval_line(&content, &eval_line);
-                fs::write(&rc, updated).expect("Failed to update rc file");
-                i18n.print(Msg::InstallShellUpdated(rc.to_string_lossy().to_string()));
-            }
-        } else {
+        // Match any line that mentions claude-acc + init (handles quoting
+        // around the binary path, like 'claude-acc' init zsh).
+        let init_line_count = content.lines().filter(|l| is_claude_acc_init_line(l)).count();
+        let has_exact_match = content.lines().any(|l| l.trim() == eval_line.trim());
+
+        if init_line_count == 0 {
             let mut content = content;
             if !content.ends_with('\n') && !content.is_empty() {
                 content.push('\n');
@@ -92,6 +87,14 @@ fn ensure_shell_integration(config: &AppConfig, i18n: &I18n) {
             content.push_str(&format!("\n# Claude Code Account Switcher\n{}\n", eval_line));
             fs::write(&rc, content).expect("Failed to update rc file");
             i18n.print(Msg::InstallShellAdded(rc.to_string_lossy().to_string()));
+        } else if init_line_count == 1 && has_exact_match {
+            i18n.print(Msg::InstallShellAlready(rc.to_string_lossy().to_string()));
+        } else {
+            // Either: stale path (mismatch) or duplicates from a previous
+            // buggy install. Either way, dedupe and refresh.
+            let updated = update_eval_line(&content, &eval_line);
+            fs::write(&rc, updated).expect("Failed to update rc file");
+            i18n.print(Msg::InstallShellUpdated(rc.to_string_lossy().to_string()));
         }
     } else {
         i18n.print(Msg::InstallShellManual(eval_line));
@@ -132,15 +135,34 @@ fn detect_shell_and_rc() -> (String, Option<PathBuf>) {
     ("bash".to_string(), None)
 }
 
+fn is_claude_acc_init_line(line: &str) -> bool {
+    line.contains("claude-acc") && line.contains("init")
+        && (line.contains("eval") || line.contains("Invoke-Expression"))
+}
+
+const HEADER_COMMENT: &str = "# Claude Code Account Switcher";
+
 fn update_eval_line(content: &str, new_eval: &str) -> String {
-    let mut result = String::new();
+    // Replace the first matching init line; drop any subsequent duplicates
+    // and their accompanying header comment (older versions of `install`
+    // would append rather than dedupe).
+    let mut out: Vec<String> = Vec::new();
+    let mut replaced = false;
     for line in content.lines() {
-        if line.contains("claude-acc init") {
-            result.push_str(new_eval);
+        if is_claude_acc_init_line(line) {
+            if !replaced {
+                out.push(new_eval.to_string());
+                replaced = true;
+            } else if out.last().map(|s| s.trim()) == Some(HEADER_COMMENT) {
+                // Duplicate: drop both this eval line and its preceding
+                // header comment so we don't leave an orphan.
+                out.pop();
+            }
         } else {
-            result.push_str(line);
+            out.push(line.to_string());
         }
-        result.push('\n');
     }
+    let mut result = out.join("\n");
+    result.push('\n');
     result
 }
