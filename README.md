@@ -5,11 +5,16 @@
 Bind different Claude Code accounts to different directories.
 On `cd`, the correct account is activated automatically.
 
-Cross-platform: macOS, Linux, Windows. Supports zsh, bash, PowerShell.
+Two distributions:
+
+- **Rust CLI** (`claude-acc`) — cross-platform: macOS, Linux, Windows; zsh, bash, PowerShell. **Recommended.**
+- **Shell script** (`claude-switch.sh`) — zsh-only, macOS-focused. Single file, no binary, no compilation.
+
+Both share the same on-disk format (`~/.claude-switch/`) so you can switch between them freely.
 
 ## Install
 
-### From binary
+### Rust CLI (recommended)
 
 Download from [GitHub Releases](https://github.com/Nemo-Illusionist/claude-code-account-switcher/releases), then run:
 
@@ -19,19 +24,20 @@ claude-acc install
 
 This will:
 - Copy the binary to `~/.claude-switch/bin/claude-acc`
+- Install the IDE wrapper at `~/.claude-switch/bin/claude` (see [IDE integration](#ide-integration))
 - Auto-detect your shell (zsh/bash/PowerShell)
 - Add shell integration to your rc file
 
 To update, download the new version and run `claude-acc install` again.
 
-### From source
+#### From source
 
 ```bash
 cargo install --path .
 claude-acc install
 ```
 
-### Legacy (zsh-only script)
+### Shell script (zsh-only)
 
 ```bash
 cp claude-switch.sh ~/.claude-switch.sh
@@ -124,6 +130,15 @@ cd ~/work/hobby
 claude-acc link default
 # hobby → ~/.claude/ (default)
 ```
+
+## IDE integration
+
+JetBrains IDEs (PhpStorm, IntelliJ etc.) and VSCode launch the `claude` binary directly without sourcing your shell config, so `CLAUDE_CONFIG_DIR` would not be set and the wrong account would be used. To make IDE ↔ Claude Code handshake work for non-default accounts, `claude-acc install` sets up two things:
+
+- A wrapper at `~/.claude-switch/bin/claude` that picks the account for the current working directory (via `claude-acc activate`) and `exec`s the real `claude` binary. `~/.claude-switch/bin` is prepended to `PATH` (by the shell init), so both terminals and IDEs pick up the wrapper transparently.
+- A symlink `~/.claude-switch/accounts/<name>/ide → ~/.claude/ide` for every account. Claude Code writes IDE lock files to `$CLAUDE_CONFIG_DIR/ide/`, but IDE plugins always look in `~/.claude/ide/`. The symlink makes both sides agree.
+
+No manual setup required — `claude-acc install` does both. New accounts created via `claude-acc add` get their `ide/` symlink automatically.
 
 ## What gets switched
 
