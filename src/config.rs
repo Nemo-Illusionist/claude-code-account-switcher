@@ -46,7 +46,11 @@ impl AppConfig {
         }
         // Migration: repos → links
         let old_repos = self.base_dir.join("repos");
-        if old_repos.exists() && fs::read_to_string(self.links_path()).map(|s| s.is_empty()).unwrap_or(true) {
+        if old_repos.exists()
+            && fs::read_to_string(self.links_path())
+                .map(|s| s.is_empty())
+                .unwrap_or(true)
+        {
             fs::rename(&old_repos, self.links_path())?;
         }
         Ok(())
@@ -68,10 +72,10 @@ impl AppConfig {
         let mut accounts = Vec::new();
         for entry in fs::read_dir(dir)? {
             let entry = entry?;
-            if entry.file_type()?.is_dir() {
-                if let Some(name) = entry.file_name().to_str() {
-                    accounts.push(name.to_string());
-                }
+            if entry.file_type()?.is_dir()
+                && let Some(name) = entry.file_name().to_str()
+            {
+                accounts.push(name.to_string());
             }
         }
         accounts.sort();
@@ -158,7 +162,11 @@ impl AppConfig {
             .map(|(d, a)| format!("{}={}", d, a))
             .collect::<Vec<_>>()
             .join("\n");
-        let content = if content.is_empty() { String::new() } else { content + "\n" };
+        let content = if content.is_empty() {
+            String::new()
+        } else {
+            content + "\n"
+        };
         fs::write(self.links_path(), content)
     }
 }

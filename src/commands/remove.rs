@@ -1,7 +1,7 @@
-use std::fs;
-use std::io::{self, Write};
 use crate::config::{AppConfig, validate_name};
 use crate::i18n::{I18n, Msg};
+use std::fs;
+use std::io::{self, Write};
 
 pub fn run(config: &AppConfig, i18n: &I18n, name: &str, force: bool) {
     if name == "default" {
@@ -33,10 +33,10 @@ pub fn run(config: &AppConfig, i18n: &I18n, name: &str, force: bool) {
     }
 
     // Clear default if it was this account
-    if let Ok(Some(ref def)) = config.get_default() {
-        if def == name {
-            config.clear_default().ok();
-        }
+    if let Ok(Some(ref def)) = config.get_default()
+        && def == name
+    {
+        config.clear_default().ok();
     }
 
     // Remove links for this account

@@ -21,20 +21,19 @@ pub fn run(config: &AppConfig, i18n: &I18n) {
     sorted.sort_by(|a, b| a.0.cmp(&b.0));
 
     for (dir, account) in &sorted {
-        let display = match &home {
-            Some(h) => {
-                let h_str = h.to_str().unwrap_or("");
-                if dir.starts_with(h_str) {
-                    format!("~{}", &dir[h_str.len()..])
-                } else {
-                    dir.clone()
-                }
-            }
-            None => dir.clone(),
-        };
+        let display = home
+            .as_deref()
+            .and_then(|h| h.to_str())
+            .and_then(|h_str| dir.strip_prefix(h_str).map(|rest| format!("~{}", rest)))
+            .unwrap_or_else(|| dir.clone());
 
         if Some(dir) == active_dir.as_ref() {
-            println!("  {} → {}  {}", display, account, i18n.msg(Msg::LinksActive));
+            println!(
+                "  {} → {}  {}",
+                display,
+                account,
+                i18n.msg(Msg::LinksActive)
+            );
         } else {
             println!("  {} → {}", display, account);
         }

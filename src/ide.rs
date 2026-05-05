@@ -43,7 +43,9 @@ pub fn ensure_account_symlink(acc_dir: &Path) -> io::Result<()> {
         Ok(meta) if meta.is_dir() => {
             // Real directory: only auto-migrate if it's empty (just stale
             // lock files would normally be in there, but be conservative).
-            let empty = fs::read_dir(&link).map(|mut d| d.next().is_none()).unwrap_or(false);
+            let empty = fs::read_dir(&link)
+                .map(|mut d| d.next().is_none())
+                .unwrap_or(false);
             if empty {
                 fs::remove_dir(&link)?;
                 symlink(&target, &link)
@@ -73,7 +75,10 @@ pub fn refresh_all_account_symlinks(config: &AppConfig) -> io::Result<()> {
 /// path. Skipped on Windows (IDEs there don't share this PATH model and
 /// the wrapper script would not run as a `.exe`).
 #[cfg(not(windows))]
-pub fn install_wrapper(config: &AppConfig, claude_acc_bin: &Path) -> io::Result<std::path::PathBuf> {
+pub fn install_wrapper(
+    config: &AppConfig,
+    claude_acc_bin: &Path,
+) -> io::Result<std::path::PathBuf> {
     use std::os::unix::fs::PermissionsExt;
     let bin_dir = config.base_dir.join("bin");
     fs::create_dir_all(&bin_dir)?;
@@ -86,7 +91,10 @@ pub fn install_wrapper(config: &AppConfig, claude_acc_bin: &Path) -> io::Result<
 }
 
 #[cfg(windows)]
-pub fn install_wrapper(_config: &AppConfig, _claude_acc_bin: &Path) -> io::Result<std::path::PathBuf> {
+pub fn install_wrapper(
+    _config: &AppConfig,
+    _claude_acc_bin: &Path,
+) -> io::Result<std::path::PathBuf> {
     // Windows: no shell-script wrapper. PATH-based IDE integration would
     // need a .cmd or .exe shim — out of scope for this iteration.
     Ok(std::path::PathBuf::new())
