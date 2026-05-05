@@ -58,6 +58,7 @@ _claude_msg_en=(
     help_links          "Show all directory links"
     help_status         "Current account and context"
     help_run            "Run claude under a specific account"
+    help_doctor         "Audit each account OAuth identity (email, UUID)"
     help_help           "Help"
     list_empty          "No accounts. Add one: claude-acc add <name>"
     list_header         "Claude Code accounts:"
@@ -92,6 +93,12 @@ _claude_msg_en=(
     name_invalid        "Account name must contain only letters, digits, hyphens, and underscores."
     run_usage           "Usage: claude-acc run <name> [args...]"
     run_not_found       "Account '%s' not found."
+    doctor_header       "Auditing %d account(s):"
+    doctor_no_token     "no token (run: claude-acc login %s)"
+    doctor_offline      "token present, but API unreachable"
+    doctor_all_ok       "All accounts healthy."
+    doctor_partial      "%d of %d accounts healthy."
+    doctor_missing_dep  "claude-acc doctor needs '%s' on PATH."
     unlink_none         "No link for the current directory."
     unlink_done         "Unlinked %s. Default account will be used."
     status_active       "Active account: %s %s"
@@ -117,6 +124,7 @@ _claude_msg_ru=(
     help_links          "Показать все привязки директорий"
     help_status         "Текущий аккаунт и контекст"
     help_run            "Запустить claude под конкретным аккаунтом"
+    help_doctor         "Аудит OAuth-личности каждого аккаунта (email, UUID)"
     help_help           "Справка"
     list_empty          "Нет аккаунтов. Добавьте: claude-acc add <name>"
     list_header         "Аккаунты Claude Code:"
@@ -151,6 +159,12 @@ _claude_msg_ru=(
     name_invalid        "Имя аккаунта может содержать только буквы, цифры, дефисы и подчёркивания."
     run_usage           "Использование: claude-acc run <name> [args...]"
     run_not_found       "Аккаунт '%s' не найден."
+    doctor_header       "Проверка %d аккаунт(ов):"
+    doctor_no_token     "нет токена (запустите: claude-acc login %s)"
+    doctor_offline      "токен есть, API недоступен"
+    doctor_all_ok       "Все аккаунты в порядке."
+    doctor_partial      "%d из %d аккаунтов в порядке."
+    doctor_missing_dep  "claude-acc doctor требует '%s' в PATH."
     unlink_none         "Нет привязки для текущей директории."
     unlink_done         "Привязка убрана для %s. Будет использован дефолтный аккаунт."
     status_active       "Активный аккаунт: %s %s"
@@ -392,6 +406,7 @@ _claude_acc_help() {
     echo "  claude-acc links             $(_msg help_links)"
     echo "  claude-acc status            $(_msg help_status)"
     echo "  claude-acc run <name> [...]  $(_msg help_run)"
+    echo "  claude-acc doctor            $(_msg help_doctor)"
 }
 
 _claude_acc_list() {
@@ -673,6 +688,87 @@ _claude_acc_run() {
     CLAUDE_CONFIG_DIR="$acc_dir" command claude "$@"
 }
 
+# --- Identity audit (Phase 1: passive, read-only) ---
+# Reads each account's OAuth token from macOS Keychain (with .credentials.json
+# fallback), calls /api/oauth/profile, prints email + UUID. Doesn't change
+# anything. Requires: security, curl, jq, shasum.
+
+_claude_acc_token() {
+    local acc_dir="$1" hash service token
+    hash=$(printf '%s' "$acc_dir" | shasum -a 256 2>/dev/null | cut -c1-8)
+    [[ -z "$hash" ]] && return 1
+    service="Claude Code-credentials-${hash}"
+    token=$(security find-generic-password -s "$service" -a "$(id -un)" -w 2>/dev/null)
+    if [[ -n "$token" ]]; then
+        printf '%s' "$token" | jq -r '.claudeAiOauth.accessToken // empty' 2>/dev/null
+        return 0
+    fi
+    jq -r '.claudeAiOauth.accessToken // empty' "$acc_dir/.credentials.json" 2>/dev/null
+}
+
+# Echoes "<email>\t<uuid>" or empty on failure.
+_claude_acc_identity() {
+    local token="$1"
+    [[ -z "$token" ]] && return 1
+    curl -sf --max-time 5 \
+        -H "Authorization: Bearer $token" \
+        -H "anthropic-beta: oauth-2025-04-20" \
+        https://api.anthropic.com/api/oauth/profile 2>/dev/null \
+        | jq -r '"\(.account.email // "<unknown>")\t\(.account.uuid // "<unknown>")"' 2>/dev/null
+}
+
+_claude_acc_doctor() {
+    local dep
+    for dep in security curl jq shasum; do
+        if ! command -v "$dep" >/dev/null 2>&1; then
+            _msg doctor_missing_dep "$dep"
+            return 1
+        fi
+    done
+
+    local accounts=("$CLAUDE_SWITCH_ACCOUNTS_DIR"/*(N:t))
+    if [[ ${#accounts} -eq 0 ]]; then
+        _msg list_empty
+        return 0
+    fi
+
+    _msg doctor_header "${#accounts}"
+
+    # Compute label width for aligned output.
+    local width=0 acc
+    for acc in "${accounts[@]}"; do
+        (( ${#acc} > width )) && width=${#acc}
+    done
+
+    local healthy=0 token identity email uuid
+    for acc in "${accounts[@]}"; do
+        local acc_dir="$CLAUDE_SWITCH_ACCOUNTS_DIR/$acc"
+        token=$(_claude_acc_token "$acc_dir")
+        if [[ -z "$token" ]]; then
+            printf "  ? %-${width}s  %s\n" "$acc" "$(_msg doctor_no_token "$acc")"
+            continue
+        fi
+        identity=$(_claude_acc_identity "$token")
+        if [[ -z "$identity" ]]; then
+            printf "  ? %-${width}s  %s\n" "$acc" "$(_msg doctor_offline)"
+            continue
+        fi
+        email="${identity%%	*}"
+        uuid="${identity#*	}"
+        printf "  ✓ %-${width}s  %s  uuid=%s\n" "$acc" "$email" "$uuid"
+        (( healthy++ ))
+    done
+
+    echo ""
+    if (( healthy == ${#accounts} )); then
+        _msg doctor_all_ok
+        return 0
+    else
+        _msg doctor_partial "$healthy" "${#accounts}"
+        return 1
+    fi
+}
+
 # =============================================================
 # Единая точка входа
 # =============================================================
@@ -693,6 +789,7 @@ claude-acc() {
         links)   _claude_acc_links ;;
         status)  _claude_acc_status "$@" ;;
         run)     _claude_acc_run "$@" ;;
+        doctor)  _claude_acc_doctor ;;
         help)    _claude_acc_help ;;
         *)       _claude_acc_help ;;
     esac
@@ -716,6 +813,7 @@ _claude_acc_completion() {
         "links:$(_msg help_links)"
         "status:$(_msg help_status)"
         "run:$(_msg help_run)"
+        "doctor:$(_msg help_doctor)"
         "help:$(_msg help_help)"
     )
 

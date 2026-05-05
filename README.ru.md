@@ -74,6 +74,7 @@ claude-acc link work
 | `claude-acc links` | Показать все привязки директорий |
 | `claude-acc status` | Показать активный аккаунт |
 | `claude-acc run <имя>` | Запустить claude под конкретным аккаунтом |
+| `claude-acc doctor` | Аудит реальной OAuth-личности каждого аккаунта |
 | `claude-acc install` | Установить бинарник и shell-интеграцию |
 
 ## Как это работает
@@ -177,6 +178,25 @@ claude-acc link work-ml
 ```
 
 > Примечание: `claude-acc add` запускает `claude login`, поэтому нужно будет залогиниться повторно (тот же аккаунт, просто новая папка конфига).
+
+## Аудит личностей (`doctor`)
+
+`claude-acc add` и `claude-acc login` оба запускают `claude auth login` под персональным `CLAUDE_CONFIG_DIR`. С каким Anthropic-аккаунтом вы залогинились — тот и привязан к этой директории. Встроенного способа увидеть, *какой именно* аккаунт реально стоит за config dir, нет. Если случайно залогинились не той учёткой (browser auto-fill, забытая вкладка), переключение происходит молча: лимиты, история диалогов и биллинг перепутаются между «изолированными» аккаунтами без всяких признаков.
+
+`claude-acc doctor` читает OAuth-токен каждого аккаунта из macOS Keychain (с fallback на `.credentials.json` для установок без Keychain), дёргает `https://api.anthropic.com/api/oauth/profile` и печатает реальный email + UUID:
+
+```
+$ claude-acc doctor
+Проверка 2 аккаунт(ов):
+  ✓ work      alice@anthropic.com  uuid=aa6c22d5-…
+  ? personal  нет токена (запустите: claude-acc login personal)
+
+1 из 2 аккаунтов в порядке.
+```
+
+Это исключительно read-only аудит — ничего не перехватывается, запуск `claude` не блокируется. Запускайте когда хочется убедиться, что за config dir стоит ожидаемая личность. Требует `security`, `curl`, `jq`, `shasum` (всё предустановлено на macOS); Rust-бинарник использует нативные `serde_json` и `sha2`, шеллаутит только `security` и `curl`.
+
+> **Пока только macOS.** Схема хеширования Keychain reverse-engineered из внутренностей Claude Code; на других платформах (где используется libsecret / Credential Manager) пока не работает.
 
 ## Язык
 

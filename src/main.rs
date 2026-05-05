@@ -2,6 +2,7 @@ mod commands;
 mod config;
 mod i18n;
 mod ide;
+mod identity;
 mod resolve;
 
 use clap::{Parser, Subcommand};
@@ -50,6 +51,8 @@ enum Commands {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
+    /// Audit each account's actual OAuth identity (email, UUID)
+    Doctor,
     /// Install binary and shell integration
     Install,
     /// Output shell activation code (used by shell hook)
@@ -91,6 +94,7 @@ fn main() {
         Some(Commands::Links) => commands::links::run(&config, &i18n),
         Some(Commands::Status) => commands::status::run(&config, &i18n),
         Some(Commands::Run { name, args }) => commands::run::run(&config, &i18n, &name, &args),
+        Some(Commands::Doctor) => std::process::exit(commands::doctor::run(&config, &i18n)),
         Some(Commands::Install) => commands::install::run(&config, &i18n),
         Some(Commands::Activate { shell }) => {
             let syntax = match shell.as_str() {

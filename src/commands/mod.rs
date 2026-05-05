@@ -2,6 +2,7 @@ pub mod activate;
 pub mod add;
 pub mod completions;
 pub mod default;
+pub mod doctor;
 pub mod init;
 pub mod install;
 pub mod link;
