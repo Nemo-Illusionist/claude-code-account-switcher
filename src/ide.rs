@@ -20,7 +20,9 @@ use std::path::Path;
 
 use crate::config::AppConfig;
 
+#[cfg(not(windows))]
 const WRAPPER_TEMPLATE: &str = include_str!("../shell/claude-wrapper.sh");
+#[cfg(not(windows))]
 const WRAPPER_PLACEHOLDER: &str = "__CLAUDE_ACC_BIN__";
 
 /// `~/.claude/ide` — the canonical IDE lock-file directory.
