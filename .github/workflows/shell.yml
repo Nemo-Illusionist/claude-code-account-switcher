@@ -1,0 +1,40 @@
+name: Shell
+
+on:
+  pull_request:
+    paths:
+      - 'claude-switch.sh'
+      - 'shell/**'
+      - '.github/workflows/shell.yml'
+  push:
+    branches: [master]
+    paths:
+      - 'claude-switch.sh'
+      - 'shell/**'
+      - '.github/workflows/shell.yml'
+
+concurrency:
+  group: shell-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  shell:
+    name: zsh -n / bash -n
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install zsh
+        run: sudo apt-get update && sudo apt-get install -y zsh
+
+      - name: Syntax-check claude-switch.sh
+        run: zsh -n claude-switch.sh
+
+      - name: Syntax-check generated shell templates
+        run: |
+          zsh -n shell/init.zsh
+          bash -n shell/init.bash
+          bash -n shell/claude-wrapper.sh

@@ -1,14 +1,24 @@
-name: CI
+name: Rust
 
 on:
   pull_request:
+    paths:
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'shell/**'
+      - '.github/workflows/rust.yml'
   push:
-    branches:
-      - master
+    branches: [master]
+    paths:
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'shell/**'
+      - '.github/workflows/rust.yml'
 
-# Cancel previous runs of this workflow on the same ref when a new commit comes in.
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: rust-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -20,7 +30,7 @@ env:
 
 jobs:
   rust:
-    name: Rust (${{ matrix.os }})
+    name: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
@@ -47,21 +57,3 @@ jobs:
 
       - name: cargo test
         run: cargo test --release
-
-  shell:
-    name: Shell (zsh -n)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install zsh
-        run: sudo apt-get update && sudo apt-get install -y zsh
-
-      - name: Syntax-check claude-switch.sh
-        run: zsh -n claude-switch.sh
-
-      - name: Syntax-check generated shell templates
-        run: |
-          zsh -n shell/init.zsh
-          bash -n shell/init.bash
-          bash -n shell/claude-wrapper.sh
