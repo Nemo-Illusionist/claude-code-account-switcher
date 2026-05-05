@@ -1,6 +1,7 @@
 mod commands;
 mod config;
 mod i18n;
+mod ide;
 mod resolve;
 
 use clap::{Parser, Subcommand};

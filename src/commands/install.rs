@@ -2,6 +2,7 @@ use std::fs;
 use std::path::PathBuf;
 use crate::config::AppConfig;
 use crate::i18n::{I18n, Msg};
+use crate::ide;
 
 pub fn run(config: &AppConfig, i18n: &I18n) {
     let bin_dir = config.base_dir.join("bin");
@@ -25,6 +26,7 @@ pub fn run(config: &AppConfig, i18n: &I18n) {
             let installed_version = installed_version.trim().replace("claude-acc ", "");
             if installed_version == current_version {
                 i18n.print(Msg::InstallUpToDate(current_version.to_string()));
+                ensure_ide_integration(config, &target);
                 ensure_shell_integration(config, i18n);
                 return;
             }
@@ -47,7 +49,15 @@ pub fn run(config: &AppConfig, i18n: &I18n) {
         target.to_str().unwrap_or("").to_string(),
     ));
 
+    ensure_ide_integration(config, &target);
     ensure_shell_integration(config, i18n);
+}
+
+fn ensure_ide_integration(config: &AppConfig, claude_acc_bin: &PathBuf) {
+    // Best-effort: errors here shouldn't block install. The shell integration
+    // and binary copy already happened.
+    let _ = ide::install_wrapper(config, claude_acc_bin);
+    let _ = ide::refresh_all_account_symlinks(config);
 }
 
 fn ensure_shell_integration(config: &AppConfig, i18n: &I18n) {

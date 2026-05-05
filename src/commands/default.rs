@@ -1,4 +1,4 @@
-use crate::config::AppConfig;
+use crate::config::{AppConfig, validate_name};
 use crate::i18n::{I18n, Msg};
 
 pub fn run(config: &AppConfig, i18n: &I18n, name: Option<&str>) {
@@ -14,6 +14,10 @@ pub fn run(config: &AppConfig, i18n: &I18n, name: Option<&str>) {
             i18n.print(Msg::ResetDone);
         }
         Some(name) => {
+            if !validate_name(name) {
+                i18n.print(Msg::NameInvalid);
+                std::process::exit(1);
+            }
             if !config.account_exists(name) {
                 i18n.print(Msg::DefaultNotFound(name.to_string()));
                 super::list::run(config, i18n);

@@ -123,6 +123,10 @@ impl I18n {
             (Msg::ReservedName(ref n), Lang::En) => format!("'{}' is a reserved name.", n),
             (Msg::ReservedName(ref n), Lang::Ru) => format!("'{}' — зарезервированное имя.", n),
 
+            // name validation
+            (Msg::NameInvalid, Lang::En) => s("Account name must contain only letters, digits, hyphens, and underscores."),
+            (Msg::NameInvalid, Lang::Ru) => s("Имя аккаунта может содержать только буквы, цифры, дефисы и подчёркивания."),
+
             // install
             (Msg::InstallUpToDate(ref v), Lang::En) => format!("Already up to date (v{}).", v),
             (Msg::InstallUpToDate(ref v), Lang::Ru) => format!("Уже актуальная версия (v{}).", v),
@@ -190,6 +194,7 @@ pub enum Msg {
     LinksHeader,
     LinksActive,
     ReservedName(String),
+    NameInvalid,
     InstallUpToDate(String),
     InstallUpdating(String, String),
     InstallCopying(String),

@@ -2,6 +2,16 @@ use std::fs;
 use std::io;
 use std::path::PathBuf;
 
+/// Account names: ASCII letters, digits, hyphens, underscores. Rejects path
+/// separators, regex metacharacters, whitespace, and unicode — anything
+/// unsafe in a filesystem path or shell expansion.
+pub fn validate_name(name: &str) -> bool {
+    !name.is_empty()
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+}
+
 pub struct AppConfig {
     pub base_dir: PathBuf,
 }
