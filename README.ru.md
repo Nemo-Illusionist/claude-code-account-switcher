@@ -51,6 +51,14 @@ claude-acc install
 
 Если поймали старый сломанный install (бинарник без `.exe` или строка для bash в профиле) — просто перезапустите `claude-acc install`. Он сам почистит безрасширенный бинарник и перепишет строку профиля под PowerShell.
 
+**Логин на Windows.** `claude-acc add <имя>` и `claude-acc login <имя>` оба спавнят `claude auth login` под новый `CLAUDE_CONFIG_DIR`. На Windows эта подкоманда сваливается в plain-text режим (без TUI), а OAuth-callback localhost обычно отрабатывает быстрее, чем пользователь успевает вставить код вручную — приглашение `Paste code here if prompted >` ненадёжно. Обход: после того как `claude-acc add <имя>` создал директорию аккаунта, пройти логин через стандартный first-launch TUI самого Claude Code:
+
+```powershell
+claude-acc run <имя>
+```
+
+Это запустит `claude` напрямую под `CLAUDE_CONFIG_DIR` аккаунта и откроет стандартный welcome → `Select login method:`. Логин в TUI принимает код корректно и пишет credentials в `~/.claude-switch/accounts/<имя>/`. Проверить можно через `claude-acc doctor` — у каждого аккаунта должен быть свой email и UUID.
+
 ### Shell-скрипт (только zsh)
 
 ```bash

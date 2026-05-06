@@ -53,6 +53,14 @@ PowerShell on a fresh Windows install needs two extra steps before `claude-acc` 
 
 Affected by an older broken install (binary copied without `.exe`, or shell line written for bash)? Re-run `claude-acc install` — it auto-cleans the stale extension-less binary and rewrites the profile line for PowerShell.
 
+**Logging in on Windows.** `claude-acc add <name>` and `claude-acc login <name>` both spawn `claude auth login` under the new `CLAUDE_CONFIG_DIR`. On Windows that subcommand falls back to plain-text mode (no TUI), and the OAuth localhost callback frequently races ahead — so the `Paste code here if prompted >` prompt is unreliable for entering the code by hand. Workaround: after `claude-acc add <name>` has created the account directory, drive the login through Claude Code's first-launch TUI instead:
+
+```powershell
+claude-acc run <name>
+```
+
+This invokes `claude` directly under the account's `CLAUDE_CONFIG_DIR`, which triggers Claude Code's standard welcome → `Select login method:` flow. The in-TUI login accepts your code reliably and writes credentials to `~/.claude-switch/accounts/<name>/`. Verify with `claude-acc doctor` — each account should show its own email and UUID.
+
 ### Shell script (zsh-only)
 
 ```bash
