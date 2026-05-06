@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.5.1...v0.6.0) (2026-05-06)
+
+
+### Features
+
+* `-s, --seed` flag and `clone-settings` for seeding from ~/.claude/ ([#28](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/28)) ([e7e6e68](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/e7e6e681245c6e0b551cfd2b625b1b1782e32794))
+
 ## [0.5.1](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.5.0...v0.5.1) (2026-05-06)
 
 
