@@ -30,9 +30,10 @@ enum Commands {
         #[arg(short, long)]
         seed: bool,
     },
-    /// Copy curated config (settings.json, CLAUDE.md, agents/, commands/, etc.)
-    /// from ~/.claude/ into an existing account dir. Skips files that already
-    /// exist; never overwrites
+    /// Seed an existing account dir from ~/.claude/
+    ///
+    /// Copies settings.json, CLAUDE.md, agents/, commands/, output-styles/,
+    /// and skills/. Skips files that already exist; never overwrites.
     CloneSettings { name: String },
     /// Re-login to an account
     Login { name: String },
