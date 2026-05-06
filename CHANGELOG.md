@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.1](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.6.0...v0.6.1) (2026-05-06)
+
+
+### Bug Fixes
+
+* **install:** join `init pwsh` output before Invoke-Expression + Windows install docs ([#32](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/32)) ([657fb8e](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/657fb8e5772c17c9e2a66842b549d2ed46f8483f))
+
 ## [0.6.0](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.5.1...v0.6.0) (2026-05-06)
 
 
