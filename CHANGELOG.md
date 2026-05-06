@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.1](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.5.0...v0.5.1) (2026-05-06)
+
+
+### Bug Fixes
+
+* **install:** correct binary extension and shell detection on Windows ([#29](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/29)) ([d12c124](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/d12c12429b6cbd4f805297bbf4f722c7a98bcda8))
+
 ## [0.5.0](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.4.0...v0.5.0) (2026-05-05)
 
 
