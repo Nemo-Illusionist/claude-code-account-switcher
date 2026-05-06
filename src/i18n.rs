@@ -201,6 +201,12 @@ impl I18n {
                 format!("Добавьте в конфиг шелла:\n  {}", line)
             }
 
+            // seed / clone-settings
+            (Msg::SeedCopied(ref s), Lang::En) => format!("  copied: {}", s),
+            (Msg::SeedCopied(ref s), Lang::Ru) => format!("  скопировано: {}", s),
+            (Msg::SeedNothingToCopy, Lang::En) => s("  nothing to copy from ~/.claude/"),
+            (Msg::SeedNothingToCopy, Lang::Ru) => s("  нечего копировать из ~/.claude/"),
+
             // doctor
             (Msg::RelativeTime(secs), lang) => relative_time(secs, lang),
             (Msg::DoctorHeader(n), Lang::En) => format!("Auditing {} account(s):", n),
@@ -287,6 +293,8 @@ pub enum Msg {
     DoctorAllOk,
     DoctorPartial(usize, usize),
     RelativeTime(u64),
+    SeedCopied(String),
+    SeedNothingToCopy,
 }
 
 fn relative_time(secs: u64, lang: Lang) -> String {

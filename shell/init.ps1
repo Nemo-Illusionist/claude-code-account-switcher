@@ -27,7 +27,7 @@ Register-ArgumentCompleter -CommandName claude-acc -ScriptBlock {
     $count = $words.Count
 
     if ($count -le 2) {
-        $cmds = @('list','add','login','remove','default','reset','link','unlink','links','status','run','doctor','whoami','help')
+        $cmds = @('list','add','login','remove','default','reset','link','unlink','links','status','run','doctor','whoami','clone-settings','help')
         $cmds | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
             [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
         }
@@ -35,7 +35,7 @@ Register-ArgumentCompleter -CommandName claude-acc -ScriptBlock {
         $sub = $words[1]
         $accounts = @()
         switch ($sub) {
-            { $_ -in 'login','remove','run' } {
+            { $_ -in 'login','remove','run','clone-settings' } {
                 $accounts = (& '__CLAUDE_ACC_BIN__' completions accounts) -split "`n"
             }
             { $_ -in 'default','link' } {

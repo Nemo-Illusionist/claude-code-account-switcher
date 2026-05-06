@@ -4,6 +4,7 @@ mod i18n;
 mod ide;
 mod identity;
 mod resolve;
+mod seed;
 
 use clap::{Parser, Subcommand};
 use commands::activate::ShellSyntax;
@@ -22,7 +23,17 @@ enum Commands {
     /// List all accounts
     List,
     /// Add account (runs claude login)
-    Add { name: String },
+    Add {
+        name: String,
+        /// Seed the new account dir with settings.json / CLAUDE.md / agents
+        /// / commands / output-styles / skills from your standard ~/.claude/
+        #[arg(short, long)]
+        seed: bool,
+    },
+    /// Copy curated config (settings.json, CLAUDE.md, agents/, commands/, etc.)
+    /// from ~/.claude/ into an existing account dir. Skips files that already
+    /// exist; never overwrites
+    CloneSettings { name: String },
     /// Re-login to an account
     Login { name: String },
     /// Remove account
@@ -88,7 +99,10 @@ fn main() {
             commands::list::run(&config, &i18n);
         }
         Some(Commands::List) => commands::list::run(&config, &i18n),
-        Some(Commands::Add { name }) => commands::add::run(&config, &i18n, &name),
+        Some(Commands::Add { name, seed }) => commands::add::run(&config, &i18n, &name, seed),
+        Some(Commands::CloneSettings { name }) => {
+            commands::clone_settings::run(&config, &i18n, &name)
+        }
         Some(Commands::Login { name }) => commands::login::run(&config, &i18n, &name),
         Some(Commands::Remove { force, name }) => {
             commands::remove::run(&config, &i18n, &name, force)

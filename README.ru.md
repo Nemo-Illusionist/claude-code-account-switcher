@@ -64,7 +64,8 @@ claude-acc link work
 | --- | --- |
 | `claude-acc` | Справка |
 | `claude-acc list` | Список всех аккаунтов |
-| `claude-acc add <имя>` | Добавить аккаунт (запустит `claude login`) |
+| `claude-acc add <имя>` | Добавить аккаунт (запустит `claude login`); добавьте `-s` / `--seed` чтобы засеять из `~/.claude/` |
+| `claude-acc clone-settings <имя>` | Скопировать `settings.json` / `CLAUDE.md` / `agents/` и т.д. из `~/.claude/` в существующий аккаунт |
 | `claude-acc login <имя>` | Перелогиниться в аккаунт |
 | `claude-acc remove <имя>` | Удалить аккаунт |
 | `claude-acc default [имя]` | Показать/задать дефолтный аккаунт |
@@ -155,6 +156,31 @@ JetBrains IDE (PhpStorm, IntelliJ и т.п.) и VSCode запускают `claud
 | sessions, history и т.д. | Runtime-данные |
 
 Каждый аккаунт получает свою копию всех этих файлов в `~/.claude-switch/accounts/<name>/`.
+
+## Наследование конфига из `~/.claude/`
+
+Свежий `claude-acc add work` создаёт **пустую** директорию — без `settings.json`, без `CLAUDE.md`, без кастомных агентов. Чтобы новый аккаунт стартовал с тем же setup'ом что и ваш стандартный `~/.claude/`, используйте флаг `-s` / `--seed` при создании или `clone-settings` ретроактивно:
+
+```bash
+claude-acc add -s work               # засеять при создании
+claude-acc clone-settings work       # засеять существующий аккаунт
+```
+
+Обе команды копируют curated set файлов из `~/.claude/`:
+
+**Копируются** (конфигурация / персонализация):
+- `settings.json` (env vars, permissions, ссылки на хуки, statusline, plugins, language)
+- `CLAUDE.md` (глобальная память)
+- `agents/`, `commands/`, `output-styles/`, `skills/` (кастомные ассеты)
+
+**Не копируются** (per-account state — иначе ломается изоляция):
+- `.credentials.json` (токен — повторно получается через `claude auth login`)
+- `settings.local.json` (per-machine локальные оверрайды)
+- `projects/`, `todos/`, `statsig/` (сессии, runtime state, телеметрия)
+- `hooks/`, `plugins/` (settings.json ссылается на них по абсолютным путям; копировать = плодить файлы без пользы)
+- `.account-info.json` (наш doctor-кэш)
+
+Существующие файлы в target'е не перезаписываются — `clone-settings` это одноразовый seed, не sync.
 
 ## Отдельные настройки для проектов
 
