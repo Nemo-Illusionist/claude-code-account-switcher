@@ -21,10 +21,11 @@ claude-acc install
 ```
 
 Это:
-- Скопирует бинарник в `~/.claude-switch/bin/claude-acc`
+- Скопирует бинарник в `~/.claude-switch/bin/claude-acc` (на Windows — `.exe`)
 - Установит IDE-wrapper в `~/.claude-switch/bin/claude` (см. [Интеграция с IDE](#интеграция-с-ide))
 - Определит ваш шелл (zsh/bash/PowerShell)
 - Добавит интеграцию в rc-файл
+- На Windows — добавит `~/.claude-switch/bin` в пользовательский `PATH`
 
 Для обновления — скачайте новую версию и снова запустите `claude-acc install`.
 
@@ -34,6 +35,23 @@ claude-acc install
 cargo install --path .
 claude-acc install
 ```
+
+#### Windows
+
+На свежей Windows-машине PowerShell нужны два дополнительных шага, иначе `claude-acc` не заработает:
+
+1. **Разрешить запуск профиля.** Дефолтная execution-policy блокирует PowerShell-профиль, так что shell-init строка, которую мы туда пишем, не выполнится:
+   ```powershell
+   Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+   ```
+2. **Запустить `install` по полному пути.** Bin-директория ещё не в `PATH`, так что прямо указываем путь к скачанному `.exe`:
+   ```powershell
+   & "$HOME\Downloads\claude-acc.exe" install
+   ```
+   Это скопирует бинарник в `~/.claude-switch/bin/claude-acc.exe`, пропишет строку в PowerShell-профиль и добавит `~/.claude-switch/bin` в пользовательский `PATH`.
+3. **Перезапустить PowerShell.** Новый `PATH` подхватывают только новые процессы. После рестарта `claude-acc add work` работает откуда угодно.
+
+Если поймали старый сломанный install (бинарник без `.exe` или строка для bash в профиле) — просто перезапустите `claude-acc install`. Он сам почистит безрасширенный бинарник и перепишет строку профиля под PowerShell.
 
 ### Shell-скрипт (только zsh)
 

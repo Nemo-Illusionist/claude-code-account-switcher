@@ -74,6 +74,13 @@ pub fn run(config: &AppConfig, i18n: &I18n) {
 
     ensure_ide_integration(config, &target);
     ensure_shell_integration(config, i18n);
+
+    // Windows-only: PowerShell can't resolve `claude-acc` without the bin
+    // directory on user PATH. Unix users invoke the binary via the eval
+    // line in their rc file (full path), so they don't need this.
+    if cfg!(target_os = "windows") {
+        ensure_bin_in_user_path(&bin_dir, i18n);
+    }
 }
 
 fn ensure_ide_integration(config: &AppConfig, claude_acc_bin: &Path) {
@@ -211,6 +218,105 @@ fn pwsh_profile_path(shell_bin: &str) -> Option<PathBuf> {
     Some(PathBuf::from(path))
 }
 
+/// Ensure `bin_dir` is on the user `PATH` (Windows only).
+///
+/// On Windows, typing `claude-acc` in PowerShell requires the bin dir to be
+/// on `PATH`. We update the *user-scoped* environment variable (HKCU) via
+/// PowerShell's `[Environment]::SetEnvironmentVariable`, which also
+/// broadcasts `WM_SETTINGCHANGE` so newly spawned shells pick it up.
+///
+/// Currently running shells still need to be restarted — we surface that
+/// via `InstallPathRestartHint`.
+fn ensure_bin_in_user_path(bin_dir: &Path, i18n: &I18n) {
+    let bin_str = match bin_dir.to_str() {
+        Some(s) => s,
+        // Non-UTF8 path — extremely unlikely on Windows under HOMEDRIVE,
+        // but we'd rather skip than panic.
+        None => return,
+    };
+
+    let Some(current) = read_user_path() else {
+        // Couldn't read user PATH (no pwsh/powershell on PATH, or both
+        // failed). Fall back to telling the user how to add it manually.
+        i18n.print(Msg::InstallPathManual(bin_str.to_string()));
+        return;
+    };
+
+    if path_contains(&current, bin_str) {
+        i18n.print(Msg::InstallPathAlready(bin_str.to_string()));
+        return;
+    }
+
+    let new_path = if current.is_empty() {
+        bin_str.to_string()
+    } else if current.ends_with(';') {
+        format!("{}{}", current, bin_str)
+    } else {
+        format!("{};{}", current, bin_str)
+    };
+
+    if write_user_path(&new_path) {
+        i18n.print(Msg::InstallPathAdded(bin_str.to_string()));
+        i18n.print(Msg::InstallPathRestartHint);
+    } else {
+        i18n.print(Msg::InstallPathManual(bin_str.to_string()));
+    }
+}
+
+fn read_user_path() -> Option<String> {
+    for shell_bin in ["pwsh", "powershell"] {
+        let Ok(out) = Command::new(shell_bin)
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "[Environment]::GetEnvironmentVariable('Path', 'User')",
+            ])
+            .output()
+        else {
+            // pwsh likely not installed; try the next shell.
+            continue;
+        };
+        if out.status.success() {
+            return Some(String::from_utf8_lossy(&out.stdout).trim().to_string());
+        }
+    }
+    None
+}
+
+fn write_user_path(new_path: &str) -> bool {
+    // Pass the new value via an env var to dodge PowerShell quoting issues
+    // around paths with spaces / special chars.
+    for shell_bin in ["pwsh", "powershell"] {
+        let status = Command::new(shell_bin)
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "[Environment]::SetEnvironmentVariable('Path', $env:CLAUDE_ACC_NEW_PATH, 'User')",
+            ])
+            .env("CLAUDE_ACC_NEW_PATH", new_path)
+            .status();
+        if matches!(status, Ok(s) if s.success()) {
+            return true;
+        }
+    }
+    false
+}
+
+/// Case-insensitive, trailing-slash-tolerant membership check for `;`-split
+/// Windows PATH entries.
+fn path_contains(path: &str, target: &str) -> bool {
+    let normalize = |s: &str| s.trim().trim_end_matches(['/', '\\']).to_ascii_lowercase();
+    let target_norm = normalize(target);
+    if target_norm.is_empty() {
+        return false;
+    }
+    path.split(';')
+        .map(normalize)
+        .any(|entry| entry == target_norm)
+}
+
 fn is_claude_acc_init_line(line: &str) -> bool {
     line.contains("claude-acc")
         && line.contains("init")
@@ -302,6 +408,26 @@ eval \"$('/old/path/claude-acc' init zsh)\"
         assert!(!out.contains("/old/path/claude-acc"));
         assert!(out.contains("# unrelated"));
         assert!(out.contains("# trailing"));
+    }
+
+    #[test]
+    fn path_contains_matches_case_insensitive_and_trailing_slash() {
+        let path = r"C:\Windows\System32;C:\Users\me\.cargo\bin;C:\Users\me\.claude-switch\bin\";
+        assert!(path_contains(path, r"C:\Users\me\.claude-switch\bin"));
+        // Same dir, different case
+        assert!(path_contains(path, r"c:\users\me\.claude-switch\bin"));
+    }
+
+    #[test]
+    fn path_contains_rejects_non_member() {
+        let path = r"C:\Windows\System32;C:\Users\me\.cargo\bin";
+        assert!(!path_contains(path, r"C:\Users\me\.claude-switch\bin"));
+    }
+
+    #[test]
+    fn path_contains_handles_empty_path() {
+        assert!(!path_contains("", r"C:\Users\me\.claude-switch\bin"));
+        assert!(!path_contains(r"C:\Users\me\.claude-switch\bin", ""));
     }
 
     #[test]
