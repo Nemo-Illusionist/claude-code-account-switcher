@@ -27,7 +27,6 @@ This will:
 - Install the IDE wrapper at `~/.claude-switch/bin/claude` (see [IDE integration](#ide-integration))
 - Auto-detect your shell (zsh/bash/PowerShell)
 - Add shell integration to your rc file
-- On Windows: also append `~/.claude-switch/bin` to the user `PATH`
 
 To update, download the new version and run `claude-acc install` again.
 
@@ -42,16 +41,15 @@ claude-acc install
 
 PowerShell on a fresh Windows install needs two extra steps before `claude-acc` works:
 
-1. **Allow the profile to run.** The default execution policy blocks the PowerShell profile, so the shell-integration line we add to it never executes:
+1. **Allow the profile to run.** The default execution policy blocks the PowerShell profile, so the shell-integration line we add to it never executes — and that line is what puts `~/.claude-switch/bin` on `PATH` for the session:
    ```powershell
    Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
    ```
-2. **Run `install` by full path the first time.** The bin directory isn't on `PATH` yet, so type out the path of the binary you just downloaded:
+2. **Run `install` by full path the first time.** The bin directory isn't on `PATH` yet, so call the `.exe` you just downloaded directly:
    ```powershell
    & "$HOME\Downloads\claude-acc.exe" install
    ```
-   This copies the binary to `~/.claude-switch/bin/claude-acc.exe`, registers the PowerShell profile entry, and adds `~/.claude-switch/bin` to your user `PATH`.
-3. **Restart PowerShell.** The new `PATH` is only picked up by newly-spawned shells. After that, plain `claude-acc add work` works from anywhere.
+3. **Restart PowerShell.** The profile only runs at shell startup, so the new `PATH` (and `cd`-activation) take effect in newly-spawned shells. After that, plain `claude-acc add work` works from anywhere.
 
 Affected by an older broken install (binary copied without `.exe`, or shell line written for bash)? Re-run `claude-acc install` — it auto-cleans the stale extension-less binary and rewrites the profile line for PowerShell.
 

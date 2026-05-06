@@ -200,32 +200,6 @@ impl I18n {
             (Msg::InstallShellManual(ref line), Lang::Ru) => {
                 format!("Добавьте в конфиг шелла:\n  {}", line)
             }
-            (Msg::InstallPathAdded(ref dir), Lang::En) => {
-                format!("Added {} to user PATH.", dir)
-            }
-            (Msg::InstallPathAdded(ref dir), Lang::Ru) => {
-                format!("Добавлено {} в PATH пользователя.", dir)
-            }
-            (Msg::InstallPathAlready(ref dir), Lang::En) => {
-                format!("{} already in user PATH.", dir)
-            }
-            (Msg::InstallPathAlready(ref dir), Lang::Ru) => {
-                format!("{} уже в PATH пользователя.", dir)
-            }
-            (Msg::InstallPathManual(ref dir), Lang::En) => format!(
-                "Could not update user PATH automatically. Add manually:\n  setx PATH \"%PATH%;{}\"",
-                dir
-            ),
-            (Msg::InstallPathManual(ref dir), Lang::Ru) => format!(
-                "Не удалось обновить PATH автоматически. Добавьте вручную:\n  setx PATH \"%PATH%;{}\"",
-                dir
-            ),
-            (Msg::InstallPathRestartHint, Lang::En) => {
-                s("Restart PowerShell for the new PATH to take effect.")
-            }
-            (Msg::InstallPathRestartHint, Lang::Ru) => {
-                s("Перезапустите PowerShell, чтобы новый PATH применился.")
-            }
 
             // seed / clone-settings
             (Msg::SeedCopied(ref s), Lang::En) => format!("  copied: {}", s),
@@ -313,10 +287,6 @@ pub enum Msg {
     InstallShellUpdated(String),
     InstallShellAdded(String),
     InstallShellManual(String),
-    InstallPathAdded(String),
-    InstallPathAlready(String),
-    InstallPathManual(String),
-    InstallPathRestartHint,
     DoctorHeader(usize),
     DoctorNoToken(String),
     DoctorOffline,
