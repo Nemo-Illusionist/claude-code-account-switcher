@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.2](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.6.1...v0.6.2) (2026-05-06)
+
+
+### Documentation
+
+* document Windows TUI workaround for first-time account login ([#34](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/34)) ([9643dd7](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/9643dd756b28427085157f7f0596adaca4853042))
+
 ## [0.6.1](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.6.0...v0.6.1) (2026-05-06)
 
 
