@@ -90,7 +90,14 @@ fn ensure_shell_integration(config: &AppConfig, i18n: &I18n) {
     let (shell, rc_path) = detect_shell_and_rc();
 
     let eval_line = match shell.as_str() {
-        "pwsh" | "powershell" => format!("Invoke-Expression (& '{}' init pwsh)", bin_str),
+        // PowerShell collects child-process output as `string[]` (one
+        // element per line). Invoke-Expression only evaluates a scalar,
+        // so without the `-join "`n"` it silently runs only the first
+        // line of `init pwsh` (a comment) and the integration is dead.
+        "pwsh" | "powershell" => format!(
+            "Invoke-Expression ((& '{}' init pwsh) -join \"`n\")",
+            bin_str
+        ),
         _ => format!("eval \"$('{0}' init {1})\"", bin_str, shell),
     };
 
@@ -269,6 +276,12 @@ mod tests {
 
     #[test]
     fn detects_powershell_invocation() {
+        // Current shape (with -join "`n").
+        assert!(is_claude_acc_init_line(
+            "Invoke-Expression ((& 'C:\\Users\\me\\.claude-switch\\bin\\claude-acc' init pwsh) -join \"`n\")"
+        ));
+        // Pre-0.6.1 shape — must still match so re-running `install`
+        // upgrades existing users to the joined variant.
         assert!(is_claude_acc_init_line(
             "Invoke-Expression (& 'C:\\Users\\me\\.claude-switch\\bin\\claude-acc' init pwsh)"
         ));
