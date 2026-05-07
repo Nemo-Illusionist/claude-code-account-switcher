@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.3](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.6.2...v0.6.3) (2026-05-06)
+
+
+### Documentation
+
+* keep clone-settings help short so commands list stays aligned ([#36](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/36)) ([c50a1d8](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/c50a1d8f4024a6af464912ea90c0559120733223))
+
 ## [0.6.2](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.6.1...v0.6.2) (2026-05-06)
 
 
