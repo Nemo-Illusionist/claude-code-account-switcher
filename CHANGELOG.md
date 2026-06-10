@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.9.0](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.8.0...v0.9.0) (2026-06-10)
+
+
+### Features
+
+* add import command to adopt an existing config dir without re-login ([#45](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/45)) ([34507ed](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/34507ed4f08ef1fcaf1b9d063a2b7aa2625ca2ea))
+* add update command for self-updating from GitHub releases ([#44](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/44)) ([3208c4b](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/3208c4b337b0868621b2cbcf02be21a757643757))
+* cross-reference accounts that share an identity in doctor ([#42](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/42)) ([88892db](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/88892db0688e056d1930c0ad23b37c6e232a0cc4))
+
 ## [0.8.0](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.7.0...v0.8.0) (2026-06-10)
 
 
