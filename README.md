@@ -183,6 +183,17 @@ No manual setup required — `claude-acc install` does both. New accounts create
 
 Each account gets its own copy of all these files in `~/.claude-switch/accounts/<name>/`.
 
+### Per-account default model
+
+Because every account has its own `settings.json`, you get a per-account default model for free — no extra flag or config. Set Claude Code's [`model`](https://code.claude.com/docs/en/settings) key in that account's settings file:
+
+```bash
+# e.g. Opus on work, a lighter model on personal
+echo '{ "model": "opus" }' > ~/.claude-switch/accounts/work/settings.json
+```
+
+Now any `claude` started under the `work` account boots with that model. (Tools that symlink a single shared `settings.json` across accounts can't do this without a separate mechanism — here it's just the isolated config dir doing its job.)
+
 ## Inheriting `~/.claude/` config
 
 A fresh `claude-acc add work` produces an empty config dir — no `settings.json`, no `CLAUDE.md`, no custom agents. If you want the new account to start with the same setup as your standard `~/.claude/`, use the `-s` / `--seed` flag, or run `clone-settings` retroactively:
@@ -236,27 +247,29 @@ claude-acc link work-ml
 
 `claude-acc add` and `claude-acc login` both run `claude auth login` under a per-account `CLAUDE_CONFIG_DIR`. Whatever Anthropic account you sign in with becomes the identity for that directory — and there's no built-in surface to see which account is actually behind a given config dir. If you accidentally log in with the wrong identity (browser auto-fill, a stale tab), the switch is silent: rate limits, conversation history, and billing leak across what you thought were isolated accounts.
 
-`claude-acc doctor` reads each account's OAuth token from the macOS Keychain (with a `.credentials.json` fallback for non-Keychain installs), calls `https://api.anthropic.com/api/oauth/profile`, and prints the live email + UUID:
+`claude-acc doctor` reads each account's OAuth token from the macOS Keychain (with a `.credentials.json` fallback for non-Keychain installs), calls `https://api.anthropic.com/api/oauth/profile`, and prints the live email, plan, and UUID:
 
 ```
 $ claude-acc doctor
 Auditing 2 account(s):
-  ✓ work      alice@anthropic.com  uuid=aa6c22d5-…
+  ✓ work      alice@anthropic.com  Max 20x  uuid=aa6c22d5-…
   ? personal  no token (run: claude-acc login personal)
 
 1 of 2 accounts healthy.
 ```
 
+The plan label (`Max 20x` / `Max` / `Pro`) is derived from the profile's tier flags and `rate_limit_tier`; it's omitted for accounts with no recognizable subscription.
+
 It's purely a read-only audit — nothing is intercepted, no `claude` invocation is gated. Run it whenever you want to confirm a config dir is bound to the identity you expect. Requires `security`, `curl`, `jq`, and `shasum` (all preinstalled on macOS); the Rust binary uses native `serde_json` and `sha2` instead and only shells out to `security` and `curl`.
 
-`doctor` also caches the result to `~/.claude-switch/accounts/<name>/.account-info.json` so `list`, `status`, and `default` can show the email next to each account without re-hitting the API:
+`doctor` also caches the result (email, plan, UUID) to `~/.claude-switch/accounts/<name>/.account-info.json` so `list`, `usage`, `status`, and `default` can show the identity next to each account without re-hitting the API:
 
 ```
 $ claude-acc list
 Claude Code accounts:
-  ★ work       (default)  alice@anthropic.com   3d ago
-    personal              bob@anthropic.com     1h ago *
-    ~/.claude/            charlie@personal.com  3d ago    (standard)
+  ★ work       (default)  alice@anthropic.com   Max 20x  3d ago
+    personal              bob@anthropic.com     Pro      1h ago *
+    ~/.claude/            charlie@personal.com  Max 5x   3d ago    (standard)
 
 $ claude-acc status
 Active account: work <alice@anthropic.com> (linked to my-project)
@@ -291,15 +304,15 @@ The `*` after an email means the OAuth token has rotated since the cache was wri
 ```
 $ claude-acc usage
 Claude Code usage:
-  ★ work  alice@anthropic.com
+  ★ work  <alice@anthropic.com>  Max 20x
       5h  [████████░░░░░░░░░░░░]   42%  resets in 2h 14m
       7d  [██░░░░░░░░░░░░░░░░░░]   11%  resets in 5d 17h
-    personal  bob@anthropic.com
+    personal  <bob@anthropic.com>  Pro
       5h  [░░░░░░░░░░░░░░░░░░░░]    0%  available now
       7d  [░░░░░░░░░░░░░░░░░░░░]    0%  resets in 6d 3h
 ```
 
-Unlike `doctor`, this is always a live fetch — usage is volatile, so nothing is cached. Accounts with no token show `no token (run: claude-acc login <name>)`; an unreachable API shows `token present, but API unreachable`. Same dependencies and platform caveat as `doctor` (`security`, `curl`, `jq`, `shasum`; macOS only for now).
+Unlike `doctor`, the usage figures are always a live fetch — usage is volatile, so nothing is cached. The email/plan next to each account come from `doctor`'s cache, so run `claude-acc doctor` once to populate them. Accounts with no token show `no token (run: claude-acc login <name>)`; an unreachable API shows `token present, but API unreachable`. Same dependencies and platform caveat as `doctor` (`security`, `curl`, `jq`, `shasum`; macOS only for now).
 
 ## Language
 

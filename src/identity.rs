@@ -25,6 +25,9 @@ pub struct Profile {
     pub uuid: Option<String>,
     #[allow(dead_code)]
     pub organization: Option<String>,
+    /// Friendly subscription label, e.g. "Max 20x" / "Pro". `None` when the
+    /// profile carries no recognizable plan.
+    pub plan: Option<String>,
 }
 
 pub enum AuditResult {
@@ -142,6 +145,7 @@ pub struct CachedInfo {
     pub org: Option<String>,
     pub fetched_at: Option<u64>,
     pub token_hash: Option<String>,
+    pub plan: Option<String>,
 }
 
 pub fn read_cache(acc_dir: &Path) -> Option<CachedInfo> {
@@ -160,6 +164,7 @@ pub fn read_cache_at(path: &Path) -> Option<CachedInfo> {
             .get("token_hash")
             .and_then(|x| x.as_str())
             .map(String::from),
+        plan: v.get("plan").and_then(|x| x.as_str()).map(String::from),
     })
 }
 
@@ -174,6 +179,7 @@ fn write_cache_at(path: &Path, profile: &Profile, token: &str) -> std::io::Resul
         "org": profile.organization,
         "fetched_at": now,
         "token_hash": token_hash(token),
+        "plan": profile.plan,
     });
     let serialized = serde_json::to_string_pretty(&body).map_err(std::io::Error::other)?;
     fs::write(path, serialized)
@@ -247,7 +253,53 @@ fn fetch_profile(token: &str) -> Option<Profile> {
             .and_then(|o| o.get("name"))
             .and_then(|n| n.as_str())
             .map(|s| s.to_string()),
+        plan: derive_plan(&v),
     })
+}
+
+/// Build a friendly plan label from a `/oauth/profile` response: "Max 20x",
+/// "Max", "Pro", or `None`. The base tier comes from the boolean flags; the
+/// multiplier (e.g. "20x") is pulled out of `organization.rate_limit_tier`
+/// (e.g. "default_claude_max_20x") when present.
+fn derive_plan(v: &serde_json::Value) -> Option<String> {
+    let account = v.get("account");
+    let has_max = account
+        .and_then(|a| a.get("has_claude_max"))
+        .and_then(|b| b.as_bool())
+        .unwrap_or(false);
+    let has_pro = account
+        .and_then(|a| a.get("has_claude_pro"))
+        .and_then(|b| b.as_bool())
+        .unwrap_or(false);
+    let tier = v
+        .get("organization")
+        .and_then(|o| o.get("rate_limit_tier"))
+        .and_then(|t| t.as_str())
+        .unwrap_or("");
+
+    if has_max {
+        Some(match tier_multiplier(tier) {
+            Some(m) => format!("Max {}", m),
+            None => "Max".to_string(),
+        })
+    } else if has_pro {
+        Some("Pro".to_string())
+    } else {
+        None
+    }
+}
+
+/// Extract a `<digits>x` multiplier token (e.g. "20x") from an underscore-joined
+/// rate-limit tier string. Returns `None` if no such token is present.
+fn tier_multiplier(tier: &str) -> Option<String> {
+    tier.split('_')
+        .find(|tok| {
+            let b = tok.as_bytes();
+            b.len() >= 2
+                && b[b.len() - 1] == b'x'
+                && b[..b.len() - 1].iter().all(u8::is_ascii_digit)
+        })
+        .map(|s| s.to_string())
 }
 
 // --- Usage (5-hour / 7-day rate-limit windows) ---
@@ -481,5 +533,62 @@ mod tests {
     fn iso_to_epoch_rejects_garbage() {
         assert_eq!(iso_to_epoch("not-a-timestamp"), None);
         assert_eq!(iso_to_epoch(""), None);
+    }
+
+    #[test]
+    fn tier_multiplier_extracts_token() {
+        assert_eq!(
+            tier_multiplier("default_claude_max_20x"),
+            Some("20x".to_string())
+        );
+        assert_eq!(
+            tier_multiplier("default_claude_max_5x"),
+            Some("5x".to_string())
+        );
+    }
+
+    #[test]
+    fn tier_multiplier_none_when_absent() {
+        assert_eq!(tier_multiplier("default_claude_pro"), None);
+        assert_eq!(tier_multiplier(""), None);
+        // "x" alone or non-digit prefixes must not match.
+        assert_eq!(tier_multiplier("x"), None);
+        assert_eq!(tier_multiplier("maxx"), None);
+    }
+
+    #[test]
+    fn derive_plan_max_with_multiplier() {
+        let v = serde_json::json!({
+            "account": {"has_claude_max": true, "has_claude_pro": false},
+            "organization": {"rate_limit_tier": "default_claude_max_20x"}
+        });
+        assert_eq!(derive_plan(&v), Some("Max 20x".to_string()));
+    }
+
+    #[test]
+    fn derive_plan_max_without_multiplier() {
+        let v = serde_json::json!({
+            "account": {"has_claude_max": true},
+            "organization": {"rate_limit_tier": "default_claude_max"}
+        });
+        assert_eq!(derive_plan(&v), Some("Max".to_string()));
+    }
+
+    #[test]
+    fn derive_plan_pro() {
+        let v = serde_json::json!({
+            "account": {"has_claude_max": false, "has_claude_pro": true},
+            "organization": {"rate_limit_tier": "default_claude_pro"}
+        });
+        assert_eq!(derive_plan(&v), Some("Pro".to_string()));
+    }
+
+    #[test]
+    fn derive_plan_none_when_neither() {
+        let v = serde_json::json!({
+            "account": {"has_claude_max": false, "has_claude_pro": false},
+            "organization": {}
+        });
+        assert_eq!(derive_plan(&v), None);
     }
 }

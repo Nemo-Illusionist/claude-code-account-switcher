@@ -1,6 +1,6 @@
 use crate::config::AppConfig;
 use crate::i18n::{self, I18n, Msg};
-use crate::identity::{self, Usage, UsageResult, UsageWindow};
+use crate::identity::{self, CachedInfo, Usage, UsageResult, UsageWindow};
 
 const BAR_WIDTH: usize = 20;
 
@@ -28,14 +28,14 @@ pub fn run(config: &AppConfig, i18n: &I18n) {
         let acc_dir = config.account_path(acc);
         let is_default = Some(acc.as_str()) == default_acc.as_deref();
         let marker = if is_default { "★" } else { " " };
-        let suffix = email_suffix(identity::read_cache(&acc_dir).and_then(|c| c.email));
+        let suffix = label_suffix(identity::read_cache(&acc_dir));
         println!("  {} {}{}", marker, acc, suffix);
         print_result(identity::fetch_account_usage(&acc_dir), i18n, acc);
     }
 
     if standard_logged_in {
         let cache = identity::read_cache_at(&identity::default_cache_path(&config.base_dir));
-        let suffix = email_suffix(cache.and_then(|c| c.email));
+        let suffix = label_suffix(cache);
         println!("    ~/.claude/{}  {}", suffix, i18n.msg(Msg::ListStandard));
         if let Some(dir) = standard.as_deref() {
             print_result(identity::fetch_account_usage(dir), i18n, "~/.claude/");
@@ -91,11 +91,17 @@ fn reset_label(resets_at: Option<&str>, i18n: &I18n) -> String {
     }
 }
 
-fn email_suffix(email: Option<String>) -> String {
-    match email {
-        Some(e) => format!("  <{}>", e),
-        None => String::new(),
-    }
+/// "  <email>" or "  <email>  Max 20x" from a cached identity. Empty when the
+/// cache has no email (e.g. `doctor` hasn't audited the account yet).
+fn label_suffix(cache: Option<CachedInfo>) -> String {
+    let Some(c) = cache else {
+        return String::new();
+    };
+    let Some(email) = c.email else {
+        return String::new();
+    };
+    let plan = c.plan.map(|p| format!("  {}", p)).unwrap_or_default();
+    format!("  <{}>{}", email, plan)
 }
 
 /// A 20-cell `[████░░░░…]` bar for a 0–100 percentage.
@@ -138,9 +144,36 @@ mod tests {
         assert_eq!(bar(250.0), format!("[{}]", "█".repeat(BAR_WIDTH)));
     }
 
+    fn cache(email: Option<&str>, plan: Option<&str>) -> CachedInfo {
+        CachedInfo {
+            email: email.map(String::from),
+            uuid: None,
+            org: None,
+            fetched_at: None,
+            token_hash: None,
+            plan: plan.map(String::from),
+        }
+    }
+
     #[test]
-    fn email_suffix_formats_and_omits() {
-        assert_eq!(email_suffix(Some("a@b.com".into())), "  <a@b.com>");
-        assert_eq!(email_suffix(None), "");
+    fn label_suffix_email_only() {
+        assert_eq!(
+            label_suffix(Some(cache(Some("a@b.com"), None))),
+            "  <a@b.com>"
+        );
+    }
+
+    #[test]
+    fn label_suffix_email_and_plan() {
+        assert_eq!(
+            label_suffix(Some(cache(Some("a@b.com"), Some("Max 20x")))),
+            "  <a@b.com>  Max 20x"
+        );
+    }
+
+    #[test]
+    fn label_suffix_empty_without_cache_or_email() {
+        assert_eq!(label_suffix(None), "");
+        assert_eq!(label_suffix(Some(cache(None, Some("Max 20x")))), "");
     }
 }
