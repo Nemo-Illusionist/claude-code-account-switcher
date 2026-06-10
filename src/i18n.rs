@@ -227,6 +227,12 @@ impl I18n {
             (Msg::DoctorPartial(ok, total), Lang::Ru) => {
                 format!("{} из {} аккаунтов в порядке.", ok, total)
             }
+            (Msg::DoctorSharedIdentity(ref names), Lang::En) => {
+                format!("↔ same identity as {}", names)
+            }
+            (Msg::DoctorSharedIdentity(ref names), Lang::Ru) => {
+                format!("↔ та же личность, что и {}", names)
+            }
 
             // usage
             (Msg::UsageHeader, Lang::En) => s("Claude Code usage:"),
@@ -300,6 +306,7 @@ pub enum Msg {
     DoctorOffline,
     DoctorAllOk,
     DoctorPartial(usize, usize),
+    DoctorSharedIdentity(String),
     RelativeTime(u64),
     SeedCopied(String),
     SeedNothingToCopy,

@@ -295,6 +295,21 @@ esac
 
 The `*` after an email means the OAuth token has rotated since the cache was written. Most often this is a routine OAuth refresh (identity unchanged) — but if you ran `claude auth login` directly between `doctor` runs, this is your reminder to re-verify. Run `claude-acc doctor` to refresh the cache.
 
+### One login, several setups
+
+Linking two account dirs to the **same** Anthropic login is a perfectly valid setup — it lets you keep separate global configs (different `CLAUDE.md`, plugins, agents, MCP servers, output styles) under a single subscription, and switch between them per directory. When `doctor` sees accounts that resolve to the same identity it cross-references them with `↔` so the overlap is intentional and visible, not a surprise:
+
+```
+$ claude-acc doctor
+Auditing 2 account(s):
+  ✓ minimal  alice@anthropic.com  Max 20x  uuid=aa6c22d5-…  ↔ same identity as full
+  ✓ full     alice@anthropic.com  Max 20x  uuid=aa6c22d5-…  ↔ same identity as minimal
+
+All accounts healthy.
+```
+
+This is just a note, never an error — both accounts share the login (and therefore the same usage limits), only their local config differs.
+
 > **macOS only for now.** The Keychain hashing scheme is reverse-engineered from Claude Code's internals, so non-macOS platforms (where Claude Code uses libsecret / Credential Manager) aren't covered yet.
 
 ## Usage tracking (`usage`)
