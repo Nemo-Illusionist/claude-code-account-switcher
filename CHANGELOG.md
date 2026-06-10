@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.0](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.7.0...v0.8.0) (2026-06-10)
+
+
+### Features
+
+* show subscription plan/tier in doctor, list, and usage ([#40](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/40)) ([99c1161](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/99c116191938e2cac3ba54777307df76c9063eef))
+
 ## [0.7.0](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.6.3...v0.7.0) (2026-06-10)
 
 
