@@ -1,6 +1,15 @@
 use crate::config::AppConfig;
 use crate::i18n::{I18n, Msg};
-use crate::identity::{self, AuditResult};
+use crate::identity::{self, AuditResult, Profile};
+
+/// "  Max 20x" when the profile carries a plan, else "". Rendered right after
+/// the email in the human audit output.
+fn plan_seg(p: &Profile) -> String {
+    p.plan
+        .as_deref()
+        .map(|s| format!("  {}", s))
+        .unwrap_or_default()
+}
 
 pub fn run(config: &AppConfig, i18n: &I18n, json: bool) -> i32 {
     let accounts = match config.list_accounts() {
@@ -52,7 +61,14 @@ fn run_human(config: &AppConfig, i18n: &I18n, accounts: &[String], standard_pres
                 healthy += 1;
                 let email = p.email.as_deref().unwrap_or("<unknown>");
                 let uuid = p.uuid.as_deref().unwrap_or("<unknown>");
-                println!("  ✓ {}{}  {}  uuid={}", acc, pad, email, uuid);
+                println!(
+                    "  ✓ {}{}  {}{}  uuid={}",
+                    acc,
+                    pad,
+                    email,
+                    plan_seg(&p),
+                    uuid
+                );
             }
             AuditResult::NoToken => {
                 println!(
@@ -76,10 +92,11 @@ fn run_human(config: &AppConfig, i18n: &I18n, accounts: &[String], standard_pres
                 let email = p.email.as_deref().unwrap_or("<unknown>");
                 let uuid = p.uuid.as_deref().unwrap_or("<unknown>");
                 println!(
-                    "  ✓ {}{}  {}  uuid={}  ({})",
+                    "  ✓ {}{}  {}{}  uuid={}  ({})",
                     standard_label,
                     pad,
                     email,
+                    plan_seg(&p),
                     uuid,
                     i18n.msg(Msg::ListStandard)
                 );
@@ -115,10 +132,10 @@ fn run_human(config: &AppConfig, i18n: &I18n, accounts: &[String], standard_pres
 /// ```json
 /// {
 ///   "accounts": [
-///     {"name": "work", "status": "ok", "email": "...", "uuid": "...", "default": true},
-///     {"name": "personal", "status": "no_token", "email": null, "uuid": null, "default": false}
+///     {"name": "work", "status": "ok", "email": "...", "uuid": "...", "plan": "Max 20x", "default": true},
+///     {"name": "personal", "status": "no_token", "email": null, "uuid": null, "plan": null, "default": false}
 ///   ],
-///   "standard": {"status": "ok", "email": "...", "uuid": "..."} | null
+///   "standard": {"status": "ok", "email": "...", "uuid": "...", "plan": "..."} | null
 /// }
 /// ```
 ///
@@ -167,16 +184,17 @@ fn run_json(config: &AppConfig, accounts: &[String], standard_present: bool) -> 
 }
 
 fn build_entry(name: &str, result: AuditResult, is_default: Option<bool>) -> serde_json::Value {
-    let (status, email, uuid) = match result {
-        AuditResult::Ok(p) => ("ok", p.email, p.uuid),
-        AuditResult::NoToken => ("no_token", None, None),
-        AuditResult::Offline => ("offline", None, None),
+    let (status, email, uuid, plan) = match result {
+        AuditResult::Ok(p) => ("ok", p.email, p.uuid, p.plan),
+        AuditResult::NoToken => ("no_token", None, None, None),
+        AuditResult::Offline => ("offline", None, None, None),
     };
     let mut obj = serde_json::json!({
         "name": name,
         "status": status,
         "email": email,
         "uuid": uuid,
+        "plan": plan,
     });
     if let Some(d) = is_default {
         obj["default"] = serde_json::Value::Bool(d);

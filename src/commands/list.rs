@@ -86,10 +86,16 @@ fn cache_suffix(
         _ => "",
     };
 
+    let plan = cache
+        .plan
+        .as_deref()
+        .map(|p| format!("  {}", p))
+        .unwrap_or_default();
+
     let body = if when.is_empty() {
-        format!("  {}{}", email, drift)
+        format!("  {}{}{}", email, plan, drift)
     } else {
-        format!("  {}  {}{}", email, when, drift)
+        format!("  {}{}  {}{}", email, plan, when, drift)
     };
     format!("{}{}", body, skip_label)
 }

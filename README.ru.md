@@ -182,6 +182,17 @@ JetBrains IDE (PhpStorm, IntelliJ и т.п.) и VSCode запускают `claud
 
 Каждый аккаунт получает свою копию всех этих файлов в `~/.claude-switch/accounts/<name>/`.
 
+### Дефолтная модель на аккаунт
+
+Поскольку у каждого аккаунта свой `settings.json`, дефолтная модель на аккаунт работает «из коробки» — без отдельного флага или конфига. Пропишите ключ [`model`](https://code.claude.com/docs/en/settings) Claude Code в settings.json нужного аккаунта:
+
+```bash
+# например, Opus на work и модель полегче на personal
+echo '{ "model": "opus" }' > ~/.claude-switch/accounts/work/settings.json
+```
+
+Теперь любой `claude`, запущенный под аккаунтом `work`, стартует с этой моделью. (Тулзы, которые шарят один `settings.json` через симлинк между аккаунтами, так не умеют без отдельного механизма — здесь это просто следствие изолированного config-dir.)
+
 ## Наследование конфига из `~/.claude/`
 
 Свежий `claude-acc add work` создаёт **пустую** директорию — без `settings.json`, без `CLAUDE.md`, без кастомных агентов. Чтобы новый аккаунт стартовал с тем же setup'ом что и ваш стандартный `~/.claude/`, используйте флаг `-s` / `--seed` при создании или `clone-settings` ретроактивно:
@@ -235,27 +246,29 @@ claude-acc link work-ml
 
 `claude-acc add` и `claude-acc login` оба запускают `claude auth login` под персональным `CLAUDE_CONFIG_DIR`. С каким Anthropic-аккаунтом вы залогинились — тот и привязан к этой директории. Встроенного способа увидеть, *какой именно* аккаунт реально стоит за config dir, нет. Если случайно залогинились не той учёткой (browser auto-fill, забытая вкладка), переключение происходит молча: лимиты, история диалогов и биллинг перепутаются между «изолированными» аккаунтами без всяких признаков.
 
-`claude-acc doctor` читает OAuth-токен каждого аккаунта из macOS Keychain (с fallback на `.credentials.json` для установок без Keychain), дёргает `https://api.anthropic.com/api/oauth/profile` и печатает реальный email + UUID:
+`claude-acc doctor` читает OAuth-токен каждого аккаунта из macOS Keychain (с fallback на `.credentials.json` для установок без Keychain), дёргает `https://api.anthropic.com/api/oauth/profile` и печатает реальные email, план и UUID:
 
 ```
 $ claude-acc doctor
 Проверка 2 аккаунт(ов):
-  ✓ work      alice@anthropic.com  uuid=aa6c22d5-…
+  ✓ work      alice@anthropic.com  Max 20x  uuid=aa6c22d5-…
   ? personal  нет токена (запустите: claude-acc login personal)
 
 1 из 2 аккаунтов в порядке.
 ```
 
+Метка плана (`Max 20x` / `Max` / `Pro`) выводится из tier-флагов профиля и `rate_limit_tier`; для аккаунтов без распознаваемой подписки она опускается.
+
 Это исключительно read-only аудит — ничего не перехватывается, запуск `claude` не блокируется. Запускайте когда хочется убедиться, что за config dir стоит ожидаемая личность. Требует `security`, `curl`, `jq`, `shasum` (всё предустановлено на macOS); Rust-бинарник использует нативные `serde_json` и `sha2`, шеллаутит только `security` и `curl`.
 
-`doctor` ещё кэширует результат в `~/.claude-switch/accounts/<name>/.account-info.json`, чтобы `list`, `status` и `default` показывали email рядом с каждым аккаунтом без повторных API-запросов:
+`doctor` ещё кэширует результат (email, план, UUID) в `~/.claude-switch/accounts/<name>/.account-info.json`, чтобы `list`, `usage`, `status` и `default` показывали личность рядом с каждым аккаунтом без повторных API-запросов:
 
 ```
 $ claude-acc list
 Аккаунты Claude Code:
-  ★ work       (по умолчанию)  alice@anthropic.com   3д назад
-    personal                   bob@anthropic.com     1ч назад *
-    ~/.claude/                 charlie@personal.com  3д назад    (стандартный)
+  ★ work       (по умолчанию)  alice@anthropic.com   Max 20x  3д назад
+    personal                   bob@anthropic.com     Pro      1ч назад *
+    ~/.claude/                 charlie@personal.com  Max 5x   3д назад    (стандартный)
 
 $ claude-acc status
 Активный аккаунт: work <alice@anthropic.com> (привязан к my-project)
@@ -290,15 +303,15 @@ esac
 ```
 $ claude-acc usage
 Использование Claude Code:
-  ★ work  alice@anthropic.com
+  ★ work  <alice@anthropic.com>  Max 20x
       5h  [████████░░░░░░░░░░░░]   42%  сброс через 2ч 14м
       7d  [██░░░░░░░░░░░░░░░░░░]   11%  сброс через 5д 17ч
-    personal  bob@anthropic.com
+    personal  <bob@anthropic.com>  Pro
       5h  [░░░░░░░░░░░░░░░░░░░░]    0%  доступно сейчас
       7d  [░░░░░░░░░░░░░░░░░░░░]    0%  сброс через 6д 3ч
 ```
 
-В отличие от `doctor`, это всегда живой запрос — данные использования изменчивы, поэтому ничего не кэшируется. Аккаунты без токена показывают `нет токена (запустите: claude-acc login <имя>)`; недоступный API — `токен есть, API недоступен`. Зависимости и ограничение платформы те же, что у `doctor` (`security`, `curl`, `jq`, `shasum`; пока только macOS).
+В отличие от `doctor`, сами цифры использования всегда тянутся вживую — данные изменчивы, поэтому не кэшируются. Email/план рядом с аккаунтом берутся из кэша `doctor`, так что один раз запустите `claude-acc doctor`, чтобы их заполнить. Аккаунты без токена показывают `нет токена (запустите: claude-acc login <имя>)`; недоступный API — `токен есть, API недоступен`. Зависимости и ограничение платформы те же, что у `doctor` (`security`, `curl`, `jq`, `shasum`; пока только macOS).
 
 ## Язык
 

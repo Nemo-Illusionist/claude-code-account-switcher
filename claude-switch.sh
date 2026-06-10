@@ -822,7 +822,10 @@ _claude_acc_token() {
     jq -r '.claudeAiOauth.accessToken // empty' "$acc_dir/.credentials.json" 2>/dev/null
 }
 
-# Echoes "<email>\t<uuid>\t<org>" or empty on failure.
+# Echoes "<email>\t<uuid>\t<org>\t<plan>" or empty on failure. `plan` is a
+# friendly tier label ("Max 20x" / "Pro" / "") derived from the boolean flags
+# plus the multiplier in organization.rate_limit_tier — mirrors derive_plan()
+# in the Rust src/identity.rs.
 _claude_acc_identity() {
     local token="$1"
     [[ -z "$token" ]] && return 1
@@ -830,7 +833,15 @@ _claude_acc_identity() {
         -H "Authorization: Bearer $token" \
         -H "anthropic-beta: oauth-2025-04-20" \
         https://api.anthropic.com/api/oauth/profile 2>/dev/null \
-        | jq -r '"\(.account.email // "<unknown>")\t\(.account.uuid // "<unknown>")\t\(.organization.name // "")"' 2>/dev/null
+        | jq -r '
+            (.account.has_claude_max // false) as $max
+            | (.account.has_claude_pro // false) as $pro
+            | (.organization.rate_limit_tier // "") as $tier
+            | (($tier | [scan("[0-9]+x")][0]) // "") as $mult
+            | (if $max then ("Max" + (if $mult != "" then " " + $mult else "" end))
+               elif $pro then "Pro" else "" end) as $plan
+            | "\(.account.email // "<unknown>")\t\(.account.uuid // "<unknown>")\t\(.organization.name // "")\t\($plan)"
+          ' 2>/dev/null
 }
 
 # sha256(token)[0:16] — used as cache invalidation signal.
@@ -855,7 +866,7 @@ _claude_acc_default_token_dir() {
 }
 
 _claude_acc_write_cache() {
-    local cache="$1" email="$2" uuid="$3" org="$4" token="$5"
+    local cache="$1" email="$2" uuid="$3" org="$4" token="$5" plan="$6"
     local now hash
     now=$(date +%s)
     hash=$(_claude_acc_token_hash "$token")
@@ -865,8 +876,14 @@ _claude_acc_write_cache() {
         --arg org "$org" \
         --argjson fetched_at "$now" \
         --arg token_hash "$hash" \
-        '{email:$email, uuid:$uuid, org:$org, fetched_at:$fetched_at, token_hash:$token_hash}' \
+        --arg plan "$plan" \
+        '{email:$email, uuid:$uuid, org:$org, fetched_at:$fetched_at, token_hash:$token_hash, plan:$plan}' \
         > "$cache" 2>/dev/null
+}
+
+_claude_acc_cache_plan() {
+    local acc_dir="$CLAUDE_SWITCH_ACCOUNTS_DIR/$1"
+    jq -r '.plan // empty' "$(_claude_acc_cache_path "$acc_dir")" 2>/dev/null
 }
 
 _claude_acc_cache_email() {
@@ -921,6 +938,10 @@ _claude_acc_default_email() {
     jq -r '.email // empty' "$(_claude_acc_default_cache_path)" 2>/dev/null
 }
 
+_claude_acc_default_plan() {
+    jq -r '.plan // empty' "$(_claude_acc_default_cache_path)" 2>/dev/null
+}
+
 _claude_acc_default_drift_marker() {
     local cached current
     cached=$(jq -r '.token_hash // empty' "$(_claude_acc_default_cache_path)" 2>/dev/null)
@@ -931,9 +952,9 @@ _claude_acc_default_drift_marker() {
 }
 
 # Suffix for the unmanaged ~/.claude/ row in `list`. Empty if no cache or
-# no email; otherwise "  email  3d ago" with optional ` *` drift marker.
+# no email; otherwise "  email  Max 20x  3d ago" with optional ` *` drift marker.
 _claude_acc_default_suffix() {
-    local cache email fetched now secs when drift
+    local cache email fetched now secs when drift plan plan_seg
     cache=$(_claude_acc_default_cache_path)
     [[ ! -f "$cache" ]] && return 0
     email=$(jq -r '.email // empty' "$cache" 2>/dev/null)
@@ -947,28 +968,34 @@ _claude_acc_default_suffix() {
             when=$(_claude_acc_relative_time "$secs")
         fi
     fi
+    plan=$(_claude_acc_default_plan)
+    plan_seg=""
+    [[ -n "$plan" ]] && plan_seg="  $plan"
     drift=$(_claude_acc_default_drift_marker)
     if [[ -n "$when" ]]; then
-        printf '  %s  %s%s' "$email" "$when" "$drift"
+        printf '  %s%s  %s%s' "$email" "$plan_seg" "$when" "$drift"
     else
-        printf '  %s%s' "$email" "$drift"
+        printf '  %s%s%s' "$email" "$plan_seg" "$drift"
     fi
 }
 
-# Rendered "  email  3d ago" / "  email  3d ago *" / "" suffix for list/status.
+# Rendered "  email  Max 20x  3d ago" / "… *" / "" suffix for list/status.
 _claude_acc_identity_suffix() {
-    local name="$1" email when secs drift
+    local name="$1" email when secs drift plan plan_seg
     email=$(_claude_acc_cache_email "$name")
     [[ -z "$email" ]] && return 0
     secs=$(_claude_acc_cache_age "$name")
     if [[ -n "$secs" ]]; then
         when=$(_claude_acc_relative_time "$secs")
     fi
+    plan=$(_claude_acc_cache_plan "$name")
+    plan_seg=""
+    [[ -n "$plan" ]] && plan_seg="  $plan"
     drift=$(_claude_acc_cache_drift_marker "$name")
     if [[ -n "$when" ]]; then
-        printf '  %s  %s%s' "$email" "$when" "$drift"
+        printf '  %s%s  %s%s' "$email" "$plan_seg" "$when" "$drift"
     else
-        printf '  %s%s' "$email" "$drift"
+        printf '  %s%s%s' "$email" "$plan_seg" "$drift"
     fi
 }
 
@@ -1092,13 +1119,15 @@ _claude_acc_usage() {
 
     _msg usage_header
 
-    local acc marker email
+    local acc marker email plan plan_seg
     for acc in "${accounts[@]}"; do
         marker=" "
         [[ "$acc" == "$default_acc" ]] && marker="★"
         email=$(_claude_acc_cache_email "$acc")
+        plan=$(_claude_acc_cache_plan "$acc")
+        plan_seg=""; [[ -n "$plan" ]] && plan_seg="  $plan"
         if [[ -n "$email" ]]; then
-            printf "  %s %s  <%s>\n" "$marker" "$acc" "$email"
+            printf "  %s %s  <%s>%s\n" "$marker" "$acc" "$email" "$plan_seg"
         else
             printf "  %s %s\n" "$marker" "$acc"
         fi
@@ -1107,8 +1136,10 @@ _claude_acc_usage() {
 
     if (( standard_present )); then
         email=$(_claude_acc_default_email)
+        plan=$(_claude_acc_default_plan)
+        plan_seg=""; [[ -n "$plan" ]] && plan_seg="  $plan"
         if [[ -n "$email" ]]; then
-            printf "    ~/.claude/  <%s>  %s\n" "$email" "$(_msg list_standard)"
+            printf "    ~/.claude/  <%s>%s  %s\n" "$email" "$plan_seg" "$(_msg list_standard)"
         else
             printf "    ~/.claude/  %s\n" "$(_msg list_standard)"
         fi
@@ -1160,7 +1191,7 @@ _claude_acc_doctor() {
         (( ${#standard_label} > width )) && width=${#standard_label}
     fi
 
-    local healthy=0 token identity email uuid org rest cache_path
+    local healthy=0 token identity email uuid org plan plan_seg cache_path
     for acc in "${accounts[@]}"; do
         local acc_dir="$CLAUDE_SWITCH_ACCOUNTS_DIR/$acc"
         token=$(_claude_acc_token "$acc_dir")
@@ -1173,14 +1204,11 @@ _claude_acc_doctor() {
             printf "  ? %-${width}s  %s\n" "$acc" "$(_msg doctor_offline)"
             continue
         fi
-        email="${identity%%	*}"
-        rest="${identity#*	}"
-        uuid="${rest%%	*}"
-        org="${rest#*	}"
-        [[ "$org" == "$rest" ]] && org=""
+        IFS=$'\t' read -r email uuid org plan <<< "$identity"
         cache_path=$(_claude_acc_cache_path "$acc_dir")
-        _claude_acc_write_cache "$cache_path" "$email" "$uuid" "$org" "$token"
-        printf "  ✓ %-${width}s  %s  uuid=%s\n" "$acc" "$email" "$uuid"
+        _claude_acc_write_cache "$cache_path" "$email" "$uuid" "$org" "$token" "$plan"
+        plan_seg=""; [[ -n "$plan" ]] && plan_seg="  $plan"
+        printf "  ✓ %-${width}s  %s%s  uuid=%s\n" "$acc" "$email" "$plan_seg" "$uuid"
         (( healthy++ ))
     done
 
@@ -1190,15 +1218,12 @@ _claude_acc_doctor() {
         if [[ -z "$identity" ]]; then
             printf "  ? %-${width}s  %s\n" "$standard_label" "$(_msg doctor_offline)"
         else
-            email="${identity%%	*}"
-            rest="${identity#*	}"
-            uuid="${rest%%	*}"
-            org="${rest#*	}"
-            [[ "$org" == "$rest" ]] && org=""
+            IFS=$'\t' read -r email uuid org plan <<< "$identity"
             cache_path=$(_claude_acc_default_cache_path)
-            _claude_acc_write_cache "$cache_path" "$email" "$uuid" "$org" "$token"
-            printf "  ✓ %-${width}s  %s  uuid=%s  (%s)\n" \
-                "$standard_label" "$email" "$uuid" "$(_msg list_standard)"
+            _claude_acc_write_cache "$cache_path" "$email" "$uuid" "$org" "$token" "$plan"
+            plan_seg=""; [[ -n "$plan" ]] && plan_seg="  $plan"
+            printf "  ✓ %-${width}s  %s%s  uuid=%s  (%s)\n" \
+                "$standard_label" "$email" "$plan_seg" "$uuid" "$(_msg list_standard)"
             (( healthy++ ))
         fi
     fi
@@ -1226,37 +1251,34 @@ _claude_acc_doctor_json() {
     local any_problem=0
 
     local entries="[]"
-    local acc acc_dir token identity audit_status email uuid org rest is_default entry
+    local acc acc_dir token identity audit_status email uuid org plan is_default entry
     for acc in "${accounts[@]}"; do
         acc_dir="$CLAUDE_SWITCH_ACCOUNTS_DIR/$acc"
         token=$(_claude_acc_token "$acc_dir")
         if [[ -z "$token" ]]; then
-            audit_status="no_token"; email=""; uuid=""
+            audit_status="no_token"; email=""; uuid=""; plan=""
         else
             identity=$(_claude_acc_identity "$token")
             if [[ -z "$identity" ]]; then
-                audit_status="offline"; email=""; uuid=""
+                audit_status="offline"; email=""; uuid=""; plan=""
                 any_problem=1
             else
                 audit_status="ok"
-                email="${identity%%	*}"
-                rest="${identity#*	}"
-                uuid="${rest%%	*}"
-                org="${rest#*	}"
-                [[ "$org" == "$rest" ]] && org=""
+                IFS=$'\t' read -r email uuid org plan <<< "$identity"
                 _claude_acc_write_cache "$(_claude_acc_cache_path "$acc_dir")" \
-                    "$email" "$uuid" "$org" "$token"
+                    "$email" "$uuid" "$org" "$token" "$plan"
             fi
         fi
         is_default=false
         [[ "$acc" == "$default_acc" ]] && is_default=true
         entry=$(jq -n \
             --arg name "$acc" --arg status "$audit_status" \
-            --arg email "$email" --arg uuid "$uuid" \
+            --arg email "$email" --arg uuid "$uuid" --arg plan "$plan" \
             --argjson is_default "$is_default" \
             '{name:$name, status:$status,
               email:(if $email == "" then null else $email end),
               uuid:(if $uuid == "" then null else $uuid end),
+              plan:(if $plan == "" then null else $plan end),
               default:$is_default}')
         entries=$(jq --argjson e "$entry" '. + [$e]' <<< "$entries")
     done
@@ -1267,24 +1289,21 @@ _claude_acc_doctor_json() {
             token=$(_claude_acc_token "$(_claude_acc_default_token_dir)")
         identity=$(_claude_acc_identity "$token")
         if [[ -z "$identity" ]]; then
-            audit_status="offline"; email=""; uuid=""
+            audit_status="offline"; email=""; uuid=""; plan=""
             any_problem=1
         else
             audit_status="ok"
-            email="${identity%%	*}"
-            rest="${identity#*	}"
-            uuid="${rest%%	*}"
-            org="${rest#*	}"
-            [[ "$org" == "$rest" ]] && org=""
+            IFS=$'\t' read -r email uuid org plan <<< "$identity"
             _claude_acc_write_cache "$(_claude_acc_default_cache_path)" \
-                "$email" "$uuid" "$org" "$token"
+                "$email" "$uuid" "$org" "$token" "$plan"
         fi
         standard=$(jq -n \
             --arg name "~/.claude/" --arg status "$audit_status" \
-            --arg email "$email" --arg uuid "$uuid" \
+            --arg email "$email" --arg uuid "$uuid" --arg plan "$plan" \
             '{name:$name, status:$status,
               email:(if $email == "" then null else $email end),
-              uuid:(if $uuid == "" then null else $uuid end)}')
+              uuid:(if $uuid == "" then null else $uuid end),
+              plan:(if $plan == "" then null else $plan end)}')
     fi
 
     jq -n --argjson accounts "$entries" --argjson standard "$standard" \
