@@ -227,6 +227,14 @@ impl I18n {
             (Msg::DoctorPartial(ok, total), Lang::Ru) => {
                 format!("{} из {} аккаунтов в порядке.", ok, total)
             }
+
+            // usage
+            (Msg::UsageHeader, Lang::En) => s("Claude Code usage:"),
+            (Msg::UsageHeader, Lang::Ru) => s("Использование Claude Code:"),
+            (Msg::UsageResetsIn(ref d), Lang::En) => format!("resets in {}", d),
+            (Msg::UsageResetsIn(ref d), Lang::Ru) => format!("сброс через {}", d),
+            (Msg::UsageAvailableNow, Lang::En) => s("available now"),
+            (Msg::UsageAvailableNow, Lang::Ru) => s("доступно сейчас"),
         }
     }
 
@@ -295,6 +303,9 @@ pub enum Msg {
     RelativeTime(u64),
     SeedCopied(String),
     SeedNothingToCopy,
+    UsageHeader,
+    UsageResetsIn(String),
+    UsageAvailableNow,
 }
 
 fn relative_time(secs: u64, lang: Lang) -> String {
@@ -323,9 +334,71 @@ fn relative_time(secs: u64, lang: Lang) -> String {
     }
 }
 
+/// Format a positive seconds count as a short forward duration:
+/// `"45m"`, `"2h 14m"`, `"5d 17h"`. Sub-minute values render as `"<1m"`.
+/// Used by `usage` for "resets in …". Callers handle `secs <= 0` themselves
+/// (shown as "available now"), so this only takes a `u64`.
+pub fn forward_duration(secs: u64, lang: Lang) -> String {
+    let (h_en, h_ru, m_en, m_ru, d_en, d_ru) = ("h", "ч", "m", "м", "d", "д");
+    if secs < 60 {
+        return match lang {
+            Lang::En => format!("<1{}", m_en),
+            Lang::Ru => format!("<1{}", m_ru),
+        };
+    }
+    if secs < 3_600 {
+        let m = secs / 60;
+        return match lang {
+            Lang::En => format!("{}{}", m, m_en),
+            Lang::Ru => format!("{}{}", m, m_ru),
+        };
+    }
+    if secs < 86_400 {
+        let h = secs / 3_600;
+        let m = (secs % 3_600) / 60;
+        return match lang {
+            Lang::En => format!("{}{} {}{}", h, h_en, m, m_en),
+            Lang::Ru => format!("{}{} {}{}", h, h_ru, m, m_ru),
+        };
+    }
+    let d = secs / 86_400;
+    let h = (secs % 86_400) / 3_600;
+    match lang {
+        Lang::En => format!("{}{} {}{}", d, d_en, h, h_en),
+        Lang::Ru => format!("{}{} {}{}", d, d_ru, h, h_ru),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn forward_duration_sub_minute() {
+        assert_eq!(forward_duration(0, Lang::En), "<1m");
+        assert_eq!(forward_duration(59, Lang::Ru), "<1м");
+    }
+
+    #[test]
+    fn forward_duration_minutes() {
+        assert_eq!(forward_duration(60, Lang::En), "1m");
+        assert_eq!(forward_duration(3_599, Lang::En), "59m");
+        assert_eq!(forward_duration(120, Lang::Ru), "2м");
+    }
+
+    #[test]
+    fn forward_duration_hours_and_minutes() {
+        assert_eq!(forward_duration(3_600, Lang::En), "1h 0m");
+        assert_eq!(forward_duration(8_040, Lang::En), "2h 14m");
+        assert_eq!(forward_duration(8_040, Lang::Ru), "2ч 14м");
+    }
+
+    #[test]
+    fn forward_duration_days_and_hours() {
+        assert_eq!(forward_duration(86_400, Lang::En), "1d 0h");
+        assert_eq!(forward_duration(493_200, Lang::En), "5d 17h");
+        assert_eq!(forward_duration(493_200, Lang::Ru), "5д 17ч");
+    }
 
     #[test]
     fn relative_time_under_minute_says_just_now() {

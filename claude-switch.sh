@@ -57,6 +57,7 @@ _claude_msg_en=(
     help_unlink         "Unlink current directory"
     help_links          "Show all directory links"
     help_status         "Current account and context"
+    help_usage          "Show 5h / 7d usage for every account"
     help_run            "Run claude under a specific account"
     help_doctor         "Audit each account OAuth identity (email, UUID)"
     help_whoami         "Print active account email (or name fallback)"
@@ -111,6 +112,10 @@ _claude_msg_en=(
     status_linked       "(linked to %s)"
     status_default      "(default)"
     status_standard     "Active account: ~/.claude/ (standard)"
+    usage_header        "Claude Code usage:"
+    usage_resets_in     "resets in %s"
+    usage_available_now "available now"
+    usage_missing_dep   "claude-acc usage needs '%s' on PATH."
     links_empty         "No links. Use: claude-acc link <name>"
     links_header        "Links:"
     links_active        "← active"
@@ -129,6 +134,7 @@ _claude_msg_ru=(
     help_unlink         "Убрать привязку с текущей директории"
     help_links          "Показать все привязки директорий"
     help_status         "Текущий аккаунт и контекст"
+    help_usage          "Показать использование 5ч / 7д по всем аккаунтам"
     help_run            "Запустить claude под конкретным аккаунтом"
     help_doctor         "Аудит OAuth-личности каждого аккаунта (email, UUID)"
     help_whoami         "Email активного аккаунта (или имя как fallback)"
@@ -183,6 +189,10 @@ _claude_msg_ru=(
     status_linked       "(привязан к %s)"
     status_default      "(по умолчанию)"
     status_standard     "Активный аккаунт: ~/.claude/ (стандартный)"
+    usage_header        "Использование Claude Code:"
+    usage_resets_in     "сброс через %s"
+    usage_available_now "доступно сейчас"
+    usage_missing_dep   "claude-acc usage требует '%s' в PATH."
     links_empty         "Нет привязок. Используйте: claude-acc link <name>"
     links_header        "Привязки:"
     links_active        "← активна"
@@ -417,6 +427,7 @@ _claude_acc_help() {
     echo "  claude-acc unlink            $(_msg help_unlink)"
     echo "  claude-acc links             $(_msg help_links)"
     echo "  claude-acc status            $(_msg help_status)"
+    echo "  claude-acc usage             $(_msg help_usage)"
     echo "  claude-acc run <name> [...]  $(_msg help_run)"
     echo "  claude-acc doctor [--json]   $(_msg help_doctor)"
     echo "  claude-acc whoami            $(_msg help_whoami)"
@@ -961,6 +972,150 @@ _claude_acc_identity_suffix() {
     fi
 }
 
+# --- Usage (5-hour / 7-day rate-limit windows) ---
+# Queries /api/oauth/usage per account and renders a bar + reset countdown for
+# the five_hour and seven_day windows. Live-only (no cache) — usage is volatile.
+
+# Format positive seconds as a short forward duration: "45m" / "2h 14m" /
+# "5d 17h" / "<1m". Locale follows _claude_acc_lang. Mirror of the Rust
+# forward_duration() in src/i18n.rs.
+_claude_acc_forward_duration() {
+    local secs="$1" lang n h m d
+    lang=$(_claude_acc_lang)
+    if (( secs < 60 )); then
+        [[ "$lang" == "ru" ]] && echo "<1м" || echo "<1m"
+        return
+    fi
+    if (( secs < 3600 )); then
+        n=$(( secs / 60 ))
+        [[ "$lang" == "ru" ]] && echo "${n}м" || echo "${n}m"
+        return
+    fi
+    if (( secs < 86400 )); then
+        h=$(( secs / 3600 )); m=$(( (secs % 3600) / 60 ))
+        [[ "$lang" == "ru" ]] && echo "${h}ч ${m}м" || echo "${h}h ${m}m"
+        return
+    fi
+    d=$(( secs / 86400 )); h=$(( (secs % 86400) / 3600 ))
+    [[ "$lang" == "ru" ]] && echo "${d}д ${h}ч" || echo "${d}d ${h}h"
+}
+
+# Render a 20-cell "[████░░░░…]" bar for an integer 0–100 percentage.
+_claude_acc_usage_bar() {
+    local pct="$1" width=20 filled empty bar="" i
+    (( pct < 0 )) && pct=0
+    (( pct > 100 )) && pct=100
+    filled=$(( (pct * width + 50) / 100 ))   # round(pct/100 * width)
+    (( filled > width )) && filled=width
+    empty=$(( width - filled ))
+    for (( i = 0; i < filled; i++ )); do bar+="█"; done
+    for (( i = 0; i < empty; i++ )); do bar+="░"; done
+    printf '[%s]' "$bar"
+}
+
+# Fetch + parse usage for a token. Emits one TAB-separated line per non-null
+# window: "<label>\t<pct>\t<remaining_secs>". remaining_secs is empty when the
+# window has no scheduled reset. Empty output (rc 1) means offline / bad token.
+_claude_acc_usage_fetch() {
+    local token="$1" json now
+    [[ -z "$token" ]] && return 1
+    json=$(curl -sf --max-time 5 \
+        -H "Authorization: Bearer $token" \
+        -H "anthropic-beta: oauth-2025-04-20" \
+        https://api.anthropic.com/api/oauth/usage 2>/dev/null) || return 1
+    [[ -z "$json" ]] && return 1
+    now=$(date +%s)
+    printf '%s' "$json" | jq -r --argjson now "$now" '
+        def remain(w):
+            if (w == null) or (w.resets_at == null) then ""
+            else ((w.resets_at
+                   | sub("\\.[0-9]+"; "")
+                   | sub("Z$"; "")
+                   | sub("[+-][0-9]{2}:[0-9]{2}$"; "")
+                   | strptime("%Y-%m-%dT%H:%M:%S") | mktime) - $now)
+            end;
+        def util(w): (w.utilization // 0 | round);
+        def line(name; w):
+            if w == null then empty
+            else "\(name)\t\(util(w))\t\(remain(w))" end;
+        line("5h"; .five_hour), line("7d"; .seven_day)
+    ' 2>/dev/null
+}
+
+# Print the per-window lines for one token dir (managed account or ~/.claude/).
+_claude_acc_usage_render() {
+    local token_dir="$1" name="$2" token out key pct remain reset bar
+    token=$(_claude_acc_token "$token_dir")
+    if [[ -z "$token" ]]; then
+        printf "      %s\n" "$(_msg doctor_no_token "$name")"
+        return
+    fi
+    out=$(_claude_acc_usage_fetch "$token")
+    if [[ -z "$out" ]]; then
+        printf "      %s\n" "$(_msg doctor_offline)"
+        return
+    fi
+    while IFS=$'\t' read -r key pct remain; do
+        [[ -z "$key" ]] && continue
+        bar=$(_claude_acc_usage_bar "$pct")
+        if [[ -z "$remain" ]]; then
+            reset=""
+        elif (( remain > 0 )); then
+            reset=$(_msg usage_resets_in "$(_claude_acc_forward_duration "$remain")")
+        else
+            reset=$(_msg usage_available_now)
+        fi
+        printf "      %s  %s  %3d%%  %s\n" "$key" "$bar" "$pct" "$reset"
+    done <<< "$out"
+}
+
+_claude_acc_usage() {
+    local dep
+    for dep in security curl jq shasum; do
+        if ! command -v "$dep" >/dev/null 2>&1; then
+            _msg usage_missing_dep "$dep"
+            return 1
+        fi
+    done
+
+    local default_acc
+    default_acc=$(_claude_default_account)
+    local accounts=("$CLAUDE_SWITCH_ACCOUNTS_DIR"/*(N:t))
+    local standard_dir standard_present=0
+    standard_dir=$(_claude_acc_default_token_dir)
+    [[ -n "$(_claude_acc_token "$standard_dir")" ]] && standard_present=1
+
+    if (( ${#accounts} == 0 && standard_present == 0 )); then
+        _msg list_empty
+        return 0
+    fi
+
+    _msg usage_header
+
+    local acc marker email
+    for acc in "${accounts[@]}"; do
+        marker=" "
+        [[ "$acc" == "$default_acc" ]] && marker="★"
+        email=$(_claude_acc_cache_email "$acc")
+        if [[ -n "$email" ]]; then
+            printf "  %s %s  <%s>\n" "$marker" "$acc" "$email"
+        else
+            printf "  %s %s\n" "$marker" "$acc"
+        fi
+        _claude_acc_usage_render "$CLAUDE_SWITCH_ACCOUNTS_DIR/$acc" "$acc"
+    done
+
+    if (( standard_present )); then
+        email=$(_claude_acc_default_email)
+        if [[ -n "$email" ]]; then
+            printf "    ~/.claude/  <%s>  %s\n" "$email" "$(_msg list_standard)"
+        else
+            printf "    ~/.claude/  %s\n" "$(_msg list_standard)"
+        fi
+        _claude_acc_usage_render "$standard_dir" "~/.claude/"
+    fi
+}
+
 _claude_acc_doctor() {
     local json=0
     if [[ "$1" == "--json" ]]; then
@@ -1177,6 +1332,7 @@ claude-acc() {
         unlink)  _claude_acc_unlink "$@" ;;
         links)   _claude_acc_links ;;
         status)  _claude_acc_status "$@" ;;
+        usage)   _claude_acc_usage "$@" ;;
         run)     _claude_acc_run "$@" ;;
         doctor)  _claude_acc_doctor "$@" ;;
         whoami)  _claude_acc_whoami ;;
@@ -1203,6 +1359,7 @@ _claude_acc_completion() {
         "unlink:$(_msg help_unlink)"
         "links:$(_msg help_links)"
         "status:$(_msg help_status)"
+        "usage:$(_msg help_usage)"
         "run:$(_msg help_run)"
         "doctor:$(_msg help_doctor)"
         "whoami:$(_msg help_whoami)"

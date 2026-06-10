@@ -250,6 +250,145 @@ fn fetch_profile(token: &str) -> Option<Profile> {
     })
 }
 
+// --- Usage (5-hour / 7-day rate-limit windows) ---
+//
+// Queries the undocumented /api/oauth/usage endpoint, which returns the
+// utilization (0–100 percent) and reset timestamp for each rate-limit window.
+// We surface the two windows users care about: `five_hour` and `seven_day`.
+// Like the profile endpoint, this is reverse-engineered and may change.
+
+pub struct UsageWindow {
+    /// Percentage of the window consumed, 0–100. The API returns a float.
+    pub utilization: f64,
+    /// ISO-8601 reset timestamp (e.g. "2026-06-10T12:20:01.254509+00:00"),
+    /// or `None` if the window has no scheduled reset.
+    pub resets_at: Option<String>,
+}
+
+pub struct Usage {
+    pub five_hour: Option<UsageWindow>,
+    pub seven_day: Option<UsageWindow>,
+}
+
+pub enum UsageResult {
+    Ok(Usage),
+    NoToken,
+    Offline,
+}
+
+/// Read the token for `token_dir` (a managed account dir or `~/.claude/`) and
+/// fetch its live usage. Mirrors `audit_at` but for the usage endpoint — and
+/// deliberately writes no cache, since usage is volatile and only meaningful
+/// fresh.
+pub fn fetch_account_usage(token_dir: &Path) -> UsageResult {
+    let Some(token) = read_token(token_dir) else {
+        return UsageResult::NoToken;
+    };
+    match fetch_usage(&token) {
+        Some(u) => UsageResult::Ok(u),
+        None => UsageResult::Offline,
+    }
+}
+
+fn fetch_usage(token: &str) -> Option<Usage> {
+    let out = Command::new("curl")
+        .args(["-sf", "--max-time", "5"])
+        .args(["-H", &format!("Authorization: Bearer {}", token)])
+        .args(["-H", "anthropic-beta: oauth-2025-04-20"])
+        .arg("https://api.anthropic.com/api/oauth/usage")
+        .output()
+        .ok()?;
+    if !out.status.success() || out.stdout.is_empty() {
+        return None;
+    }
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).ok()?;
+    Some(Usage {
+        five_hour: parse_window(v.get("five_hour")),
+        seven_day: parse_window(v.get("seven_day")),
+    })
+}
+
+fn parse_window(v: Option<&serde_json::Value>) -> Option<UsageWindow> {
+    let v = v?;
+    if v.is_null() {
+        return None;
+    }
+    Some(UsageWindow {
+        utilization: v.get("utilization").and_then(|u| u.as_f64()).unwrap_or(0.0),
+        resets_at: v
+            .get("resets_at")
+            .and_then(|r| r.as_str())
+            .map(String::from),
+    })
+}
+
+/// Seconds from now until `resets_at`. Returns `None` if the timestamp can't be
+/// parsed; a value `<= 0` means the window has already reset.
+pub fn seconds_until(resets_at: &str) -> Option<i64> {
+    let target = iso_to_epoch(resets_at)?;
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).ok()?.as_secs() as i64;
+    Some(target - now)
+}
+
+/// Parse an ISO-8601 timestamp like `2026-06-10T12:20:01.254509+00:00` (or
+/// trailing `Z`) into Unix epoch seconds. Fractional seconds are ignored.
+/// Returns `None` on any malformed component.
+fn iso_to_epoch(s: &str) -> Option<i64> {
+    let (date, rest) = s.split_once('T')?;
+    let mut dparts = date.split('-');
+    let y: i64 = dparse(dparts.next())?;
+    let m: i64 = dparse(dparts.next())?;
+    let d: i64 = dparse(dparts.next())?;
+
+    // Split the time from its timezone suffix.
+    let (time, offset_secs) = if let Some(t) = rest.strip_suffix('Z') {
+        (t, 0i64)
+    } else if let Some(pos) = rest.rfind(['+', '-']) {
+        let (t, off) = rest.split_at(pos);
+        (t, parse_offset(off)?)
+    } else {
+        (rest, 0i64)
+    };
+
+    let mut tparts = time.split(':');
+    let hh: i64 = dparse(tparts.next())?;
+    let mm: i64 = dparse(tparts.next())?;
+    // Seconds may carry a fractional part — keep only the integer seconds.
+    let sec_field = tparts.next()?;
+    let ss: i64 = dparse(Some(sec_field.split('.').next().unwrap_or(sec_field)))?;
+
+    Some(days_from_civil(y, m, d) * 86_400 + hh * 3_600 + mm * 60 + ss - offset_secs)
+}
+
+/// Parse a `+HH:MM` / `-HH:MM` timezone offset into signed seconds.
+fn parse_offset(off: &str) -> Option<i64> {
+    let sign = match off.as_bytes().first()? {
+        b'+' => 1,
+        b'-' => -1,
+        _ => return None,
+    };
+    let body = &off[1..];
+    let (oh, om) = body.split_once(':')?;
+    let oh: i64 = dparse(Some(oh))?;
+    let om: i64 = dparse(Some(om))?;
+    Some(sign * (oh * 3_600 + om * 60))
+}
+
+fn dparse(s: Option<&str>) -> Option<i64> {
+    s?.parse().ok()
+}
+
+/// Days since the Unix epoch (1970-01-01) for a proleptic-Gregorian date.
+/// Howard Hinnant's `days_from_civil` algorithm.
+fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = if y >= 0 { y } else { y - 399 } / 400;
+    let yoe = y - era * 400;
+    let doy = (153 * (if m > 2 { m - 3 } else { m + 9 }) + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146_097 + doe - 719_468
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -305,5 +444,42 @@ mod tests {
     fn read_cache_at_missing_returns_none() {
         let p = std::path::PathBuf::from("/definitely/does/not/exist/.account-info.json");
         assert!(read_cache_at(&p).is_none());
+    }
+
+    #[test]
+    fn iso_to_epoch_utc_offset() {
+        // 2026-06-10T12:20:01+00:00 == 1781094001
+        // (verified via `TZ=UTC date -j -f %Y-%m-%dT%H:%M:%S ... +%s`).
+        assert_eq!(
+            iso_to_epoch("2026-06-10T12:20:01.254509+00:00"),
+            Some(1_781_094_001)
+        );
+    }
+
+    #[test]
+    fn iso_to_epoch_z_suffix_matches_offset() {
+        assert_eq!(
+            iso_to_epoch("2026-06-10T12:20:01Z"),
+            iso_to_epoch("2026-06-10T12:20:01+00:00")
+        );
+    }
+
+    #[test]
+    fn iso_to_epoch_applies_nonzero_offset() {
+        // +02:00 is two hours ahead, so the same wall clock is 7200s earlier in UTC.
+        let utc = iso_to_epoch("2026-06-10T12:20:01+00:00").unwrap();
+        let plus2 = iso_to_epoch("2026-06-10T12:20:01+02:00").unwrap();
+        assert_eq!(utc - plus2, 7_200);
+    }
+
+    #[test]
+    fn iso_to_epoch_epoch_zero() {
+        assert_eq!(iso_to_epoch("1970-01-01T00:00:00Z"), Some(0));
+    }
+
+    #[test]
+    fn iso_to_epoch_rejects_garbage() {
+        assert_eq!(iso_to_epoch("not-a-timestamp"), None);
+        assert_eq!(iso_to_epoch(""), None);
     }
 }

@@ -99,6 +99,7 @@ claude-acc link work
 | `claude-acc unlink` | Unlink current directory |
 | `claude-acc links` | Show all directory links |
 | `claude-acc status` | Show active account |
+| `claude-acc usage` | Show 5h / 7d rate-limit usage for every account |
 | `claude-acc run <name>` | Run claude under a specific account |
 | `claude-acc whoami` | Print the email (or name) of the active account |
 | `claude-acc doctor [--json]` | Audit each account's actual OAuth identity |
@@ -282,6 +283,23 @@ esac
 The `*` after an email means the OAuth token has rotated since the cache was written. Most often this is a routine OAuth refresh (identity unchanged) — but if you ran `claude auth login` directly between `doctor` runs, this is your reminder to re-verify. Run `claude-acc doctor` to refresh the cache.
 
 > **macOS only for now.** The Keychain hashing scheme is reverse-engineered from Claude Code's internals, so non-macOS platforms (where Claude Code uses libsecret / Credential Manager) aren't covered yet.
+
+## Usage tracking (`usage`)
+
+`claude-acc usage` shows how much of each account's rate limit you've burned, so you can pick a fresh account before you hit a wall. For every account (and the standard `~/.claude/` if logged in) it reads the OAuth token, calls `https://api.anthropic.com/api/oauth/usage`, and renders the **5-hour** and **7-day** windows with a bar, a percentage, and the time until each resets:
+
+```
+$ claude-acc usage
+Claude Code usage:
+  ★ work  alice@anthropic.com
+      5h  [████████░░░░░░░░░░░░]   42%  resets in 2h 14m
+      7d  [██░░░░░░░░░░░░░░░░░░]   11%  resets in 5d 17h
+    personal  bob@anthropic.com
+      5h  [░░░░░░░░░░░░░░░░░░░░]    0%  available now
+      7d  [░░░░░░░░░░░░░░░░░░░░]    0%  resets in 6d 3h
+```
+
+Unlike `doctor`, this is always a live fetch — usage is volatile, so nothing is cached. Accounts with no token show `no token (run: claude-acc login <name>)`; an unreachable API shows `token present, but API unreachable`. Same dependencies and platform caveat as `doctor` (`security`, `curl`, `jq`, `shasum`; macOS only for now).
 
 ## Language
 

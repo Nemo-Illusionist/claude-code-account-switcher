@@ -56,6 +56,8 @@ enum Commands {
     Links,
     /// Show active account
     Status,
+    /// Show usage (5h / 7d rate-limit windows) for every account
+    Usage,
     /// Run claude under a specific account
     Run {
         name: String,
@@ -114,6 +116,7 @@ fn main() {
         Some(Commands::Unlink) => commands::unlink::run(&config, &i18n),
         Some(Commands::Links) => commands::links::run(&config, &i18n),
         Some(Commands::Status) => commands::status::run(&config, &i18n),
+        Some(Commands::Usage) => commands::usage::run(&config, &i18n),
         Some(Commands::Run { name, args }) => commands::run::run(&config, &i18n, &name, &args),
         Some(Commands::Doctor { json }) => {
             std::process::exit(commands::doctor::run(&config, &i18n, json))

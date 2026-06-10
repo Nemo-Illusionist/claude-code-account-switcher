@@ -36,6 +36,7 @@ _claude_acc_completion() {
         'unlink:Unlink directory'
         'links:Show all links'
         'status:Current account info'
+        'usage:Show 5h / 7d usage for every account'
         'run:Run claude under a specific account'
         'doctor:Audit each account OAuth identity'
         'whoami:Print active account email'
