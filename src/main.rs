@@ -35,6 +35,18 @@ enum Commands {
     /// Copies settings.json, CLAUDE.md, agents/, commands/, output-styles/,
     /// and skills/. Skips files that already exist; never overwrites.
     CloneSettings { name: String },
+    /// Import an existing Claude config dir as an account (no re-login)
+    ///
+    /// Copies (or moves, with --move) the directory into the managed
+    /// location and, on macOS, re-keys its Keychain token so auth is kept.
+    Import {
+        name: String,
+        /// Path to the existing config dir (e.g. ~/.claude-work)
+        source: String,
+        /// Move the directory instead of copying it
+        #[arg(long = "move")]
+        move_into: bool,
+    },
     /// Re-login to an account
     Login { name: String },
     /// Remove account
@@ -112,6 +124,13 @@ fn main() {
         Some(Commands::CloneSettings { name }) => {
             commands::clone_settings::run(&config, &i18n, &name)
         }
+        Some(Commands::Import {
+            name,
+            source,
+            move_into,
+        }) => std::process::exit(commands::import::run(
+            &config, &i18n, &name, &source, move_into,
+        )),
         Some(Commands::Login { name }) => commands::login::run(&config, &i18n, &name),
         Some(Commands::Remove { force, name }) => {
             commands::remove::run(&config, &i18n, &name, force)

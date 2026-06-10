@@ -234,6 +234,30 @@ impl I18n {
                 format!("↔ та же личность, что и {}", names)
             }
 
+            // import
+            (Msg::ImportSourceNotDir(ref p), Lang::En) => {
+                format!("Source '{}' is not a directory.", p)
+            }
+            (Msg::ImportSourceNotDir(ref p), Lang::Ru) => {
+                format!("Источник '{}' не является директорией.", p)
+            }
+            (Msg::ImportSourceManaged, Lang::En) => {
+                s("That path is already inside ~/.claude-switch/accounts/.")
+            }
+            (Msg::ImportSourceManaged, Lang::Ru) => {
+                s("Этот путь уже внутри ~/.claude-switch/accounts/.")
+            }
+            (Msg::ImportFailed(ref e), Lang::En) => format!("Import failed: {}", e),
+            (Msg::ImportFailed(ref e), Lang::Ru) => format!("Импорт не удался: {}", e),
+            (Msg::ImportDone(ref n, ref p), Lang::En) => format!("Imported '{}' → {}", n, p),
+            (Msg::ImportDone(ref n, ref p), Lang::Ru) => format!("Импортирован '{}' → {}", n, p),
+            (Msg::ImportRekeyed, Lang::En) => s("Moved the Keychain token to the new location."),
+            (Msg::ImportRekeyed, Lang::Ru) => s("Токен Keychain перенесён на новое место."),
+            (Msg::ImportVerified(ref email), Lang::En) => format!("Verified identity: {}", email),
+            (Msg::ImportVerified(ref email), Lang::Ru) => {
+                format!("Личность подтверждена: {}", email)
+            }
+
             // update
             (Msg::UpdateUpToDate(ref v), Lang::En) => {
                 format!("Already on the latest version (v{}).", v)
@@ -366,6 +390,12 @@ pub enum Msg {
     UpdateUnsupportedPlatform,
     UpdateRepoUnknown,
     UpdateReplaceFailed(String),
+    ImportSourceNotDir(String),
+    ImportSourceManaged,
+    ImportFailed(String),
+    ImportDone(String, String),
+    ImportRekeyed,
+    ImportVerified(String),
 }
 
 fn relative_time(secs: u64, lang: Lang) -> String {

@@ -83,10 +83,9 @@ fn read_token(acc_dir: &Path) -> Option<String> {
     plaintext_token(acc_dir)
 }
 
-fn keychain_token(acc_dir: &Path) -> Option<String> {
-    if !cfg!(target_os = "macos") {
-        return None;
-    }
+/// macOS Keychain service name Claude Code stores the OAuth token under for a
+/// given config dir: "Claude Code-credentials-<sha256(path)[0:8]>".
+fn keychain_service(acc_dir: &Path) -> Option<String> {
     let acc_str = acc_dir.to_str()?;
     let mut hasher = Sha256::new();
     hasher.update(acc_str.as_bytes());
@@ -96,8 +95,16 @@ fn keychain_token(acc_dir: &Path) -> Option<String> {
         .take(4)
         .map(|b| format!("{:02x}", b))
         .collect();
-    let service = format!("Claude Code-credentials-{}", hash);
+    Some(format!("Claude Code-credentials-{}", hash))
+}
 
+/// Raw credential blob (`{"claudeAiOauth":{...}}`) from the Keychain for a dir,
+/// or `None` if absent / not macOS.
+fn keychain_blob(acc_dir: &Path) -> Option<String> {
+    if !cfg!(target_os = "macos") {
+        return None;
+    }
+    let service = keychain_service(acc_dir)?;
     let user = whoami_short()?;
     let out = Command::new("security")
         .args(["find-generic-password", "-s", &service, "-a", &user, "-w"])
@@ -107,7 +114,41 @@ fn keychain_token(acc_dir: &Path) -> Option<String> {
         return None;
     }
     let raw = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    extract_access_token(&raw)
+    if raw.is_empty() { None } else { Some(raw) }
+}
+
+fn keychain_token(acc_dir: &Path) -> Option<String> {
+    extract_access_token(&keychain_blob(acc_dir)?)
+}
+
+/// Re-key the Keychain OAuth entry from `from_dir`'s service name to
+/// `to_dir`'s. Claude Code keys the token by the absolute config-dir path, so
+/// relocating a config dir orphans its token from the new path — `import` calls
+/// this to move it. Returns `Ok(true)` if an entry was copied, `Ok(false)` if
+/// there was nothing to copy (no entry, or not macOS — the plaintext
+/// `.credentials.json` fallback covers those). `Err` only on a write failure.
+pub fn copy_keychain_entry(from_dir: &Path, to_dir: &Path) -> std::io::Result<bool> {
+    if !cfg!(target_os = "macos") {
+        return Ok(false);
+    }
+    let Some(blob) = keychain_blob(from_dir) else {
+        return Ok(false);
+    };
+    let (Some(to_service), Some(user)) = (keychain_service(to_dir), whoami_short()) else {
+        return Ok(false);
+    };
+    // `-U` updates the entry if one already exists for this service+account.
+    let status = Command::new("security")
+        .args(["add-generic-password", "-U"])
+        .args(["-s", &to_service, "-a", &user, "-w", &blob])
+        .status()?;
+    if status.success() {
+        Ok(true)
+    } else {
+        Err(std::io::Error::other(
+            "security add-generic-password failed",
+        ))
+    }
 }
 
 fn plaintext_token(acc_dir: &Path) -> Option<String> {

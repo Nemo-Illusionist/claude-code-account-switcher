@@ -4,6 +4,7 @@ pub mod clone_settings;
 pub mod completions;
 pub mod default;
 pub mod doctor;
+pub mod import;
 pub mod init;
 pub mod install;
 pub mod link;
