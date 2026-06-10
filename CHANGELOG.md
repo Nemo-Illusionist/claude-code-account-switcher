@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.0](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.6.3...v0.7.0) (2026-06-10)
+
+
+### Features
+
+* add usage command for 5h / 7d rate-limit tracking ([#38](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/38)) ([935eff5](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/935eff5c2eac140755b9cc146f088a33768b3634))
+
 ## [0.6.3](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.6.2...v0.6.3) (2026-05-06)
 
 
