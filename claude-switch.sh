@@ -105,6 +105,7 @@ _claude_msg_en=(
     doctor_offline      "token present, but API unreachable"
     doctor_all_ok       "All accounts healthy."
     doctor_partial      "%d of %d accounts healthy."
+    doctor_shared_identity "↔ same identity as %s"
     doctor_missing_dep  "claude-acc doctor needs '%s' on PATH."
     unlink_none         "No link for the current directory."
     unlink_done         "Unlinked %s. Default account will be used."
@@ -182,6 +183,7 @@ _claude_msg_ru=(
     doctor_offline      "токен есть, API недоступен"
     doctor_all_ok       "Все аккаунты в порядке."
     doctor_partial      "%d из %d аккаунтов в порядке."
+    doctor_shared_identity "↔ та же личность, что и %s"
     doctor_missing_dep  "claude-acc doctor требует '%s' в PATH."
     unlink_none         "Нет привязки для текущей директории."
     unlink_done         "Привязка убрана для %s. Будет использован дефолтный аккаунт."
@@ -1191,42 +1193,92 @@ _claude_acc_doctor() {
         (( ${#standard_label} > width )) && width=${#standard_label}
     fi
 
-    local healthy=0 token identity email uuid org plan plan_seg cache_path
+    # Pass 1 — audit everything and collect rows. We print only after building
+    # the UUID cross-reference, so the shared-identity note can list siblings.
+    local -a r_label r_kind r_status r_email r_uuid r_plan
+    local -A uuid_names
+    # `acc` is already declared above (width loop); re-`local`-ing it here would
+    # make zsh's typeset echo "acc=<value>" to stdout.
+    local acc_dir token identity email uuid org plan
     for acc in "${accounts[@]}"; do
-        local acc_dir="$CLAUDE_SWITCH_ACCOUNTS_DIR/$acc"
+        acc_dir="$CLAUDE_SWITCH_ACCOUNTS_DIR/$acc"
         token=$(_claude_acc_token "$acc_dir")
         if [[ -z "$token" ]]; then
-            printf "  ? %-${width}s  %s\n" "$acc" "$(_msg doctor_no_token "$acc")"
+            r_label+=("$acc"); r_kind+=("managed"); r_status+=("no_token")
+            r_email+=(""); r_uuid+=(""); r_plan+=("")
             continue
         fi
         identity=$(_claude_acc_identity "$token")
         if [[ -z "$identity" ]]; then
-            printf "  ? %-${width}s  %s\n" "$acc" "$(_msg doctor_offline)"
+            r_label+=("$acc"); r_kind+=("managed"); r_status+=("offline")
+            r_email+=(""); r_uuid+=(""); r_plan+=("")
             continue
         fi
         IFS=$'\t' read -r email uuid org plan <<< "$identity"
-        cache_path=$(_claude_acc_cache_path "$acc_dir")
-        _claude_acc_write_cache "$cache_path" "$email" "$uuid" "$org" "$token" "$plan"
-        plan_seg=""; [[ -n "$plan" ]] && plan_seg="  $plan"
-        printf "  ✓ %-${width}s  %s%s  uuid=%s\n" "$acc" "$email" "$plan_seg" "$uuid"
-        (( healthy++ ))
+        _claude_acc_write_cache "$(_claude_acc_cache_path "$acc_dir")" \
+            "$email" "$uuid" "$org" "$token" "$plan"
+        r_label+=("$acc"); r_kind+=("managed"); r_status+=("ok")
+        r_email+=("$email"); r_uuid+=("$uuid"); r_plan+=("$plan")
+        if [[ -n "$uuid" && "$uuid" != "<unknown>" ]]; then
+            [[ -n "${uuid_names[$uuid]}" ]] && uuid_names[$uuid]+=$'\n'
+            uuid_names[$uuid]+="$acc"
+        fi
     done
 
     if (( standard_present )); then
         token=$(_claude_acc_token "$standard_dir")
         identity=$(_claude_acc_identity "$token")
         if [[ -z "$identity" ]]; then
-            printf "  ? %-${width}s  %s\n" "$standard_label" "$(_msg doctor_offline)"
+            r_label+=("$standard_label"); r_kind+=("standard"); r_status+=("offline")
+            r_email+=(""); r_uuid+=(""); r_plan+=("")
         else
             IFS=$'\t' read -r email uuid org plan <<< "$identity"
-            cache_path=$(_claude_acc_default_cache_path)
-            _claude_acc_write_cache "$cache_path" "$email" "$uuid" "$org" "$token" "$plan"
-            plan_seg=""; [[ -n "$plan" ]] && plan_seg="  $plan"
-            printf "  ✓ %-${width}s  %s%s  uuid=%s  (%s)\n" \
-                "$standard_label" "$email" "$plan_seg" "$uuid" "$(_msg list_standard)"
-            (( healthy++ ))
+            _claude_acc_write_cache "$(_claude_acc_default_cache_path)" \
+                "$email" "$uuid" "$org" "$token" "$plan"
+            r_label+=("$standard_label"); r_kind+=("standard"); r_status+=("ok")
+            r_email+=("$email"); r_uuid+=("$uuid"); r_plan+=("$plan")
+            if [[ -n "$uuid" && "$uuid" != "<unknown>" ]]; then
+                [[ -n "${uuid_names[$uuid]}" ]] && uuid_names[$uuid]+=$'\n'
+                uuid_names[$uuid]+="$standard_label"
+            fi
         fi
     fi
+
+    # Pass 2 — render, annotating accounts that share a UUID. ('status' is a
+    # read-only special parameter in zsh, so the row state lives in `st`.)
+    local healthy=0 i label kind st plan_seg others nm
+    local -a sib keep
+    for (( i = 1; i <= ${#r_label}; i++ )); do
+        label="${r_label[$i]}"; kind="${r_kind[$i]}"; st="${r_status[$i]}"
+        email="${r_email[$i]}"; uuid="${r_uuid[$i]}"; plan="${r_plan[$i]}"
+        case "$st" in
+            no_token)
+                printf "  ? %-${width}s  %s\n" "$label" "$(_msg doctor_no_token "$label")"
+                ;;
+            offline)
+                printf "  ? %-${width}s  %s\n" "$label" "$(_msg doctor_offline)"
+                ;;
+            ok)
+                (( healthy++ ))
+                plan_seg=""; [[ -n "$plan" ]] && plan_seg="  $plan"
+                others=""
+                if [[ -n "$uuid" && "$uuid" != "<unknown>" ]]; then
+                    sib=("${(@f)uuid_names[$uuid]}"); keep=()
+                    for nm in "${sib[@]}"; do
+                        [[ "$nm" != "$label" ]] && keep+=("$nm")
+                    done
+                    (( ${#keep} > 0 )) && others="  $(_msg doctor_shared_identity "${(j:, :)keep}")"
+                fi
+                if [[ "$kind" == "standard" ]]; then
+                    printf "  ✓ %-${width}s  %s%s  uuid=%s  (%s)%s\n" \
+                        "$label" "$email" "$plan_seg" "$uuid" "$(_msg list_standard)" "$others"
+                else
+                    printf "  ✓ %-${width}s  %s%s  uuid=%s%s\n" \
+                        "$label" "$email" "$plan_seg" "$uuid" "$others"
+                fi
+                ;;
+        esac
+    done
 
     echo ""
     if (( healthy == total )); then

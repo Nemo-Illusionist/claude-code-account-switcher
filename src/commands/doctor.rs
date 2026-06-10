@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::config::AppConfig;
 use crate::i18n::{I18n, Msg};
 use crate::identity::{self, AuditResult, Profile};
@@ -9,6 +11,32 @@ fn plan_seg(p: &Profile) -> String {
         .as_deref()
         .map(|s| format!("  {}", s))
         .unwrap_or_default()
+}
+
+/// "  ↔ same identity as work, personal" when other audited accounts resolve to
+/// the same UUID, else "". Sharing one login across dirs is a legitimate setup
+/// (e.g. to keep separate global settings / plugins under one subscription), so
+/// this is a neutral cross-reference, not a warning.
+fn shared_seg(
+    uuid: Option<&str>,
+    label: &str,
+    by_uuid: &HashMap<&str, Vec<&str>>,
+    i18n: &I18n,
+) -> String {
+    let Some(uuid) = uuid else {
+        return String::new();
+    };
+    let others: Vec<&str> = by_uuid
+        .get(uuid)
+        .map(|labels| labels.iter().copied().filter(|l| *l != label).collect())
+        .unwrap_or_default();
+    if others.is_empty() {
+        return String::new();
+    }
+    format!(
+        "  {}",
+        i18n.msg(Msg::DoctorSharedIdentity(others.join(", ")))
+    )
 }
 
 pub fn run(config: &AppConfig, i18n: &I18n, json: bool) -> i32 {
@@ -51,67 +79,83 @@ fn run_human(config: &AppConfig, i18n: &I18n, accounts: &[String], standard_pres
         }))
         .max()
         .unwrap_or(0);
-    let mut healthy = 0usize;
 
-    for acc in accounts {
-        let acc_dir = config.account_path(acc);
-        let pad = " ".repeat(label_w.saturating_sub(acc.len()));
-        match identity::audit_account(&acc_dir) {
-            AuditResult::Ok(p) => {
-                healthy += 1;
-                let email = p.email.as_deref().unwrap_or("<unknown>");
-                let uuid = p.uuid.as_deref().unwrap_or("<unknown>");
-                println!(
-                    "  ✓ {}{}  {}{}  uuid={}",
-                    acc,
-                    pad,
-                    email,
-                    plan_seg(&p),
-                    uuid
-                );
-            }
-            AuditResult::NoToken => {
-                println!(
-                    "  ? {}{}  {}",
-                    acc,
-                    pad,
-                    i18n.msg(Msg::DoctorNoToken(acc.clone()))
-                );
-            }
-            AuditResult::Offline => {
-                println!("  ? {}{}  {}", acc, pad, i18n.msg(Msg::DoctorOffline));
-            }
+    // Audit everything up front so we can cross-reference identities before
+    // printing (the shared-identity note needs all UUIDs in hand).
+    let mut rows: Vec<(String, AuditResult)> = accounts
+        .iter()
+        .map(|acc| {
+            (
+                acc.clone(),
+                identity::audit_account(&config.account_path(acc)),
+            )
+        })
+        .collect();
+    if standard_present {
+        rows.push((
+            standard_label.to_string(),
+            identity::audit_default(&config.base_dir),
+        ));
+    }
+
+    // UUID -> every audited label resolving to it, for the shared-identity note.
+    let mut by_uuid: HashMap<&str, Vec<&str>> = HashMap::new();
+    for (label, res) in &rows {
+        if let AuditResult::Ok(p) = res
+            && let Some(uuid) = p.uuid.as_deref()
+        {
+            by_uuid.entry(uuid).or_default().push(label.as_str());
         }
     }
 
-    if standard_present {
-        let pad = " ".repeat(label_w.saturating_sub(standard_label.len()));
-        match identity::audit_default(&config.base_dir) {
+    let mut healthy = 0usize;
+    for (label, res) in &rows {
+        let is_standard = label == standard_label;
+        let pad = " ".repeat(label_w.saturating_sub(label.len()));
+        match res {
             AuditResult::Ok(p) => {
                 healthy += 1;
                 let email = p.email.as_deref().unwrap_or("<unknown>");
                 let uuid = p.uuid.as_deref().unwrap_or("<unknown>");
-                println!(
-                    "  ✓ {}{}  {}{}  uuid={}  ({})",
-                    standard_label,
-                    pad,
-                    email,
-                    plan_seg(&p),
-                    uuid,
-                    i18n.msg(Msg::ListStandard)
-                );
+                let shared = shared_seg(p.uuid.as_deref(), label, &by_uuid, i18n);
+                if is_standard {
+                    println!(
+                        "  ✓ {}{}  {}{}  uuid={}  ({}){}",
+                        label,
+                        pad,
+                        email,
+                        plan_seg(p),
+                        uuid,
+                        i18n.msg(Msg::ListStandard),
+                        shared
+                    );
+                } else {
+                    println!(
+                        "  ✓ {}{}  {}{}  uuid={}{}",
+                        label,
+                        pad,
+                        email,
+                        plan_seg(p),
+                        uuid,
+                        shared
+                    );
+                }
             }
             AuditResult::Offline => {
-                println!(
-                    "  ? {}{}  {}",
-                    standard_label,
-                    pad,
-                    i18n.msg(Msg::DoctorOffline)
-                );
+                println!("  ? {}{}  {}", label, pad, i18n.msg(Msg::DoctorOffline));
             }
             AuditResult::NoToken => {
-                // standard_present was true above, but the token could
-                // have disappeared between the two reads — fall through.
+                // For the standard row this just means the token vanished
+                // between the presence check and the audit — skip it silently,
+                // matching the prior behavior.
+                if !is_standard {
+                    println!(
+                        "  ? {}{}  {}",
+                        label,
+                        pad,
+                        i18n.msg(Msg::DoctorNoToken(label.clone()))
+                    );
+                }
             }
         }
     }
@@ -200,4 +244,37 @@ fn build_entry(name: &str, result: AuditResult, is_default: Option<bool>) -> ser
         obj["default"] = serde_json::Value::Bool(d);
     }
     obj
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::i18n::Lang;
+
+    fn en() -> I18n {
+        I18n { lang: Lang::En }
+    }
+
+    #[test]
+    fn shared_seg_empty_when_identity_unique() {
+        let mut by_uuid = HashMap::new();
+        by_uuid.insert("u1", vec!["work"]);
+        assert_eq!(shared_seg(Some("u1"), "work", &by_uuid, &en()), "");
+    }
+
+    #[test]
+    fn shared_seg_lists_the_other_accounts() {
+        let mut by_uuid = HashMap::new();
+        by_uuid.insert("u1", vec!["work", "settings", "personal"]);
+        assert_eq!(
+            shared_seg(Some("u1"), "work", &by_uuid, &en()),
+            "  ↔ same identity as settings, personal"
+        );
+    }
+
+    #[test]
+    fn shared_seg_empty_without_uuid() {
+        let by_uuid = HashMap::new();
+        assert_eq!(shared_seg(None, "work", &by_uuid, &en()), "");
+    }
 }
