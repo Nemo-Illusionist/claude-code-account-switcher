@@ -70,6 +70,15 @@ enum Commands {
     Status,
     /// Show usage (5h / 7d rate-limit windows) for every account
     Usage,
+    /// Render the Claude Code status line (reads session JSON on stdin)
+    ///
+    /// Wire it into Claude Code's `statusLine` setting. Run with `--install`
+    /// to write that config into the active account's settings.json for you.
+    Statusline {
+        /// Install the statusLine config into the active account's settings.json
+        #[arg(long)]
+        install: bool,
+    },
     /// Run claude under a specific account
     Run {
         name: String,
@@ -142,6 +151,9 @@ fn main() {
         Some(Commands::Links) => commands::links::run(&config, &i18n),
         Some(Commands::Status) => commands::status::run(&config, &i18n),
         Some(Commands::Usage) => commands::usage::run(&config, &i18n),
+        Some(Commands::Statusline { install }) => {
+            std::process::exit(commands::statusline::run(&config, &i18n, install))
+        }
         Some(Commands::Run { name, args }) => commands::run::run(&config, &i18n, &name, &args),
         Some(Commands::Doctor { json }) => {
             std::process::exit(commands::doctor::run(&config, &i18n, json))
