@@ -28,7 +28,7 @@ This will:
 - Auto-detect your shell (zsh/bash/PowerShell)
 - Add shell integration to your rc file
 
-To update, download the new version and run `claude-acc install` again.
+To update later, just run `claude-acc update` — it downloads the latest release binary for your platform and swaps it in. (Or download a new binary manually and run `claude-acc install` again.)
 
 #### From source
 
@@ -104,6 +104,7 @@ claude-acc link work
 | `claude-acc whoami` | Print the email (or name) of the active account |
 | `claude-acc doctor [--json]` | Audit each account's actual OAuth identity |
 | `claude-acc install` | Install binary and shell integration |
+| `claude-acc update [--check]` | Update the binary to the latest GitHub release |
 
 ## How it works
 
@@ -383,6 +384,17 @@ So you can move from one to the other without re-creating accounts or relinking 
 3. Optionally `rm ~/.claude-switch/bin/claude-acc ~/.claude-switch/bin/claude` (the wrapper). The shell version regenerates its own wrapper on `source`.
 
 Account credentials, links, and the `default` setting carry over without any changes.
+
+## Updating
+
+```bash
+claude-acc update          # download + install the latest release
+claude-acc update --check  # just report whether a newer version exists
+```
+
+For the **Rust CLI**, `update` queries the latest GitHub release, and if it's newer than the running binary, downloads the prebuilt asset for your OS/architecture and swaps it in over `~/.claude-switch/bin/claude-acc`. Needs `curl`; prebuilt assets exist for macOS (x86_64/arm64), Linux (x86_64/arm64), and Windows (x86_64). On other platforms, build from source with `cargo install --path .`.
+
+For the **shell script**, `claude-acc update` re-fetches the latest `claude-switch.sh` from GitHub into the file you sourced it from; re-source it (or open a new shell) to pick up the changes.
 
 ## Releases
 

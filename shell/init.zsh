@@ -37,6 +37,7 @@ _claude_acc_completion() {
         'links:Show all links'
         'status:Current account info'
         'usage:Show 5h / 7d usage for every account'
+        'update:Update the binary to the latest release'
         'run:Run claude under a specific account'
         'doctor:Audit each account OAuth identity'
         'whoami:Print active account email'

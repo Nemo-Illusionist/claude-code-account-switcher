@@ -75,6 +75,12 @@ enum Commands {
     Whoami,
     /// Install binary and shell integration
     Install,
+    /// Update the installed binary to the latest GitHub release
+    Update {
+        /// Only check whether an update is available; don't download
+        #[arg(long)]
+        check: bool,
+    },
     /// Output shell activation code (used by shell hook)
     #[command(hide = true)]
     Activate {
@@ -123,6 +129,9 @@ fn main() {
         }
         Some(Commands::Whoami) => commands::whoami::run(&config),
         Some(Commands::Install) => commands::install::run(&config, &i18n),
+        Some(Commands::Update { check }) => {
+            std::process::exit(commands::update::run(&config, &i18n, check))
+        }
         Some(Commands::Activate { shell }) => {
             let syntax = match shell.as_str() {
                 "powershell" | "pwsh" => ShellSyntax::PowerShell,

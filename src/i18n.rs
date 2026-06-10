@@ -234,6 +234,50 @@ impl I18n {
                 format!("↔ та же личность, что и {}", names)
             }
 
+            // update
+            (Msg::UpdateUpToDate(ref v), Lang::En) => {
+                format!("Already on the latest version (v{}).", v)
+            }
+            (Msg::UpdateUpToDate(ref v), Lang::Ru) => format!("Уже последняя версия (v{}).", v),
+            (Msg::UpdateAvailable(ref cur, ref new), Lang::En) => {
+                format!("Update available: v{} → v{}", cur, new)
+            }
+            (Msg::UpdateAvailable(ref cur, ref new), Lang::Ru) => {
+                format!("Доступно обновление: v{} → v{}", cur, new)
+            }
+            (Msg::UpdateDownloading(ref v), Lang::En) => format!("Downloading v{}...", v),
+            (Msg::UpdateDownloading(ref v), Lang::Ru) => format!("Скачиваю v{}...", v),
+            (Msg::UpdateDone(ref v, ref p), Lang::En) => {
+                format!("Updated to v{}: {}", v, p)
+            }
+            (Msg::UpdateDone(ref v, ref p), Lang::Ru) => format!("Обновлено до v{}: {}", v, p),
+            (Msg::UpdateCheckFailed, Lang::En) => {
+                s("Could not check for updates (network or API error).")
+            }
+            (Msg::UpdateCheckFailed, Lang::Ru) => {
+                s("Не удалось проверить обновления (ошибка сети или API).")
+            }
+            (Msg::UpdateDownloadFailed, Lang::En) => s("Download failed."),
+            (Msg::UpdateDownloadFailed, Lang::Ru) => s("Не удалось скачать."),
+            (Msg::UpdateUnsupportedPlatform, Lang::En) => {
+                s("No prebuilt binary for this platform. Build from source: cargo install --path .")
+            }
+            (Msg::UpdateUnsupportedPlatform, Lang::Ru) => s(
+                "Нет готового бинарника для этой платформы. Соберите из исходников: cargo install --path .",
+            ),
+            (Msg::UpdateRepoUnknown, Lang::En) => {
+                s("Update source unknown (no repository URL in the build).")
+            }
+            (Msg::UpdateRepoUnknown, Lang::Ru) => {
+                s("Источник обновления неизвестен (нет URL репозитория в сборке).")
+            }
+            (Msg::UpdateReplaceFailed(ref e), Lang::En) => {
+                format!("Could not replace the installed binary: {}", e)
+            }
+            (Msg::UpdateReplaceFailed(ref e), Lang::Ru) => {
+                format!("Не удалось заменить установленный бинарник: {}", e)
+            }
+
             // usage
             (Msg::UsageHeader, Lang::En) => s("Claude Code usage:"),
             (Msg::UsageHeader, Lang::Ru) => s("Использование Claude Code:"),
@@ -313,6 +357,15 @@ pub enum Msg {
     UsageHeader,
     UsageResetsIn(String),
     UsageAvailableNow,
+    UpdateUpToDate(String),
+    UpdateAvailable(String, String),
+    UpdateDownloading(String),
+    UpdateDone(String, String),
+    UpdateCheckFailed,
+    UpdateDownloadFailed,
+    UpdateUnsupportedPlatform,
+    UpdateRepoUnknown,
+    UpdateReplaceFailed(String),
 }
 
 fn relative_time(secs: u64, lang: Lang) -> String {
