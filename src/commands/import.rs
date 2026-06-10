@@ -145,7 +145,12 @@ mod tests {
 
     #[test]
     fn to_absolute_keeps_absolute() {
-        assert_eq!(to_absolute("/tmp/foo"), PathBuf::from("/tmp/foo"));
+        // What counts as absolute differs by platform (POSIX "/..." vs Windows "C:\...").
+        #[cfg(unix)]
+        let p = "/tmp/foo";
+        #[cfg(windows)]
+        let p = r"C:\tmp\foo";
+        assert_eq!(to_absolute(p), PathBuf::from(p));
     }
 
     #[test]
