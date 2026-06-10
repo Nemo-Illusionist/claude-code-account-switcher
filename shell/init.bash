@@ -29,7 +29,7 @@ _claude_acc_complete() {
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
     if [[ $COMP_CWORD -eq 1 ]]; then
-        COMPREPLY=($(compgen -W "list add login remove default reset link unlink links status usage update run doctor whoami clone-settings import help" -- "$cur"))
+        COMPREPLY=($(compgen -W "list add login remove default reset link unlink links status usage statusline update run doctor whoami clone-settings import help" -- "$cur"))
     elif [[ $COMP_CWORD -eq 2 ]]; then
         case "$prev" in
             login|remove|run|clone-settings)

@@ -101,6 +101,7 @@ claude-acc link work
 | `claude-acc links` | Show all directory links |
 | `claude-acc status` | Show active account |
 | `claude-acc usage` | Show 5h / 7d rate-limit usage for every account |
+| `claude-acc statusline [--install]` | Render (or install) a Claude Code status line with the active account |
 | `claude-acc run <name>` | Run claude under a specific account |
 | `claude-acc whoami` | Print the email (or name) of the active account |
 | `claude-acc doctor [--json]` | Audit each account's actual OAuth identity |
@@ -343,6 +344,32 @@ Claude Code usage:
 ```
 
 Unlike `doctor`, the usage figures are always a live fetch — usage is volatile, so nothing is cached. The email/plan next to each account come from `doctor`'s cache, so run `claude-acc doctor` once to populate them. Accounts with no token show `no token (run: claude-acc login <name>)`; an unreachable API shows `token present, but API unreachable`. Same dependencies and platform caveat as `doctor` (`security`, `curl`, `jq`, `shasum`; macOS only for now).
+
+## Status line
+
+Claude Code can show a custom status bar at the bottom of the screen. `claude-acc statusline` renders one that leads with **the account this session is running under** — the one thing Claude Code itself can't show — followed by git branch, model, project, and a 5-hour rate-limit bar:
+
+```
+work │ ⎇ main │ Opus 4.8 (1M context) │ approvalmax-product-AM-37583 │ ▓▓▓░░░░░░░ 32%
+```
+
+Install it into the active account's `settings.json` with one command:
+
+```bash
+claude-acc statusline --install
+```
+
+Then restart Claude Code. The command reads Claude Code's session JSON on stdin, so the data is free — no API calls. The bar shows `rate_limits.five_hour.used_percentage` (the live subscription limit, provided by Claude Code for Pro/Max), colored green → yellow → red as you approach the wall; it's omitted early in a session before Claude Code populates it. The account badge comes from `CLAUDE_CONFIG_DIR`. Colors honor `NO_COLOR`.
+
+Prefer to wire it up by hand? Point `statusLine` at the installed binary:
+
+```json
+{
+  "statusLine": { "type": "command", "command": "~/.claude-switch/bin/claude-acc statusline" }
+}
+```
+
+> Status line is a Rust-CLI feature — Claude Code's `statusLine` runs a binary/script path, which the shell-script distribution can't provide as a sourced function.
 
 ## Language
 

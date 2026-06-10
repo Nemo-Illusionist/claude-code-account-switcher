@@ -302,6 +302,22 @@ impl I18n {
                 format!("Не удалось заменить установленный бинарник: {}", e)
             }
 
+            // statusline
+            (Msg::StatuslineInstalled(ref acc, ref path), Lang::En) => format!(
+                "Status line installed for account '{}': {}\n(Restart Claude Code to see it.)",
+                acc, path
+            ),
+            (Msg::StatuslineInstalled(ref acc, ref path), Lang::Ru) => format!(
+                "Панель установлена для аккаунта '{}': {}\n(Перезапустите Claude Code, чтобы увидеть.)",
+                acc, path
+            ),
+            (Msg::StatuslineInstallFailed(ref e), Lang::En) => {
+                format!("Could not install the status line: {}", e)
+            }
+            (Msg::StatuslineInstallFailed(ref e), Lang::Ru) => {
+                format!("Не удалось установить панель: {}", e)
+            }
+
             // usage
             (Msg::UsageHeader, Lang::En) => s("Claude Code usage:"),
             (Msg::UsageHeader, Lang::Ru) => s("Использование Claude Code:"),
@@ -381,6 +397,8 @@ pub enum Msg {
     UsageHeader,
     UsageResetsIn(String),
     UsageAvailableNow,
+    StatuslineInstalled(String, String),
+    StatuslineInstallFailed(String),
     UpdateUpToDate(String),
     UpdateAvailable(String, String),
     UpdateDownloading(String),
