@@ -8,7 +8,7 @@ use std::process::Command;
 /// Filename the installed binary lives under inside `~/.claude-switch/bin/`.
 /// Windows requires the `.exe` extension or the OS won't execute the file
 /// even when the path is given explicitly.
-fn binary_name() -> &'static str {
+pub(crate) fn binary_name() -> &'static str {
     if cfg!(target_os = "windows") {
         "claude-acc.exe"
     } else {

@@ -58,6 +58,7 @@ _claude_msg_en=(
     help_links          "Show all directory links"
     help_status         "Current account and context"
     help_usage          "Show 5h / 7d usage for every account"
+    help_update         "Update claude-switch.sh from GitHub"
     help_run            "Run claude under a specific account"
     help_doctor         "Audit each account OAuth identity (email, UUID)"
     help_whoami         "Print active account email (or name fallback)"
@@ -117,6 +118,11 @@ _claude_msg_en=(
     usage_resets_in     "resets in %s"
     usage_available_now "available now"
     usage_missing_dep   "claude-acc usage needs '%s' on PATH."
+    update_fetching     "Fetching latest claude-switch.sh..."
+    update_download_failed "Download failed."
+    update_script_unknown  "Can't locate the installed claude-switch.sh."
+    update_done         "Updated %s. Re-source it: source %s"
+    update_missing_dep  "claude-acc update needs '%s' on PATH."
     links_empty         "No links. Use: claude-acc link <name>"
     links_header        "Links:"
     links_active        "← active"
@@ -136,6 +142,7 @@ _claude_msg_ru=(
     help_links          "Показать все привязки директорий"
     help_status         "Текущий аккаунт и контекст"
     help_usage          "Показать использование 5ч / 7д по всем аккаунтам"
+    help_update         "Обновить claude-switch.sh с GitHub"
     help_run            "Запустить claude под конкретным аккаунтом"
     help_doctor         "Аудит OAuth-личности каждого аккаунта (email, UUID)"
     help_whoami         "Email активного аккаунта (или имя как fallback)"
@@ -195,6 +202,11 @@ _claude_msg_ru=(
     usage_resets_in     "сброс через %s"
     usage_available_now "доступно сейчас"
     usage_missing_dep   "claude-acc usage требует '%s' в PATH."
+    update_fetching     "Скачиваю свежий claude-switch.sh..."
+    update_download_failed "Не удалось скачать."
+    update_script_unknown  "Не удалось найти установленный claude-switch.sh."
+    update_done         "Обновлено: %s. Перезагрузите: source %s"
+    update_missing_dep  "claude-acc update требует '%s' в PATH."
     links_empty         "Нет привязок. Используйте: claude-acc link <name>"
     links_header        "Привязки:"
     links_active        "← активна"
@@ -430,6 +442,7 @@ _claude_acc_help() {
     echo "  claude-acc links             $(_msg help_links)"
     echo "  claude-acc status            $(_msg help_status)"
     echo "  claude-acc usage             $(_msg help_usage)"
+    echo "  claude-acc update            $(_msg help_update)"
     echo "  claude-acc run <name> [...]  $(_msg help_run)"
     echo "  claude-acc doctor [--json]   $(_msg help_doctor)"
     echo "  claude-acc whoami            $(_msg help_whoami)"
@@ -1149,6 +1162,38 @@ _claude_acc_usage() {
     fi
 }
 
+# Update the sourced claude-switch.sh in place from GitHub (master). The Rust
+# CLI updates a versioned binary; the shell distribution is a single sourced
+# file, so "update" just re-fetches the latest script and asks you to re-source.
+_claude_acc_update() {
+    command -v curl >/dev/null 2>&1 || { _msg update_missing_dep curl; return 1; }
+
+    local script="$CLAUDE_SWITCH_SCRIPT"
+    if [[ -z "$script" || ! -f "$script" ]]; then
+        _msg update_script_unknown
+        return 1
+    fi
+
+    local raw="https://raw.githubusercontent.com/Nemo-Illusionist/claude-code-account-switcher/master/claude-switch.sh"
+    local tmp="${script}.new"
+
+    _msg update_fetching
+    if ! curl -fsSL --max-time 60 -H "User-Agent: claude-acc" -o "$tmp" "$raw"; then
+        rm -f "$tmp"
+        _msg update_download_failed
+        return 1
+    fi
+    # Sanity-check the payload before overwriting the live script.
+    if ! grep -q "Claude Code Account Switcher" "$tmp" 2>/dev/null; then
+        rm -f "$tmp"
+        _msg update_download_failed
+        return 1
+    fi
+
+    mv "$tmp" "$script"
+    _msg update_done "$script" "$script"
+}
+
 _claude_acc_doctor() {
     local json=0
     if [[ "$1" == "--json" ]]; then
@@ -1404,6 +1449,7 @@ claude-acc() {
         links)   _claude_acc_links ;;
         status)  _claude_acc_status "$@" ;;
         usage)   _claude_acc_usage "$@" ;;
+        update)  _claude_acc_update "$@" ;;
         run)     _claude_acc_run "$@" ;;
         doctor)  _claude_acc_doctor "$@" ;;
         whoami)  _claude_acc_whoami ;;
@@ -1431,6 +1477,7 @@ _claude_acc_completion() {
         "links:$(_msg help_links)"
         "status:$(_msg help_status)"
         "usage:$(_msg help_usage)"
+        "update:$(_msg help_update)"
         "run:$(_msg help_run)"
         "doctor:$(_msg help_doctor)"
         "whoami:$(_msg help_whoami)"
