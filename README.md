@@ -91,6 +91,7 @@ claude-acc link work
 | `claude-acc list` | List all accounts |
 | `claude-acc add <name>` | Add account (runs `claude login`); add `-s` / `--seed` to seed from `~/.claude/` |
 | `claude-acc clone-settings <name>` | Copy `settings.json` / `CLAUDE.md` / `agents/` / etc. from `~/.claude/` into an existing account |
+| `claude-acc import <name> <path>` | Adopt an existing config dir as an account (no re-login); `--move` to relocate |
 | `claude-acc login <name>` | Re-login to an account |
 | `claude-acc remove <name>` | Remove account |
 | `claude-acc default [name]` | Show/set default account |
@@ -219,6 +220,19 @@ Both copy a curated set of files from `~/.claude/`:
 - `.account-info.json` (the doctor cache)
 
 Existing files in the target are skipped — `clone-settings` is a one-shot seed, not a sync.
+
+## Importing an existing config dir
+
+Already running multiple accounts the manual way — separate `~/.claude-work` / `~/.claude-personal` directories driven by `CLAUDE_CONFIG_DIR` aliases? `import` adopts one of those into a managed account **without making you log in again**:
+
+```bash
+claude-acc import work ~/.claude-work          # copy the dir in
+claude-acc import work ~/.claude-work --move    # …or move it
+```
+
+It copies (or moves) the directory into `~/.claude-switch/accounts/<name>/` and then verifies the identity, printing the email it resolved to.
+
+The catch it handles for you: on macOS, Claude Code stores the OAuth token in the Keychain under a key derived from the **absolute config-dir path**, so a plain copy would orphan the token at the new location. `import` re-keys the Keychain entry to the new path, so auth keeps working — no `claude login` needed. (If the token lives in a plaintext `.credentials.json` instead, it just travels with the directory.) If neither is present, `import` still succeeds and tells you to run `claude-acc login <name>`.
 
 ## Per-project settings
 

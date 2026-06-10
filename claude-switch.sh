@@ -63,6 +63,7 @@ _claude_msg_en=(
     help_doctor         "Audit each account OAuth identity (email, UUID)"
     help_whoami         "Print active account email (or name fallback)"
     help_clone_settings "Copy ~/.claude/ config into an existing account"
+    help_import         "Import an existing Claude config dir (no re-login)"
     help_help           "Help"
     list_empty          "No accounts. Add one: claude-acc add <name>"
     list_header         "Claude Code accounts:"
@@ -99,6 +100,13 @@ _claude_msg_en=(
     seed_copied         "  copied: %s"
     seed_nothing        "  nothing to copy from ~/.claude/"
     clone_settings_usage "Usage: claude-acc clone-settings <name>"
+    import_usage        "Usage: claude-acc import <name> <path> [--move]"
+    import_source_not_dir "Source '%s' is not a directory."
+    import_source_managed "That path is already inside ~/.claude-switch/accounts/."
+    import_failed       "Import failed: %s"
+    import_done         "Imported '%s' → %s"
+    import_rekeyed      "Moved the Keychain token to the new location."
+    import_verified     "Verified identity: %s"
     run_usage           "Usage: claude-acc run <name> [args...]"
     run_not_found       "Account '%s' not found."
     doctor_header       "Auditing %d account(s):"
@@ -147,6 +155,7 @@ _claude_msg_ru=(
     help_doctor         "Аудит OAuth-личности каждого аккаунта (email, UUID)"
     help_whoami         "Email активного аккаунта (или имя как fallback)"
     help_clone_settings "Скопировать конфиг ~/.claude/ в существующий аккаунт"
+    help_import         "Импортировать существующую config-папку (без релогина)"
     help_help           "Справка"
     list_empty          "Нет аккаунтов. Добавьте: claude-acc add <name>"
     list_header         "Аккаунты Claude Code:"
@@ -183,6 +192,13 @@ _claude_msg_ru=(
     seed_copied         "  скопировано: %s"
     seed_nothing        "  нечего копировать из ~/.claude/"
     clone_settings_usage "Использование: claude-acc clone-settings <name>"
+    import_usage        "Использование: claude-acc import <name> <путь> [--move]"
+    import_source_not_dir "Источник '%s' не является директорией."
+    import_source_managed "Этот путь уже внутри ~/.claude-switch/accounts/."
+    import_failed       "Импорт не удался: %s"
+    import_done         "Импортирован '%s' → %s"
+    import_rekeyed      "Токен Keychain перенесён на новое место."
+    import_verified     "Личность подтверждена: %s"
     run_usage           "Использование: claude-acc run <name> [args...]"
     run_not_found       "Аккаунт '%s' не найден."
     doctor_header       "Проверка %d аккаунт(ов):"
@@ -448,6 +464,7 @@ _claude_acc_help() {
     echo "  claude-acc whoami            $(_msg help_whoami)"
     echo "  claude-acc add -s <name>     $(_msg help_add) (seeded from ~/.claude/)"
     echo "  claude-acc clone-settings <name>  $(_msg help_clone_settings)"
+    echo "  claude-acc import <name> <path>   $(_msg help_import)"
 }
 
 _claude_acc_list() {
@@ -1194,6 +1211,67 @@ _claude_acc_update() {
     _msg update_done "$script" "$script"
 }
 
+# Re-key the macOS Keychain OAuth entry from one config-dir path to another.
+# Claude Code keys the token by the absolute config-dir path, so a copied/moved
+# dir would otherwise lose its token. No-op (returns non-zero) off macOS or when
+# there's no source entry — the plaintext .credentials.json fallback covers it.
+_claude_acc_rekey_keychain() {
+    local from="$1" to="$2" user fromhash tohash blob
+    [[ "$(uname -s)" == "Darwin" ]] || return 1
+    command -v security >/dev/null 2>&1 || return 1
+    command -v shasum >/dev/null 2>&1 || return 1
+    user=$(id -un)
+    fromhash=$(printf '%s' "$from" | shasum -a 256 | cut -c1-8)
+    tohash=$(printf '%s' "$to" | shasum -a 256 | cut -c1-8)
+    blob=$(security find-generic-password -s "Claude Code-credentials-${fromhash}" -a "$user" -w 2>/dev/null) || return 1
+    [[ -z "$blob" ]] && return 1
+    security add-generic-password -U -s "Claude Code-credentials-${tohash}" -a "$user" -w "$blob" 2>/dev/null
+}
+
+# Adopt an existing Claude config dir as a managed account without re-login.
+_claude_acc_import() {
+    local move=0 a
+    local -a pos
+    for a in "$@"; do
+        if [[ "$a" == "--move" ]]; then move=1; else pos+=("$a"); fi
+    done
+    local name="${pos[1]}" source="${pos[2]}"
+    if [[ -z "$name" || -z "$source" ]]; then _msg import_usage; return 1; fi
+    if [[ "$name" == "default" ]]; then _msg reserved_name "$name"; return 1; fi
+    _claude_validate_name "$name" || return 1
+
+    # `:a` makes the path absolute WITHOUT resolving symlinks — Claude Code
+    # keyed the Keychain token by the config-dir path as given (e.g. it never
+    # resolves /tmp -> /private/tmp), so `:A` would compute a non-matching hash.
+    local src="${source:a}"
+    if [[ ! -d "$src" ]]; then _msg import_source_not_dir "$source"; return 1; fi
+    local target="$CLAUDE_SWITCH_ACCOUNTS_DIR/$name"
+    if [[ -e "$target" ]]; then _msg add_exists "$name"; return 1; fi
+    if [[ "$src" == "$CLAUDE_SWITCH_ACCOUNTS_DIR"/* ]]; then _msg import_source_managed; return 1; fi
+
+    if (( move )); then
+        mv "$src" "$target" 2>/dev/null || { _msg import_failed "mv"; return 1; }
+    else
+        cp -R "$src" "$target" 2>/dev/null || { rm -rf "$target"; _msg import_failed "cp"; return 1; }
+    fi
+
+    local rekeyed=0
+    _claude_acc_rekey_keychain "$src" "$target" && rekeyed=1
+
+    _msg import_done "$name" "$target"
+    (( rekeyed )) && _msg import_rekeyed
+
+    # Audit: confirm the imported dir resolves, and seed the doctor cache.
+    local token identity email uuid org plan
+    token=$(_claude_acc_token "$target")
+    if [[ -z "$token" ]]; then _msg doctor_no_token "$name"; return 0; fi
+    identity=$(_claude_acc_identity "$token")
+    if [[ -z "$identity" ]]; then _msg doctor_offline; return 0; fi
+    IFS=$'\t' read -r email uuid org plan <<< "$identity"
+    _claude_acc_write_cache "$(_claude_acc_cache_path "$target")" "$email" "$uuid" "$org" "$token" "$plan"
+    _msg import_verified "$email"
+}
+
 _claude_acc_doctor() {
     local json=0
     if [[ "$1" == "--json" ]]; then
@@ -1454,6 +1532,7 @@ claude-acc() {
         doctor)  _claude_acc_doctor "$@" ;;
         whoami)  _claude_acc_whoami ;;
         clone-settings) _claude_acc_clone_settings "$@" ;;
+        import)  _claude_acc_import "$@" ;;
         help)    _claude_acc_help ;;
         *)       _claude_acc_help ;;
     esac
@@ -1482,6 +1561,7 @@ _claude_acc_completion() {
         "doctor:$(_msg help_doctor)"
         "whoami:$(_msg help_whoami)"
         "clone-settings:$(_msg help_clone_settings)"
+        "import:$(_msg help_import)"
         "help:$(_msg help_help)"
     )
 
@@ -1498,6 +1578,9 @@ _claude_acc_completion() {
                 _describe 'account' accounts
                 ;;
         esac
+    elif (( CURRENT == 4 )) && [[ "${words[2]}" == "import" ]]; then
+        # import <name> <path> — complete a directory for the source path.
+        _path_files -/
     fi
 }
 

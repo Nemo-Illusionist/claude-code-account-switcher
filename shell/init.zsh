@@ -42,6 +42,7 @@ _claude_acc_completion() {
         'doctor:Audit each account OAuth identity'
         'whoami:Print active account email'
         'clone-settings:Copy ~/.claude/ config into account'
+        'import:Import an existing Claude config dir (no re-login)'
     )
     if (( CURRENT == 2 )); then
         _describe 'command' subcmds
