@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.0](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.9.0...v0.10.0) (2026-06-10)
+
+
+### Features
+
+* add statusline command for a Claude Code status bar ([#47](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/47)) ([bdddfef](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/bdddfef982a83ddc89893736a1bcf16d9f50ee60))
+
 ## [0.9.0](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.8.0...v0.9.0) (2026-06-10)
 
 
