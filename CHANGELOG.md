@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.1](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.10.0...v0.10.1) (2026-06-12)
+
+
+### Bug Fixes
+
+* emit forward-slash statusLine path on Windows ([#49](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/49)) ([#50](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/50)) ([d09b012](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/d09b0126530b01182762a606d2fd375908c9cd49))
+
 ## [0.10.0](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.9.0...v0.10.0) (2026-06-10)
 
 
