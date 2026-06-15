@@ -11,10 +11,9 @@ use crate::resolve;
 
 // `claude-acc statusline` is meant to be wired into Claude Code's `statusLine`
 // setting. Claude Code pipes session JSON on stdin (model, workspace, git repo,
-// context window, and — for Pro/Max — the live `rate_limits`), and renders
-// whatever we print, ANSI colors included. We add the one thing Claude Code
-// can't know: which managed account this session is running under
-// (from CLAUDE_CONFIG_DIR).
+// and the live `context_window` usage), and renders whatever we print, ANSI
+// colors included. We add the one thing Claude Code can't know: which managed
+// account this session is running under (from CLAUDE_CONFIG_DIR).
 //
 // `--install` writes the `statusLine` block into the active account's
 // settings.json so the user doesn't have to hand-edit JSON.
@@ -49,11 +48,8 @@ fn render(config: &AppConfig) {
     if let Some(project) = project_name(&v) {
         segs.push(paint("33", &project));
     }
-    if let Some(pct) = v
-        .pointer("/rate_limits/five_hour/used_percentage")
-        .and_then(Value::as_f64)
-    {
-        segs.push(usage_segment(pct));
+    if let Some(seg) = context_segment(&v) {
+        segs.push(seg);
     }
 
     if segs.is_empty() {
@@ -122,21 +118,58 @@ fn cwd_of(v: &Value) -> Option<&str> {
         .or_else(|| v.get("cwd").and_then(Value::as_str))
 }
 
-/// A colored 10-cell bar + percentage for a 0–100 value, green/yellow/red by
-/// how close to the limit it is.
+/// Default share of the context window Claude Code reserves for auto-compaction.
+const AUTO_COMPACT_BUFFER_PCT: f64 = 16.5;
+
+/// Context-window usage segment from Claude Code's `context_window` block.
+///
+/// We show the USED percentage scaled to the *usable* window. Claude Code keeps
+/// a buffer for auto-compaction — by default ~16.5% of the total, or the token
+/// count in `CLAUDE_CODE_AUTO_COMPACT_WINDOW` when set — so a raw "84% free"
+/// really means the meter is full. Normalizing to the usable range makes 80%
+/// mean "compaction is near" instead of "there's still slack".
+fn context_segment(v: &Value) -> Option<String> {
+    let remaining = v
+        .pointer("/context_window/remaining_percentage")
+        .and_then(Value::as_f64)?;
+    let total = v
+        .pointer("/context_window/total_tokens")
+        .and_then(Value::as_f64)
+        .filter(|t| *t > 0.0)
+        .unwrap_or(1_000_000.0);
+
+    let buffer_pct = std::env::var("CLAUDE_CODE_AUTO_COMPACT_WINDOW")
+        .ok()
+        .and_then(|s| s.trim().parse::<f64>().ok())
+        .filter(|acw| *acw > 0.0)
+        .map(|acw| (acw / total * 100.0).min(100.0))
+        .unwrap_or(AUTO_COMPACT_BUFFER_PCT);
+
+    let usable_remaining = (((remaining - buffer_pct) / (100.0 - buffer_pct)) * 100.0).max(0.0);
+    let used = (100.0 - usable_remaining).clamp(0.0, 100.0);
+    Some(usage_segment(used))
+}
+
+/// A colored 10-cell bar + percentage for a 0–100 used value. Color steps with
+/// proximity to the usable limit (matching the GSD statusline thresholds), with
+/// a blinking skull once compaction is imminent.
 fn usage_segment(pct: f64) -> String {
     let p = pct.clamp(0.0, 100.0);
-    let code = if p >= 90.0 {
-        "31"
-    } else if p >= 70.0 {
-        "33"
-    } else {
-        "32"
-    };
-    let filled = ((p / 100.0) * BAR_WIDTH as f64).round() as usize;
+    let filled = ((p / 100.0) * BAR_WIDTH as f64).floor() as usize;
     let filled = filled.min(BAR_WIDTH);
     let bar = format!("{}{}", "▓".repeat(filled), "░".repeat(BAR_WIDTH - filled));
-    format!("{} {}%", paint(code, &bar), p.round() as i64)
+    let pct_txt = format!("{}%", p.round() as i64);
+
+    if p >= 80.0 {
+        // Blinking red + skull — compaction is about to kick in.
+        paint("5;31", &format!("💀 {} {}", bar, pct_txt))
+    } else if p >= 65.0 {
+        paint("38;5;208", &format!("{} {}", bar, pct_txt)) // orange
+    } else if p >= 50.0 {
+        paint("33", &format!("{} {}", bar, pct_txt)) // yellow
+    } else {
+        paint("32", &format!("{} {}", bar, pct_txt)) // green
+    }
 }
 
 /// Wrap `text` in an ANSI SGR sequence, unless `NO_COLOR` is set.
@@ -226,6 +259,41 @@ mod tests {
         let seg = usage_segment(32.4);
         assert!(seg.contains("32%"), "got {seg:?}");
         assert!(seg.contains('▓') && seg.contains('░'), "got {seg:?}");
+    }
+
+    #[test]
+    fn usage_segment_skull_when_near_limit() {
+        unsafe { std::env::set_var("NO_COLOR", "1") };
+        assert!(usage_segment(85.0).contains('💀'), "expected skull near limit");
+        assert!(!usage_segment(40.0).contains('💀'), "no skull when plenty left");
+    }
+
+    #[test]
+    fn context_segment_normalizes_against_compact_buffer() {
+        unsafe {
+            std::env::set_var("NO_COLOR", "1");
+            std::env::remove_var("CLAUDE_CODE_AUTO_COMPACT_WINDOW");
+        }
+        // remaining == buffer (16.5%) means the *usable* window is fully spent.
+        let v = serde_json::json!({
+            "context_window": { "remaining_percentage": 16.5, "total_tokens": 1_000_000 }
+        });
+        assert!(
+            context_segment(&v).unwrap().contains("100%"),
+            "usable window should read 100% used"
+        );
+
+        // Empty context (100% remaining) reads ~0% used.
+        let v = serde_json::json!({
+            "context_window": { "remaining_percentage": 100.0, "total_tokens": 1_000_000 }
+        });
+        assert!(context_segment(&v).unwrap().contains("0%"), "fresh context is 0% used");
+    }
+
+    #[test]
+    fn context_segment_absent_without_context_window() {
+        let v = serde_json::json!({ "model": { "display_name": "Opus" } });
+        assert!(context_segment(&v).is_none());
     }
 
     #[test]
