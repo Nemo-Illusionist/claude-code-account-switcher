@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.2](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.10.1...v0.10.2) (2026-06-15)
+
+
+### Bug Fixes
+
+* show context-window usage in statusline instead of 5h quota ([#52](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/52)) ([b5f1db5](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/b5f1db5b21b1b2dcd6f2d105c0899d3bb82839e2))
+
 ## [0.10.1](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.10.0...v0.10.1) (2026-06-12)
 
 
