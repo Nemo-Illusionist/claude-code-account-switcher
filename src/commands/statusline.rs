@@ -264,8 +264,14 @@ mod tests {
     #[test]
     fn usage_segment_skull_when_near_limit() {
         unsafe { std::env::set_var("NO_COLOR", "1") };
-        assert!(usage_segment(85.0).contains('💀'), "expected skull near limit");
-        assert!(!usage_segment(40.0).contains('💀'), "no skull when plenty left");
+        assert!(
+            usage_segment(85.0).contains('💀'),
+            "expected skull near limit"
+        );
+        assert!(
+            !usage_segment(40.0).contains('💀'),
+            "no skull when plenty left"
+        );
     }
 
     #[test]
@@ -287,7 +293,10 @@ mod tests {
         let v = serde_json::json!({
             "context_window": { "remaining_percentage": 100.0, "total_tokens": 1_000_000 }
         });
-        assert!(context_segment(&v).unwrap().contains("0%"), "fresh context is 0% used");
+        assert!(
+            context_segment(&v).unwrap().contains("0%"),
+            "fresh context is 0% used"
+        );
     }
 
     #[test]
