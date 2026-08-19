@@ -5,6 +5,8 @@
 Bind different Claude Code accounts to different directories.
 On `cd`, the correct account is activated automatically.
 
+![claude-acc: the account follows the directory](assets/demo.gif)
+
 Two distributions:
 
 - **Rust CLI** (`claude-acc`) — cross-platform: macOS, Linux, Windows; zsh, bash, PowerShell. **Recommended.**
@@ -82,6 +84,32 @@ claude-acc link work
 # Done! cd into ~/work or any subdirectory uses the work account.
 # Everything else uses the standard ~/.claude/ config.
 ```
+
+## Directory-bound accounts, not a global switch
+
+You don't switch accounts — you `cd`. `CLAUDE_CONFIG_DIR` is resolved per shell from the current directory, so work dirs use the work account and personal dirs use yours, in parallel terminals at the same time. There is no global "currently active account" to forget to switch back to.
+
+## Comparison
+
+Other tools solving nearby problems, and how they differ (summarised from their READMEs, August 2026):
+
+| | **claude-acc** | [cswap](https://github.com/realiti4/claude-swap) | [aisw](https://github.com/burakdede/aisw) | direnv + `CLAUDE_CONFIG_DIR` |
+|---|---|---|---|---|
+| Model | account is a property of the directory | one globally active login (+ optional directory → account map) | one globally active profile per tool | account is a property of the directory |
+| Plain `claude` picks the account by cwd | yes, on `cd` | via `cswap run` in a mapped directory | no — `aisw workspace guard` warns/blocks on mismatch | yes, where an `.envrc` exists |
+| Directory inheritance and overrides | yes | yes (nearest mapped ancestor) | per-repo / git-remote binds | per-directory `.envrc` |
+| Different accounts in parallel terminals | yes | yes (session mode) | no — switching is global | yes |
+| Per-account `settings.json`, `CLAUDE.md`, agents, skills, MCP | yes — separate config dir | no — sessions reuse `~/.claude`, only history is separate | partial — isolated home per tool where the tool supports it | yes |
+| Live identity audit of a config dir | `doctor` — OAuth profile API: email, plan, UUID | account emails from stored credentials | `doctor` / `verify` check config integrity | no |
+| Rate-limit usage | `usage` — 5h / 7d per account | TUI dashboard, macOS menu bar, adaptive polling | no | no |
+| Auto-rotation when a limit is hit | no (out of scope) | yes — strategies, cooldown, hysteresis | no | no |
+| Status line with the active account | `statusline --install` | no | no | no |
+| IDE launches (JetBrains, VS Code) | wrapper on `PATH` + `ide/` symlink | follow the global login | follow the global profile | no |
+| Adopt an existing config dir without re-login | `import` — re-keys the macOS Keychain entry | `add` / `import` of credential exports | capture the current login as a profile | n/a |
+| Other coding CLIs (Codex, Gemini) | no | no | yes | n/a |
+| Runtime | Rust binary (or a single zsh script) | Python (uv / pipx) | Rust | direnv |
+
+Short version: **cswap** if you want one active account plus automatic rotation around rate limits; **aisw** if you juggle several coding CLIs; the **direnv** recipe if you already run direnv and want nothing else installed. `claude-acc` is for keeping accounts *separated* — work, personal, client — with the binding living in the directory tree, and an audit trail of which identity is actually behind each config dir.
 
 ## Commands
 
