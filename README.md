@@ -14,6 +14,10 @@ Two distributions:
 
 Both share the same on-disk format (`~/.claude-switch/`) so you can switch between them freely.
 
+## Directory-bound accounts, not a global switch
+
+You don't switch accounts — you `cd`. `CLAUDE_CONFIG_DIR` is resolved per shell from the current directory, so work dirs use the work account and personal dirs use yours, in parallel terminals at the same time. There is no global "currently active account" to forget to switch back to.
+
 ## Install
 
 ### Rust CLI (recommended)
@@ -84,10 +88,6 @@ claude-acc link work
 # Done! cd into ~/work or any subdirectory uses the work account.
 # Everything else uses the standard ~/.claude/ config.
 ```
-
-## Directory-bound accounts, not a global switch
-
-You don't switch accounts — you `cd`. `CLAUDE_CONFIG_DIR` is resolved per shell from the current directory, so work dirs use the work account and personal dirs use yours, in parallel terminals at the same time. There is no global "currently active account" to forget to switch back to.
 
 ## Comparison
 
