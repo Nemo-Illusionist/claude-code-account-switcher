@@ -821,7 +821,7 @@ _claude_acc_run() {
     shift
 
     if [[ "$name" == "default" ]]; then
-        command claude "$@"
+        ( unset CLAUDE_CONFIG_DIR; command claude "$@" )
         return $?
     fi
 

@@ -1,11 +1,29 @@
 use crate::config::{AppConfig, validate_name};
 use crate::i18n::{I18n, Msg};
+use std::path::Path;
 use std::process::Command;
+
+/// Builds the `claude` invocation for `run`. For the "default" account this
+/// must strip any inherited `CLAUDE_CONFIG_DIR` (e.g. exported by the shell's
+/// directory-link hook) so `claude-acc run default` really runs the standard
+/// ~/.claude/ account rather than whatever the current directory is linked to.
+fn build_command(args: &[String], acc_dir: Option<&Path>) -> Command {
+    let mut cmd = Command::new("claude");
+    cmd.args(args);
+    match acc_dir {
+        Some(dir) => {
+            cmd.env("CLAUDE_CONFIG_DIR", dir);
+        }
+        None => {
+            cmd.env_remove("CLAUDE_CONFIG_DIR");
+        }
+    }
+    cmd
+}
 
 pub fn run(config: &AppConfig, i18n: &I18n, name: &str, args: &[String]) {
     if name == "default" {
-        let status = Command::new("claude")
-            .args(args)
+        let status = build_command(args, None)
             .status()
             .expect("Failed to run claude");
         std::process::exit(status.code().unwrap_or(1));
@@ -22,10 +40,55 @@ pub fn run(config: &AppConfig, i18n: &I18n, name: &str, args: &[String]) {
     }
 
     let acc_dir = config.account_path(name);
-    let status = Command::new("claude")
-        .args(args)
-        .env("CLAUDE_CONFIG_DIR", &acc_dir)
+    let status = build_command(args, Some(&acc_dir))
         .status()
         .expect("Failed to run claude");
     std::process::exit(status.code().unwrap_or(1));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_account_strips_inherited_config_dir() {
+        // Simulate the shell hook having exported CLAUDE_CONFIG_DIR for a
+        // linked directory before `claude-acc run default` is invoked.
+        unsafe {
+            std::env::set_var("CLAUDE_CONFIG_DIR", "/tmp/some-linked-account");
+        }
+
+        let cmd = build_command(&[], None);
+        let removed = cmd
+            .get_envs()
+            .find(|(k, _)| *k == std::ffi::OsStr::new("CLAUDE_CONFIG_DIR"));
+
+        unsafe {
+            std::env::remove_var("CLAUDE_CONFIG_DIR");
+        }
+
+        // env_remove() records the key with a `None` value so the child
+        // process never sees it, regardless of what the parent inherited.
+        assert_eq!(
+            removed,
+            Some((std::ffi::OsStr::new("CLAUDE_CONFIG_DIR"), None))
+        );
+    }
+
+    #[test]
+    fn named_account_sets_config_dir() {
+        let dir = Path::new("/tmp/some-account");
+        let cmd = build_command(&[], Some(dir));
+        let set = cmd
+            .get_envs()
+            .find(|(k, _)| *k == std::ffi::OsStr::new("CLAUDE_CONFIG_DIR"));
+
+        assert_eq!(
+            set,
+            Some((
+                std::ffi::OsStr::new("CLAUDE_CONFIG_DIR"),
+                Some(std::ffi::OsStr::new("/tmp/some-account"))
+            ))
+        );
+    }
 }
