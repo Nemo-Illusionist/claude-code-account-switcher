@@ -61,14 +61,22 @@ pub fn run(config: &AppConfig, i18n: &I18n) {
         i18n.print(Msg::InstallCopying(current_version.to_string()));
     }
 
-    fs::copy(&source, &target).expect("Failed to copy binary");
+    // Copy to a temp file in the same directory and rename over `target`
+    // rather than overwriting it in place. In-place overwrite of an
+    // existing executable can leave macOS's cached code-signing validation
+    // for that inode stale, killing the next launch with SIGKILL; a rename
+    // gives the replacement a fresh inode and is atomic on the same filesystem.
+    let tmp = bin_dir.join(format!("{}.new", binary_name()));
+    fs::copy(&source, &tmp).expect("Failed to copy binary");
 
     // Make executable on unix
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(&target, fs::Permissions::from_mode(0o755)).ok();
+        fs::set_permissions(&tmp, fs::Permissions::from_mode(0o755)).ok();
     }
+
+    fs::rename(&tmp, &target).expect("Failed to install binary");
 
     i18n.print(Msg::InstallDone(target.to_str().unwrap_or("").to_string()));
 
