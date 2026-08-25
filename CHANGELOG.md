@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.10.3](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.10.2...v0.10.3) (2026-08-25)
+
+
+### Bug Fixes
+
+* run default no longer inherits a linked account's CLAUDE_CONFIG_DIR ([#58](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/58)) ([be3b487](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/be3b48718e4645479dfa6215cdb603c9d784c28a))
+
+
+### Documentation
+
+* demo GIF, positioning and comparison sections ([#54](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/54)) ([56a1873](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/56a18737cdbdf8a8829ad13f55aae331653abadc))
+* move the positioning section above Install ([#56](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/56)) ([d1fd82b](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/d1fd82b1a377876ba76869a1b97dc0dfe8bb8764))
+
 ## [0.10.2](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.10.1...v0.10.2) (2026-06-15)
 
 
