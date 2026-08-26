@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.4](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.10.3...v0.10.4) (2026-08-26)
+
+
+### Bug Fixes
+
+* run default no longer gets re-activated by the IDE wrapper ([#59](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/59)) ([91c1391](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/91c139131f4191da901c64d64b1316a1e7967ec6))
+
 ## [0.10.3](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.10.2...v0.10.3) (2026-08-25)
 
 
