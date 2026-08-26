@@ -121,6 +121,27 @@ enum Commands {
     Completions { what: String },
 }
 
+/// Whether `command` is safe to follow with the passive "update available"
+/// hint. Excluded: `Activate`/`Init`/`Completions` (their stdout is `eval`'d
+/// or otherwise machine-parsed by the shell integration — extra text would
+/// break it, not just look untidy), `Statusline` (rendered inside Claude
+/// Code's own UI), `Doctor`/`Update` (may run with `--json`, or is already
+/// about updating), and `Run` (hands the terminal to an interactive `claude`
+/// session that can run for hours — a hint printed before it starts would be
+/// stale by the time anyone sees it).
+fn should_show_update_hint(command: &Option<Commands>) -> bool {
+    !matches!(
+        command,
+        Some(Commands::Activate { .. })
+            | Some(Commands::Init { .. })
+            | Some(Commands::Completions { .. })
+            | Some(Commands::Statusline { .. })
+            | Some(Commands::Doctor { .. })
+            | Some(Commands::Update { .. })
+            | Some(Commands::Run { .. })
+    )
+}
+
 fn main() {
     let cli = Cli::parse();
     let config = AppConfig::new();
@@ -128,6 +149,7 @@ fn main() {
         .init()
         .expect("Failed to initialize config directory");
     let i18n = I18n::new();
+    let show_hint = should_show_update_hint(&cli.command);
 
     match cli.command {
         None => {
@@ -180,5 +202,56 @@ fn main() {
         }
         Some(Commands::Init { shell }) => commands::init::run(&shell),
         Some(Commands::Completions { what }) => commands::completions::run(&config, &what),
+    }
+
+    // Only reached by commands that don't std::process::exit internally —
+    // which happens to already exclude Run/Import/error paths too, on top of
+    // the explicit exclusions in should_show_update_hint.
+    if show_hint {
+        commands::update::maybe_print_hint(&config, &i18n);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn update_hint_excludes_eval_consumed_commands() {
+        assert!(!should_show_update_hint(&Some(Commands::Activate {
+            shell: "posix".to_string()
+        })));
+        assert!(!should_show_update_hint(&Some(Commands::Init {
+            shell: "zsh".to_string()
+        })));
+        assert!(!should_show_update_hint(&Some(Commands::Completions {
+            what: "accounts".to_string()
+        })));
+    }
+
+    #[test]
+    fn update_hint_excludes_statusline_doctor_update_run() {
+        assert!(!should_show_update_hint(&Some(Commands::Statusline {
+            install: false
+        })));
+        assert!(!should_show_update_hint(&Some(Commands::Doctor {
+            json: false
+        })));
+        assert!(!should_show_update_hint(&Some(Commands::Update {
+            check: false,
+            version: None
+        })));
+        assert!(!should_show_update_hint(&Some(Commands::Run {
+            name: "work".to_string(),
+            args: vec![]
+        })));
+    }
+
+    #[test]
+    fn update_hint_shown_for_ordinary_commands() {
+        assert!(should_show_update_hint(&None));
+        assert!(should_show_update_hint(&Some(Commands::List)));
+        assert!(should_show_update_hint(&Some(Commands::Whoami)));
+        assert!(should_show_update_hint(&Some(Commands::Status)));
     }
 }

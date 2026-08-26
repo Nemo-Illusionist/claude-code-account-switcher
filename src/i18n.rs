@@ -303,6 +303,14 @@ impl I18n {
             (Msg::UpdateVersionNotFound(ref v), Lang::Ru) => {
                 format!("Релиз v{} не найден на GitHub.", v)
             }
+            (Msg::UpdateHintAvailable(ref cur, ref new), Lang::En) => format!(
+                "\nA new version of claude-acc is available: v{} → v{}. Run 'claude-acc update' to update.",
+                cur, new
+            ),
+            (Msg::UpdateHintAvailable(ref cur, ref new), Lang::Ru) => format!(
+                "\nДоступна новая версия claude-acc: v{} → v{}. Обновитесь: claude-acc update.",
+                cur, new
+            ),
             (Msg::UpdateDownloading(ref v), Lang::En) => format!("Downloading v{}...", v),
             (Msg::UpdateDownloading(ref v), Lang::Ru) => format!("Скачиваю v{}...", v),
             (Msg::UpdateDone(ref v, ref p), Lang::En) => {
@@ -439,6 +447,7 @@ pub enum Msg {
     UpdateDowngrading(String, String),
     UpdateInvalidVersion(String),
     UpdateVersionNotFound(String),
+    UpdateHintAvailable(String, String),
     UpdateDownloading(String),
     UpdateDone(String, String),
     UpdateCheckFailed,
