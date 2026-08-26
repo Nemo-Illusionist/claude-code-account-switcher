@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.14.0](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.13.0...v0.14.0) (2026-08-26)
+
+
+### Features
+
+* check `--resume` in the claude wrapper, with an on/off switch ([#81](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/81)) ([d250251](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/d250251c59435565dd1f5fe59b0bf83c65b77131))
+* complete every command's arguments and flags ([#84](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/84)) ([cd5704f](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/cd5704f9852eee53ff876adcbd626a872f7cab89))
+
+
+### Bug Fixes
+
+* refresh the claude wrapper on update ([#83](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/83)) ([25cd47f](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/25cd47f5dce78fb88a2f52a269882be4b159c8c7))
+
 ## [0.13.0](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.12.0...v0.13.0) (2026-08-26)
 
 
