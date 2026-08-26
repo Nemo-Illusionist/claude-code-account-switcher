@@ -820,12 +820,19 @@ _claude_acc_run() {
     fi
     shift
 
+    # Any of these can override which identity claude actually uses
+    # regardless of CLAUDE_CONFIG_DIR, if they leaked in from the parent
+    # shell — strip them so `run <name>` can't be silently overridden.
     if [[ "$name" == "default" ]]; then
         # CLAUDE_ACC_RUN_DEFAULT tells claude-acc's own IDE wrapper (which
         # `claude` usually resolves to on PATH) not to re-derive
         # CLAUDE_CONFIG_DIR from $PWD — otherwise it would silently undo
         # this explicit default run inside a linked directory.
-        ( unset CLAUDE_CONFIG_DIR; CLAUDE_ACC_RUN_DEFAULT=1 command claude "$@" )
+        (
+            unset CLAUDE_CONFIG_DIR ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN \
+                CLAUDE_CODE_OAUTH_TOKEN AWS_BEARER_TOKEN_BEDROCK
+            CLAUDE_ACC_RUN_DEFAULT=1 command claude "$@"
+        )
         return $?
     fi
 
@@ -837,7 +844,11 @@ _claude_acc_run() {
         return 1
     fi
 
-    CLAUDE_CONFIG_DIR="$acc_dir" command claude "$@"
+    (
+        unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN \
+            CLAUDE_CODE_OAUTH_TOKEN AWS_BEARER_TOKEN_BEDROCK
+        CLAUDE_CONFIG_DIR="$acc_dir" command claude "$@"
+    )
 }
 
 # --- Identity audit (Phase 1: passive, read-only) ---

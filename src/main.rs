@@ -1,5 +1,6 @@
 mod commands;
 mod config;
+mod environment;
 mod i18n;
 mod ide;
 mod identity;

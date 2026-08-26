@@ -1,4 +1,5 @@
 use crate::config::{AppConfig, validate_name};
+use crate::environment::strip_claude_auth_env;
 use crate::i18n::{I18n, Msg};
 use std::path::Path;
 use std::process::Command;
@@ -13,6 +14,10 @@ use std::process::Command;
 /// CLAUDE_CONFIG_DIR from $PWD whenever it finds the var unset — that would
 /// silently undo the "default" request in a linked directory. CLAUDE_ACC_RUN_DEFAULT
 /// tells the wrapper this is an explicit default run so it skips that step.
+///
+/// Also strips ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN / CLAUDE_CODE_OAUTH_TOKEN /
+/// AWS_BEARER_TOKEN_BEDROCK — any of these leaking in from the parent shell can
+/// override which identity claude actually uses, regardless of CLAUDE_CONFIG_DIR.
 fn build_command(args: &[String], acc_dir: Option<&Path>) -> Command {
     let mut cmd = Command::new("claude");
     cmd.args(args);
@@ -26,6 +31,7 @@ fn build_command(args: &[String], acc_dir: Option<&Path>) -> Command {
             cmd.env("CLAUDE_ACC_RUN_DEFAULT", "1");
         }
     }
+    strip_claude_auth_env(&mut cmd);
     cmd
 }
 
@@ -131,5 +137,22 @@ mod tests {
             marker,
             Some((std::ffi::OsStr::new("CLAUDE_ACC_RUN_DEFAULT"), None))
         );
+    }
+
+    #[test]
+    fn strips_auth_env_vars_that_could_override_the_selected_account() {
+        for acc_dir in [None, Some(Path::new("/tmp/some-account"))] {
+            let cmd = build_command(&[], acc_dir);
+            for var in crate::environment::CLAUDE_AUTH_ENV_VARS {
+                let removed = cmd
+                    .get_envs()
+                    .find(|(k, _)| *k == std::ffi::OsStr::new(*var));
+                assert_eq!(
+                    removed,
+                    Some((std::ffi::OsStr::new(*var), None)),
+                    "{var} not stripped for acc_dir={acc_dir:?}"
+                );
+            }
+        }
     }
 }
