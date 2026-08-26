@@ -129,6 +129,7 @@ _claude_acc_completion() {
                     'add:Create a profile and sign in'
                     'clone-config:Copy MCP servers into a profile'
                     'list:List desktop profiles'
+                    'usage:Account and rate-limit usage per profile'
                     'run:Open Claude Desktop on a profile'
                     'remove:Delete a profile'
                 )

@@ -1,6 +1,7 @@
 mod commands;
 mod config;
 mod desktop;
+mod desktop_auth;
 mod environment;
 mod i18n;
 mod ide;
@@ -181,6 +182,11 @@ enum DesktopCommands {
     },
     /// List desktop profiles
     List,
+    /// Show the account and rate-limit usage behind every profile
+    ///
+    /// Needs each profile's token, so macOS asks for the login keychain
+    /// password once — `list` never does.
+    Usage,
     /// Open Claude Desktop on a profile
     Run { name: String },
     /// Delete a profile and everything in it
@@ -313,6 +319,7 @@ fn main() {
                 commands::desktop::clone_config(&config, &i18n, &name, from.as_deref(), force)
             }
             DesktopCommands::List => commands::desktop::list(&config, &i18n),
+            DesktopCommands::Usage => commands::desktop::usage(&config, &i18n),
             DesktopCommands::Run { name } => commands::desktop::run(&config, &i18n, &name),
             DesktopCommands::Remove { force, name } => {
                 commands::desktop::remove(&config, &i18n, &name, force)

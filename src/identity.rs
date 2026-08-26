@@ -347,7 +347,7 @@ pub fn read_cache_at(path: &Path) -> Option<CachedInfo> {
     })
 }
 
-fn write_cache_at(path: &Path, profile: &Profile, token: &str) -> std::io::Result<()> {
+pub fn write_cache_at(path: &Path, profile: &Profile, token: &str) -> std::io::Result<()> {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
@@ -402,7 +402,7 @@ fn whoami_short() -> Option<String> {
     Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
-fn fetch_profile(token: &str) -> Option<Profile> {
+pub fn fetch_profile(token: &str) -> Option<Profile> {
     // Shell out to curl to avoid pulling in HTTP+TLS deps. macOS ships curl;
     // Linux distros that have Claude Code installed also have curl.
     let out = Command::new("curl")
@@ -521,7 +521,7 @@ pub fn fetch_account_usage(token_dir: &Path) -> UsageResult {
     }
 }
 
-fn fetch_usage(token: &str) -> Option<Usage> {
+pub fn fetch_usage(token: &str) -> Option<Usage> {
     let out = Command::new("curl")
         .args(["-sf", "--max-time", "5"])
         .args(["-H", &format!("Authorization: Bearer {}", token)])
