@@ -1,6 +1,7 @@
 use crate::config::{AppConfig, validate_name};
 use crate::environment::strip_claude_auth_env;
 use crate::i18n::{I18n, Msg};
+use crate::windows_invocation::claude_command;
 use std::path::Path;
 use std::process::Command;
 
@@ -18,9 +19,12 @@ use std::process::Command;
 /// Also strips ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN / CLAUDE_CODE_OAUTH_TOKEN /
 /// AWS_BEARER_TOKEN_BEDROCK — any of these leaking in from the parent shell can
 /// override which identity claude actually uses, regardless of CLAUDE_CONFIG_DIR.
+///
+/// On Windows, `claude` is spawned through the hardened invocation in
+/// windows_invocation.rs — see its module doc for why a plain
+/// `Command::new("claude").args(args)` isn't safe there.
 fn build_command(args: &[String], acc_dir: Option<&Path>) -> Command {
-    let mut cmd = Command::new("claude");
-    cmd.args(args);
+    let mut cmd = claude_command(args);
     match acc_dir {
         Some(dir) => {
             cmd.env("CLAUDE_CONFIG_DIR", dir);

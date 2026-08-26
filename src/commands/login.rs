@@ -2,6 +2,7 @@ use crate::config::{AppConfig, validate_name};
 use crate::environment::strip_claude_auth_env;
 use crate::i18n::{I18n, Msg};
 use crate::identity;
+use crate::windows_invocation::claude_command;
 use std::path::Path;
 use std::process::Command;
 
@@ -12,10 +13,11 @@ use std::process::Command;
 /// Also strips ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN /
 /// CLAUDE_CODE_OAUTH_TOKEN / AWS_BEARER_TOKEN_BEDROCK — a leaked one of these
 /// can make the login skip the OAuth flow entirely, or auth a different
-/// identity than intended.
+/// identity than intended. On Windows, spawned through the hardened
+/// invocation in windows_invocation.rs — see its module doc for why.
 fn build_login_command(acc_dir: Option<&Path>) -> Command {
-    let mut cmd = Command::new("claude");
-    cmd.args(["auth", "login"]);
+    let args = ["auth".to_string(), "login".to_string()];
+    let mut cmd = claude_command(&args);
     match acc_dir {
         Some(dir) => {
             cmd.env("CLAUDE_CONFIG_DIR", dir);

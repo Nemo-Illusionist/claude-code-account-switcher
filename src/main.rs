@@ -6,6 +6,7 @@ mod ide;
 mod identity;
 mod resolve;
 mod seed;
+mod windows_invocation;
 
 use clap::{Parser, Subcommand};
 use commands::activate::ShellSyntax;
