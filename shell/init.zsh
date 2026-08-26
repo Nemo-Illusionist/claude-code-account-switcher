@@ -128,7 +128,7 @@ _claude_acc_completion() {
                 subsubs=(
                     'add:Create a profile and sign in'
                     'clone-config:Copy MCP servers into a profile'
-                    'clone-sandbox:Clone the Cowork sandbox images into a profile'
+                    'clone-runtime:Clone the downloaded runtime into a profile'
                     'list:List desktop profiles'
                     'usage:Account and rate-limit usage per profile'
                     'run:Open Claude Desktop on a profile'
@@ -154,7 +154,7 @@ _claude_acc_completion() {
             # `desktop add <name>` is a new name; run/remove take an existing one.
             desktop)
                 case "${words[3]}" in
-                    run|remove|clone-config|clone-sandbox) _claude_acc_profiles ;;
+                    run|remove|clone-config|clone-runtime) _claude_acc_profiles ;;
                 esac
                 ;;
         esac

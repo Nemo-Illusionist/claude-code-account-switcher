@@ -160,17 +160,17 @@ pub fn clone_config(
     )
 }
 
-/// Clone the sandbox images from another profile, so this one doesn't
-/// re-download ten gigabytes of identical bytes.
+/// Clone the downloaded runtime from another profile, so this one doesn't
+/// re-fetch ten and a half gigabytes of identical bytes.
 #[cfg(target_os = "macos")]
-pub fn clone_sandbox(
+pub fn clone_runtime(
     config: &AppConfig,
     i18n: &I18n,
     name: &str,
     from: Option<&str>,
     force: bool,
 ) -> i32 {
-    use crate::desktop_vm;
+    use crate::desktop_runtime as runtime;
 
     if !require_name(i18n, name) {
         return 1;
@@ -184,49 +184,47 @@ pub fn clone_sandbox(
     };
 
     let profile = desktop::profile_path(config, name);
-    let src_bundle = desktop_vm::bundle_of(&source);
-    let dest_bundle = desktop_vm::bundle_of(&profile);
-    let plan = desktop_vm::plan(
-        desktop_vm::images(&src_bundle).len(),
-        desktop_vm::images(&dest_bundle).len(),
+    let items = runtime::shareable(&source);
+    let plan = runtime::plan(
+        items.len(),
+        runtime::shareable(&profile).len(),
         // An unresolvable path is treated as "not the same filesystem": the
         // cautious answer, since the cost of being wrong is a real 10 GB copy.
-        desktop_vm::same_device(&source, &profile).unwrap_or(false),
+        runtime::same_device(&source, &profile).unwrap_or(false),
         force,
     );
 
     match plan {
-        desktop_vm::SandboxPlan::NoSource => {
-            i18n.print(Msg::DesktopSandboxNoSource(label));
+        runtime::RuntimePlan::NoSource => {
+            i18n.print(Msg::DesktopRuntimeNoSource(label));
             1
         }
-        desktop_vm::SandboxPlan::Keep => {
-            i18n.print(Msg::DesktopSandboxKeep);
+        runtime::RuntimePlan::Keep => {
+            i18n.print(Msg::DesktopRuntimeKeep);
             1
         }
-        desktop_vm::SandboxPlan::WouldCopy => {
-            i18n.print(Msg::DesktopSandboxWouldCopy);
+        runtime::RuntimePlan::WouldCopy => {
+            i18n.print(Msg::DesktopRuntimeWouldCopy);
             1
         }
-        desktop_vm::SandboxPlan::Clone => match desktop_vm::clone_images(&src_bundle, &dest_bundle)
-        {
+        runtime::RuntimePlan::Clone => match runtime::clone_into(&source, &profile, &items) {
             Ok(report) => {
-                i18n.print(Msg::DesktopSandboxCloned(
-                    report.files.to_string(),
+                i18n.print(Msg::DesktopRuntimeCloned(
+                    report.items.to_string(),
                     crate::sessions::human_size(report.logical),
                     label,
                 ));
                 match report.on_disk {
                     Some(bytes) => {
-                        i18n.print(Msg::DesktopSandboxCost(crate::sessions::human_size(bytes)))
+                        i18n.print(Msg::DesktopRuntimeCost(crate::sessions::human_size(bytes)))
                     }
-                    None => i18n.print(Msg::DesktopSandboxCostUnknown),
+                    None => i18n.print(Msg::DesktopRuntimeCostUnknown),
                 }
-                i18n.print(Msg::DesktopSandboxUnverified);
+                i18n.print(Msg::DesktopRuntimeUnverified);
                 0
             }
             Err(e) => {
-                i18n.print(Msg::DesktopSandboxFailed(e.to_string()));
+                i18n.print(Msg::DesktopRuntimeFailed(e.to_string()));
                 1
             }
         },

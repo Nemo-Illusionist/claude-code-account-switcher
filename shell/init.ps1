@@ -65,12 +65,12 @@ Register-ArgumentCompleter -CommandName claude-acc -ScriptBlock {
                 $candidates = & $accountsWithDefault
             }
             'session'     { $candidates = @('copy') }
-            'desktop'     { $candidates = @('add','clone-config','clone-sandbox','list','usage','run','remove') }
+            'desktop'     { $candidates = @('add','clone-config','clone-runtime','list','usage','run','remove') }
             'resume-hook' { $candidates = @('on','off') }
         }
     } elseif ($count -eq 4 -and $cmd -eq 'session' -and $sub -eq 'copy') {
         $candidates = (& '__CLAUDE_ACC_BIN__' completions sessions) -split "`n"
-    } elseif ($count -eq 4 -and $cmd -eq 'desktop' -and $sub -in 'run','remove','clone-config','clone-sandbox') {
+    } elseif ($count -eq 4 -and $cmd -eq 'desktop' -and $sub -in 'run','remove','clone-config','clone-runtime') {
         # `desktop add <name>` is a new name; run/remove take an existing one.
         $candidates = (& '__CLAUDE_ACC_BIN__' completions desktop) -split "`n"
     }

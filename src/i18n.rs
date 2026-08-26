@@ -663,16 +663,16 @@ impl I18n {
             }
             (Msg::DesktopDiskNote, Lang::En) => s(
                 "The profile is fully isolated, so the app would re-download \
-                 its sandbox images into it — about 10 GB. To skip that, clone \
-                 them instead (free, on APFS):",
+                 its whole runtime into it — about 10.5 GB. To skip that, \
+                 clone it instead (free, on APFS):",
             ),
             (Msg::DesktopDiskNote, Lang::Ru) => {
                 s("Профиль полностью изолирован, поэтому приложение заново \
-                 скачало бы в него образы песочницы — около 10 ГБ. Чтобы этого \
-                 избежать, склонируйте их (на APFS это бесплатно):")
+                 скачало бы в него весь рантайм — около 10.5 ГБ. Чтобы этого \
+                 избежать, склонируйте его (на APFS это бесплатно):")
             }
             (Msg::DesktopDiskHint(ref n), _) => {
-                format!("  claude-acc desktop clone-sandbox {}", n)
+                format!("  claude-acc desktop clone-runtime {}", n)
             }
             (Msg::DesktopHintRun(ref n), Lang::En) => {
                 format!("Open it again later:  claude-acc desktop run {}", n)
@@ -835,65 +835,65 @@ impl I18n {
                  а пакет подменяет пути к файлам. Установщик с \
                  claude.com/download — можно. См. issue #75.")
             }
-            (Msg::DesktopSandboxNoSource(ref n), Lang::En) => {
-                format!("{} has no Cowork sandbox images to clone.", n)
+            (Msg::DesktopRuntimeNoSource(ref n), Lang::En) => {
+                format!("{} has no downloaded runtime to clone.", n)
             }
-            (Msg::DesktopSandboxNoSource(ref n), Lang::Ru) => {
-                format!("В {} нет образов песочницы Cowork — клонировать нечего.", n)
+            (Msg::DesktopRuntimeNoSource(ref n), Lang::Ru) => {
+                format!("В {} нет скачанного рантайма — клонировать нечего.", n)
             }
-            (Msg::DesktopSandboxKeep, Lang::En) => s(
-                "This profile already has sandbox images. Replace them with \
-                 --force.",
-            ),
-            (Msg::DesktopSandboxKeep, Lang::Ru) => {
-                s("У этого профиля уже есть образы песочницы. Заменить — с \
+            (Msg::DesktopRuntimeKeep, Lang::En) => {
+                s("This profile already has a downloaded runtime. Replace it \
+                 with --force.")
+            }
+            (Msg::DesktopRuntimeKeep, Lang::Ru) => {
+                s("У этого профиля уже есть скачанный рантайм. Заменить — с \
                  --force.")
             }
-            (Msg::DesktopSandboxWouldCopy, Lang::En) => s(
+            (Msg::DesktopRuntimeWouldCopy, Lang::En) => s(
                 "The profile is on a different filesystem from the source, so \
                  this would copy every byte instead of cloning it — the \
                  opposite of the point. Not done.",
             ),
-            (Msg::DesktopSandboxWouldCopy, Lang::Ru) => {
+            (Msg::DesktopRuntimeWouldCopy, Lang::Ru) => {
                 s("Профиль лежит на другой файловой системе, чем источник, \
                  поэтому вместо клонирования скопировался бы каждый байт — \
                  ровно наоборот от смысла. Не выполнено.")
             }
-            (Msg::DesktopSandboxCloned(ref n, ref size, ref from), Lang::En) => format!(
-                "Cloned {} sandbox image(s), {} logical, from {}.",
+            (Msg::DesktopRuntimeCloned(ref n, ref size, ref from), Lang::En) => format!(
+                "Cloned {} runtime component(s), {} logical, from {}.",
                 n, size, from
             ),
-            (Msg::DesktopSandboxCloned(ref n, ref size, ref from), Lang::Ru) => format!(
-                "Склонировано образов песочницы: {}, логически {}, из {}.",
+            (Msg::DesktopRuntimeCloned(ref n, ref size, ref from), Lang::Ru) => format!(
+                "Склонировано компонентов рантайма: {}, логически {}, из {}.",
                 n, size, from
             ),
-            (Msg::DesktopSandboxCost(ref size), Lang::En) => {
+            (Msg::DesktopRuntimeCost(ref size), Lang::En) => {
                 format!("Disk actually used: {}.", size)
             }
-            (Msg::DesktopSandboxCost(ref size), Lang::Ru) => {
+            (Msg::DesktopRuntimeCost(ref size), Lang::Ru) => {
                 format!("Реально занято на диске: {}.", size)
             }
-            (Msg::DesktopSandboxCostUnknown, Lang::En) => {
+            (Msg::DesktopRuntimeCostUnknown, Lang::En) => {
                 s("Couldn't measure what it cost on disk.")
             }
-            (Msg::DesktopSandboxCostUnknown, Lang::Ru) => {
+            (Msg::DesktopRuntimeCostUnknown, Lang::Ru) => {
                 s("Не удалось измерить, во сколько это обошлось на диске.")
             }
-            (Msg::DesktopSandboxUnverified, Lang::En) => s(
-                "Whether the app accepts pre-seeded images is untested — if \
-                 Cowork misbehaves in this profile, delete its vm_bundles/ \
-                 and it will fetch its own.",
+            (Msg::DesktopRuntimeUnverified, Lang::En) => s(
+                "Whether the app accepts a pre-seeded runtime is untested — \
+                 if this profile misbehaves, delete its vm_bundles/, \
+                 claude-code/ and claude-code-vm/, and it will fetch its own.",
             ),
-            (Msg::DesktopSandboxUnverified, Lang::Ru) => s(
-                "Примет ли приложение подложенные образы — не проверено: если \
-                 Cowork в этом профиле поведёт себя странно, удалите его \
-                 vm_bundles/, и он скачает свои.",
-            ),
-            (Msg::DesktopSandboxFailed(ref e), Lang::En) => {
-                format!("Could not clone the sandbox images: {}", e)
+            (Msg::DesktopRuntimeUnverified, Lang::Ru) => {
+                s("Примет ли приложение подложенный рантайм — не проверено: \
+                 если профиль поведёт себя странно, удалите его vm_bundles/, \
+                 claude-code/ и claude-code-vm/, и он скачает свои.")
             }
-            (Msg::DesktopSandboxFailed(ref e), Lang::Ru) => {
-                format!("Не удалось склонировать образы песочницы: {}", e)
+            (Msg::DesktopRuntimeFailed(ref e), Lang::En) => {
+                format!("Could not clone the runtime: {}", e)
+            }
+            (Msg::DesktopRuntimeFailed(ref e), Lang::Ru) => {
+                format!("Не удалось склонировать рантайм: {}", e)
             }
             (Msg::DesktopNotSignedIn, Lang::En) => s("not signed in"),
             (Msg::DesktopNotSignedIn, Lang::Ru) => s("вход не выполнен"),
@@ -1077,14 +1077,14 @@ pub enum Msg {
     DesktopStorePackage,
     DesktopSignInAloneWarning,
     DesktopIdentityMacOnly,
-    DesktopSandboxNoSource(String),
-    DesktopSandboxKeep,
-    DesktopSandboxWouldCopy,
-    DesktopSandboxCloned(String, String, String),
-    DesktopSandboxCost(String),
-    DesktopSandboxCostUnknown,
-    DesktopSandboxUnverified,
-    DesktopSandboxFailed(String),
+    DesktopRuntimeNoSource(String),
+    DesktopRuntimeKeep,
+    DesktopRuntimeWouldCopy,
+    DesktopRuntimeCloned(String, String, String),
+    DesktopRuntimeCost(String),
+    DesktopRuntimeCostUnknown,
+    DesktopRuntimeUnverified,
+    DesktopRuntimeFailed(String),
     DesktopDiskHint(String),
 }
 
