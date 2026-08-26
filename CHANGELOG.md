@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.10.5](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.10.4...v0.10.5) (2026-08-26)
+
+
+### Bug Fixes
+
+* add/login no longer clobber the standard account's Keychain entry ([#62](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/62)) ([dde70e5](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/dde70e5d87bf990baac67137d0d782473229d13e))
+* add/login strip auth env vars before claude auth login ([#64](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/64)) ([395f53f](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/395f53f619188b292dcdbc824b18ae3c6ce63f81))
+* clone-settings rejects "default" with a clear message ([#67](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/67)) ([66bdf23](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/66bdf23ba3b46e40d70b41a4900478ab835e2115))
+* login accepts "default" and completions offer it for login/run ([#65](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/65)) ([eb97ca9](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/eb97ca9cdb253d7db9ba58af1623a6f537225302))
+* run strips auth env vars that can override the selected account ([#61](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/61)) ([cd09246](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/cd09246718de011cb74954170cf6c085c4935a7e))
+
 ## [0.10.4](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.10.3...v0.10.4) (2026-08-26)
 
 
