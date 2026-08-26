@@ -3,9 +3,13 @@
 # Sets CLAUDE_CONFIG_DIR for $PWD via `claude-acc activate`,
 # then exec's the real `claude` binary discovered in PATH.
 
-if [ -z "$CLAUDE_CONFIG_DIR" ]; then
+# CLAUDE_ACC_RUN_DEFAULT marks an explicit `claude-acc run default`: skip
+# re-deriving CLAUDE_CONFIG_DIR from $PWD, since an empty CLAUDE_CONFIG_DIR
+# here means "run the standard account", not "not yet activated".
+if [ -z "$CLAUDE_CONFIG_DIR" ] && [ -z "$CLAUDE_ACC_RUN_DEFAULT" ]; then
     eval "$('__CLAUDE_ACC_BIN__' activate --shell posix 2>/dev/null)"
 fi
+unset CLAUDE_ACC_RUN_DEFAULT
 
 self="$0"
 case "$self" in

@@ -821,7 +821,11 @@ _claude_acc_run() {
     shift
 
     if [[ "$name" == "default" ]]; then
-        ( unset CLAUDE_CONFIG_DIR; command claude "$@" )
+        # CLAUDE_ACC_RUN_DEFAULT tells claude-acc's own IDE wrapper (which
+        # `claude` usually resolves to on PATH) not to re-derive
+        # CLAUDE_CONFIG_DIR from $PWD — otherwise it would silently undo
+        # this explicit default run inside a linked directory.
+        ( unset CLAUDE_CONFIG_DIR; CLAUDE_ACC_RUN_DEFAULT=1 command claude "$@" )
         return $?
     fi
 

@@ -7,15 +7,23 @@ use std::process::Command;
 /// must strip any inherited `CLAUDE_CONFIG_DIR` (e.g. exported by the shell's
 /// directory-link hook) so `claude-acc run default` really runs the standard
 /// ~/.claude/ account rather than whatever the current directory is linked to.
+///
+/// `claude` on PATH usually resolves to claude-acc's own IDE wrapper
+/// (~/.claude-switch/bin/claude, see src/ide.rs), which re-derives
+/// CLAUDE_CONFIG_DIR from $PWD whenever it finds the var unset — that would
+/// silently undo the "default" request in a linked directory. CLAUDE_ACC_RUN_DEFAULT
+/// tells the wrapper this is an explicit default run so it skips that step.
 fn build_command(args: &[String], acc_dir: Option<&Path>) -> Command {
     let mut cmd = Command::new("claude");
     cmd.args(args);
     match acc_dir {
         Some(dir) => {
             cmd.env("CLAUDE_CONFIG_DIR", dir);
+            cmd.env_remove("CLAUDE_ACC_RUN_DEFAULT");
         }
         None => {
             cmd.env_remove("CLAUDE_CONFIG_DIR");
+            cmd.env("CLAUDE_ACC_RUN_DEFAULT", "1");
         }
     }
     cmd
@@ -76,6 +84,25 @@ mod tests {
     }
 
     #[test]
+    fn default_account_marks_run_default_for_the_ide_wrapper() {
+        // The `claude` on PATH is usually claude-acc's own IDE wrapper,
+        // which re-derives CLAUDE_CONFIG_DIR from $PWD when it sees the var
+        // unset. This marker tells it to skip that for an explicit default run.
+        let cmd = build_command(&[], None);
+        let marker = cmd
+            .get_envs()
+            .find(|(k, _)| *k == std::ffi::OsStr::new("CLAUDE_ACC_RUN_DEFAULT"));
+
+        assert_eq!(
+            marker,
+            Some((
+                std::ffi::OsStr::new("CLAUDE_ACC_RUN_DEFAULT"),
+                Some(std::ffi::OsStr::new("1"))
+            ))
+        );
+    }
+
+    #[test]
     fn named_account_sets_config_dir() {
         let dir = Path::new("/tmp/some-account");
         let cmd = build_command(&[], Some(dir));
@@ -89,6 +116,20 @@ mod tests {
                 std::ffi::OsStr::new("CLAUDE_CONFIG_DIR"),
                 Some(std::ffi::OsStr::new("/tmp/some-account"))
             ))
+        );
+    }
+
+    #[test]
+    fn named_account_clears_run_default_marker() {
+        let dir = Path::new("/tmp/some-account");
+        let cmd = build_command(&[], Some(dir));
+        let marker = cmd
+            .get_envs()
+            .find(|(k, _)| *k == std::ffi::OsStr::new("CLAUDE_ACC_RUN_DEFAULT"));
+
+        assert_eq!(
+            marker,
+            Some((std::ffi::OsStr::new("CLAUDE_ACC_RUN_DEFAULT"), None))
         );
     }
 }
