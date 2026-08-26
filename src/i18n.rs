@@ -794,6 +794,42 @@ impl I18n {
             (Msg::DesktopTokenExpired, Lang::Ru) => {
                 s("креды истекли — откройте этот профиль, чтобы обновить их")
             }
+            (Msg::DesktopSignInAloneWarning, Lang::En) => s(
+                "Close your other Claude windows first: signing in finishes \
+                 through a claude:// link, which the system hands to whichever \
+                 window it likes — sign in with two open and both can end up \
+                 on the same account.",
+            ),
+            (Msg::DesktopSignInAloneWarning, Lang::Ru) => {
+                s("Сначала закройте остальные окна Claude: вход завершается \
+                 переходом по ссылке claude://, а её система отдаёт любому из \
+                 открытых окон — при двух открытых оба могут оказаться на \
+                 одном аккаунте.")
+            }
+            (Msg::DesktopIdentityMacOnly, Lang::En) => s(
+                "Reading a profile's account is macOS-only for now: the key to \
+                 its token lives in the Keychain, and the Windows and Linux \
+                 equivalents aren't implemented. See issue #75.",
+            ),
+            (Msg::DesktopIdentityMacOnly, Lang::Ru) => s(
+                "Определение аккаунта профиля пока только для macOS: ключ к \
+                 его токену лежит в связке ключей, а аналоги для Windows и \
+                 Linux не реализованы. См. issue #75.",
+            ),
+            (Msg::DesktopStorePackage, Lang::En) => s(
+                "Claude Desktop is installed from the Microsoft Store, which \
+                 can't be opened on a separate profile: its executable can \
+                 only be started through the Store's own activation, and the \
+                 package redirects file paths. The installer from \
+                 claude.com/download can. See issue #75.",
+            ),
+            (Msg::DesktopStorePackage, Lang::Ru) => {
+                s("Claude Desktop установлен из Microsoft Store, а такую \
+                 установку нельзя открыть на отдельном профиле: её \
+                 исполняемый файл запускается только через активацию Store, \
+                 а пакет подменяет пути к файлам. Установщик с \
+                 claude.com/download — можно. См. issue #75.")
+            }
             (Msg::DesktopNotSignedIn, Lang::En) => s("not signed in"),
             (Msg::DesktopNotSignedIn, Lang::Ru) => s("вход не выполнен"),
             (Msg::DesktopIdentityHint, Lang::En) => {
@@ -973,6 +1009,9 @@ pub enum Msg {
     DesktopTokenExpired,
     DesktopIdentityHint,
     DesktopNotSignedIn,
+    DesktopStorePackage,
+    DesktopSignInAloneWarning,
+    DesktopIdentityMacOnly,
 }
 
 fn relative_time(secs: u64, lang: Lang) -> String {

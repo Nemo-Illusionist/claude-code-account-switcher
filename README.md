@@ -105,7 +105,7 @@ Other tools solving nearby problems, and how they differ (summarised from their 
 | Auto-rotation when a limit is hit | no (out of scope) | yes — strategies, cooldown, hysteresis | no | no |
 | Status line with the active account | `statusline --install` | no | no | no |
 | IDE launches (JetBrains, VS Code) | wrapper on `PATH` + `ide/` symlink | follow the global login | follow the global profile | no |
-| Claude **desktop app** accounts | `desktop` — isolated profiles, open side by side (macOS) | no | no | no |
+| Claude **desktop app** accounts | `desktop` — isolated profiles, open side by side | no | no | no |
 | Adopt an existing config dir without re-login | `import` — re-keys the macOS Keychain entry | `add` / `import` of credential exports | capture the current login as a profile | n/a |
 | Other coding CLIs (Codex, Gemini) | no | no | yes | n/a |
 | Runtime | Rust binary (or a single zsh script) | Python (uv / pipx) | Rust | direnv |
@@ -133,9 +133,9 @@ Short version: **cswap** if you want one active account plus automatic rotation 
 | `claude-acc sessions [--all]` | List Claude Code sessions across accounts (current directory by default) |
 | `claude-acc session copy <id> --to <name>` | Copy a session into another account so `claude --resume` can see it |
 | `claude-acc resume-hook [on\|off]` | Show/set whether plain `claude --resume <id>` gets the same check |
-| `claude-acc desktop add\|list\|run\|remove [<name>]` | Claude Desktop profiles — separate app profiles that run side by side (macOS) |
+| `claude-acc desktop add\|list\|run\|remove [<name>]` | Claude Desktop profiles — separate app profiles that run side by side |
 | `claude-acc desktop clone-config <name>` | Copy MCP servers and preferences into a desktop profile (`--from`, `--force`) |
-| `claude-acc desktop usage` | Account, plan and 5h / 7d usage behind every desktop profile |
+| `claude-acc desktop usage` | Account, plan and 5h / 7d usage behind every desktop profile (macOS) |
 | `claude-acc statusline [--install]` | Render (or install) a Claude Code status line with the active account |
 | `claude-acc run <name>` | Run claude under a specific account |
 | `claude-acc whoami` | Print the email (or name) of the active account |
@@ -554,9 +554,22 @@ Your main instance is never quit, never touched, and never has its signed-in sta
 - **Disk.** Isolation is total, so each profile re-downloads the heavy parts — sandbox images and caches run to several GB per profile. Nothing is shared in this version.
 - **MCP servers are per-profile.** A new profile starts with none — `-s` or `clone-config` brings them over, see below.
 - **`--user-data-dir` is a Chromium switch, not a documented Claude Desktop feature.** This is how VS Code and most Electron apps are routinely run, so the risk is small — but if the app ever pins its own data directory unconditionally, this stops working.
-- **macOS only, for now.** The mechanism is the same everywhere; only locating the executable is per-platform. Windows and Linux are tracked in [#75](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/75).
+- **Sign in with only one Claude window open.** Signing in finishes through a `claude://` link, which the system hands to whichever window it feels like — do it with two open and both can end up on the same account. `desktop add` says so before it launches.
 
-If `Claude.app` isn't in `/Applications` or `~/Applications`, point at it with `CLAUDE_ACC_DESKTOP_APP=/path/to/Claude.app`.
+### Where it works
+
+| | Launching profiles | Which account a profile is on (`desktop usage`) |
+|---|---|---|
+| **macOS** | yes — `/Applications/Claude.app` or `~/Applications/` | yes |
+| **Windows**, installed from [claude.com/download](https://claude.com/download) | yes — `%LOCALAPPDATA%\AnthropicClaude\` | not yet — the key lives in DPAPI, not the Keychain |
+| **Windows**, installed from the Microsoft Store | **no** — see below | no |
+| **Linux** ([official package](https://code.claude.com/docs/en/desktop-linux), beta) | yes — `claude-desktop` on `PATH` | not yet — libsecret / kwallet |
+
+If the app is somewhere else — an unofficial Linux build, a non-standard install — point at it: `CLAUDE_ACC_DESKTOP_APP=/path/to/the/app`.
+
+**The Microsoft Store build can't do this, and won't pretend to.** Its executable lives under `WindowsApps` and starts only through the Store's own activation, which is no way to pass a command-line switch; the package also redirects file paths, so a switch that did arrive wouldn't point where it says. Rather than launch it and quietly open your real profile while claiming otherwise, `desktop` says what's wrong and stops. The installer from claude.com/download works.
+
+> Reported but unverified by us: on Windows, Cowork resolves its VM image relative to `%APPDATA%`, so a profile kept elsewhere may fail to start one, and only one Cowork VM runs at a time regardless. Plain chat is unaffected.
 
 ### Bringing MCP servers along (`clone-config`)
 
