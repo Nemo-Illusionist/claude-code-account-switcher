@@ -397,6 +397,106 @@ impl I18n {
             (Msg::SessionsHintResume, Lang::Ru) => {
                 s("Продолжить:  claude-acc run <account> --resume <id>")
             }
+
+            // session copy
+            (Msg::SessionNotFound(ref id), Lang::En) => format!(
+                "No session '{}' in any account.\nList them: claude-acc sessions --all",
+                id
+            ),
+            (Msg::SessionNotFound(ref id), Lang::Ru) => format!(
+                "Сессии '{}' нет ни в одном аккаунте.\nСписок: claude-acc sessions --all",
+                id
+            ),
+            (Msg::SessionSourceUnknown(ref acc, ref id), Lang::En) => {
+                format!("Account '{}' holds no copy of session '{}'.", acc, id)
+            }
+            (Msg::SessionSourceUnknown(ref acc, ref id), Lang::Ru) => {
+                format!("В аккаунте '{}' нет копии сессии '{}'.", acc, id)
+            }
+            (Msg::SessionAlreadyThere(ref id, ref acc), Lang::En) => format!(
+                "Session '{}' already lives in '{}' — nothing to copy.",
+                id, acc
+            ),
+            (Msg::SessionAlreadyThere(ref id, ref acc), Lang::Ru) => {
+                format!("Сессия '{}' и так в '{}' — копировать нечего.", id, acc)
+            }
+            (Msg::SessionAmbiguousNeedsFrom(ref id), Lang::En) => format!(
+                "Several accounts hold session '{}'. Say which one with --from <account>\n(--force can't guess: the copies have drifted apart).",
+                id
+            ),
+            (Msg::SessionAmbiguousNeedsFrom(ref id), Lang::Ru) => format!(
+                "Сессия '{}' есть в нескольких аккаунтах. Укажите источник: --from <account>\n(--force не может выбрать сам: копии разошлись).",
+                id
+            ),
+            (Msg::SessionPickSource, Lang::En) => {
+                s("Several accounts hold this session. Which copy do you want to copy from?")
+            }
+            (Msg::SessionPickSource, Lang::Ru) => {
+                s("Эта сессия есть в нескольких аккаунтах. Из какой копии копировать?")
+            }
+            (Msg::SessionPickPrompt, Lang::En) => s("Number (Enter to cancel): "),
+            (Msg::SessionPickPrompt, Lang::Ru) => s("Номер (Enter — отмена): "),
+            (Msg::SessionOverwriteWarn(ref acc), Lang::En) => format!(
+                "'{}' already has a copy of this session — it will be overwritten:",
+                acc
+            ),
+            (Msg::SessionOverwriteWarn(ref acc), Lang::Ru) => format!(
+                "В '{}' уже есть копия этой сессии — она будет перезаписана:",
+                acc
+            ),
+            (Msg::SessionLabelSource, Lang::En) => s("← copying this one"),
+            (Msg::SessionLabelSource, Lang::Ru) => s("← копируем эту"),
+            (Msg::SessionLabelReplaced, Lang::En) => s("← will be replaced"),
+            (Msg::SessionLabelReplaced, Lang::Ru) => s("← будет заменена"),
+            (Msg::SessionCostNote, Lang::En) => s(
+                "Note: the prompt cache is per-account, so the first message after resuming\nunder another account re-sends the whole transcript — slower and more expensive\nthan a normal turn.",
+            ),
+            (Msg::SessionCostNote, Lang::Ru) => s(
+                "Замечание: кэш промпта привязан к аккаунту, поэтому первое сообщение после\nпродолжения под другим аккаунтом отправит весь транскрипт заново — дольше и\nдороже обычного хода.",
+            ),
+            (Msg::SessionConfirmCopy(ref from, ref to), Lang::En) => {
+                format!("Copy it from '{}' to '{}'? [y/N] ", from, to)
+            }
+            (Msg::SessionConfirmCopy(ref from, ref to), Lang::Ru) => {
+                format!("Скопировать из '{}' в '{}'? [y/N] ", from, to)
+            }
+            (Msg::SessionConfirmOverwrite(ref from, ref to), Lang::En) => {
+                format!(
+                    "Overwrite the copy in '{}' with the one from '{}'? [y/N] ",
+                    to, from
+                )
+            }
+            (Msg::SessionConfirmOverwrite(ref from, ref to), Lang::Ru) => {
+                format!("Перезаписать копию в '{}' копией из '{}'? [y/N] ", to, from)
+            }
+            (Msg::SessionCancelled, Lang::En) => s("Cancelled. Nothing was copied."),
+            (Msg::SessionCancelled, Lang::Ru) => s("Отменено. Ничего не скопировано."),
+            (Msg::SessionCopied(ref id, ref from, ref to, ref size), Lang::En) => format!(
+                "Copied session {} from '{}' to '{}' ({}).",
+                id, from, to, size
+            ),
+            (Msg::SessionCopied(ref id, ref from, ref to, ref size), Lang::Ru) => format!(
+                "Сессия {} скопирована из '{}' в '{}' ({}).",
+                id, from, to, size
+            ),
+            (Msg::SessionCopiedSubagents(n), Lang::En) => {
+                format!("Also copied {} subagent transcript(s).", n)
+            }
+            (Msg::SessionCopiedSubagents(n), Lang::Ru) => {
+                format!("Также скопировано транскриптов сабагентов: {}.", n)
+            }
+            (Msg::SessionResumeHint(ref acc, ref id), Lang::En) => {
+                format!("Continue it:  claude-acc run {} --resume {}", acc, id)
+            }
+            (Msg::SessionResumeHint(ref acc, ref id), Lang::Ru) => {
+                format!("Продолжить:  claude-acc run {} --resume {}", acc, id)
+            }
+            (Msg::SessionCopyFailed(ref e), Lang::En) => {
+                format!("Could not copy the session: {}", e)
+            }
+            (Msg::SessionCopyFailed(ref e), Lang::Ru) => {
+                format!("Не удалось скопировать сессию: {}", e)
+            }
         }
     }
 
@@ -498,6 +598,23 @@ pub enum Msg {
     SessionsNewestCopy,
     SessionsDuplicateNote,
     SessionsHintResume,
+    SessionNotFound(String),
+    SessionSourceUnknown(String, String),
+    SessionAlreadyThere(String, String),
+    SessionAmbiguousNeedsFrom(String),
+    SessionPickSource,
+    SessionPickPrompt,
+    SessionOverwriteWarn(String),
+    SessionLabelSource,
+    SessionLabelReplaced,
+    SessionCostNote,
+    SessionConfirmCopy(String, String),
+    SessionConfirmOverwrite(String, String),
+    SessionCancelled,
+    SessionCopied(String, String, String, String),
+    SessionCopiedSubagents(usize),
+    SessionResumeHint(String, String),
+    SessionCopyFailed(String),
 }
 
 fn relative_time(secs: u64, lang: Lang) -> String {

@@ -39,6 +39,25 @@ pub struct SessionRef {
     pub size: u64,
 }
 
+impl SessionRef {
+    /// The sidecar directory holding this session's subagent transcripts.
+    /// Often absent — a session that never spawned a subagent has none.
+    pub fn sidecar_dir(&self) -> PathBuf {
+        self.path.with_extension("")
+    }
+}
+
+/// What a copy actually moved, for reporting back to the user.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CopyReport {
+    /// Where the transcript landed.
+    pub dest: PathBuf,
+    /// Transcript bytes written.
+    pub bytes: u64,
+    /// Subagent transcripts copied alongside it (0 when there was no sidecar).
+    pub subagents: usize,
+}
+
 /// Slugify a working directory the way Claude Code names its `projects/`
 /// subdirectories: every non-alphanumeric character becomes `-`.
 ///
@@ -135,6 +154,87 @@ pub fn list_all(config: &AppConfig, slug: Option<&str>) -> Vec<SessionRef> {
         .collect();
     sort_newest_first(&mut found);
     found
+}
+
+/// Every copy of one session id, across every account, newest first. More
+/// than one result means the transcript has been copied around and the copies
+/// have since drifted apart.
+pub fn find_by_id(config: &AppConfig, id: &str) -> Vec<SessionRef> {
+    let mut found: Vec<SessionRef> = list_all(config, None)
+        .into_iter()
+        .filter(|s| s.id == id)
+        .collect();
+    sort_newest_first(&mut found);
+    found
+}
+
+/// Where `src` would land inside `dest_config_dir`. The project slug is
+/// carried over from the source rather than re-derived, so this never has to
+/// guess how Claude Code named the directory.
+pub fn destination_path(src: &SessionRef, dest_config_dir: &Path) -> PathBuf {
+    projects_dir(dest_config_dir)
+        .join(&src.project)
+        .join(format!("{}.jsonl", src.id))
+}
+
+/// Copy `src`'s transcript (and its subagent sidecar, if any) into
+/// `dest_config_dir`, so `claude --resume <id>` can see it from that account.
+///
+/// The transcript is staged next to its destination and renamed into place,
+/// so an interrupted copy can't leave a half-written transcript where a
+/// complete one is expected. The sidecar is copied afterwards: losing it
+/// degrades subagent history but leaves the conversation itself resumable.
+///
+/// Whether the copy inherits the source's modification time is left to the
+/// platform (macOS's `copyfile` preserves it, Linux's copy doesn't). Either
+/// reading of "which copy is newest" is defensible — the last conversation
+/// activity, or the last local write — and both stay accurate afterwards,
+/// since resuming a session rewrites its transcript.
+pub fn copy_into(src: &SessionRef, dest_config_dir: &Path) -> std::io::Result<CopyReport> {
+    let dest = destination_path(src, dest_config_dir);
+    let parent = dest
+        .parent()
+        .ok_or_else(|| std::io::Error::other("destination has no parent directory"))?;
+    fs::create_dir_all(parent)?;
+
+    let staged = dest.with_extension("jsonl.part");
+    // A leftover from an earlier interrupted copy must not be appended to.
+    let _ = fs::remove_file(&staged);
+    let bytes = fs::copy(&src.path, &staged)?;
+    fs::rename(&staged, &dest)?;
+
+    let sidecar_src = src.sidecar_dir();
+    let subagents = if sidecar_src.is_dir() {
+        copy_dir(&sidecar_src, &dest.with_extension(""))?
+    } else {
+        0
+    };
+
+    Ok(CopyReport {
+        dest,
+        bytes,
+        subagents,
+    })
+}
+
+/// Recursively copy a directory of plain files, returning the file count.
+/// The sidecar holds only `.jsonl` / `.meta.json` files written by Claude
+/// Code, so there are no symlinks to preserve here.
+fn copy_dir(src: &Path, dst: &Path) -> std::io::Result<usize> {
+    fs::create_dir_all(dst)?;
+    let mut copied = 0;
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let from = entry.path();
+        let to = dst.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copied += copy_dir(&from, &to)?;
+        } else {
+            fs::copy(&from, &to)?;
+            copied += 1;
+        }
+    }
+    Ok(copied)
 }
 
 /// Sort newest first, with unreadable timestamps last and a stable
@@ -275,6 +375,118 @@ mod tests {
     fn duplicated_ids_empty_when_all_unique() {
         let v = vec![session("a", "work", 100), session("b", "default", 200)];
         assert!(duplicated_ids(&v).is_empty());
+    }
+
+    /// A source account holding one session (with an optional subagent
+    /// sidecar), plus an empty destination config dir.
+    fn fixture(tag: &str, with_sidecar: bool) -> (PathBuf, SessionRef, PathBuf) {
+        let base = std::env::temp_dir().join(format!("cc-sessions-{}-{}", tag, std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let src_project = base.join("src/projects/-tmp-proj");
+        fs::create_dir_all(&src_project).unwrap();
+        let path = src_project.join("sess-1.jsonl");
+        fs::write(&path, b"{\"type\":\"user\"}\n").unwrap();
+        if with_sidecar {
+            let side = src_project.join("sess-1/subagents");
+            fs::create_dir_all(&side).unwrap();
+            fs::write(side.join("agent-a.jsonl"), b"{}\n").unwrap();
+            fs::write(side.join("agent-a.meta.json"), b"{}").unwrap();
+        }
+        let src = SessionRef {
+            id: "sess-1".to_string(),
+            account: "work".to_string(),
+            project: "-tmp-proj".to_string(),
+            path,
+            modified: Some(1),
+            size: 16,
+        };
+        (base.clone(), src, base.join("dest"))
+    }
+
+    #[test]
+    fn destination_keeps_the_source_project_slug() {
+        let (base, src, dest_cfg) = fixture("dest-path", false);
+        assert_eq!(
+            destination_path(&src, &dest_cfg),
+            dest_cfg.join("projects/-tmp-proj/sess-1.jsonl")
+        );
+        let _ = fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn copy_into_creates_the_transcript_in_the_destination_account() {
+        let (base, src, dest_cfg) = fixture("copy-plain", false);
+        let report = copy_into(&src, &dest_cfg).unwrap();
+
+        assert!(report.dest.is_file());
+        assert_eq!(fs::read(&report.dest).unwrap(), b"{\"type\":\"user\"}\n");
+        assert_eq!(report.bytes, 16);
+        assert_eq!(report.subagents, 0);
+        let _ = fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn copy_into_brings_the_subagent_sidecar_along() {
+        let (base, src, dest_cfg) = fixture("copy-sidecar", true);
+        let report = copy_into(&src, &dest_cfg).unwrap();
+
+        assert_eq!(report.subagents, 2);
+        let side = dest_cfg.join("projects/-tmp-proj/sess-1/subagents");
+        assert!(side.join("agent-a.jsonl").is_file());
+        assert!(side.join("agent-a.meta.json").is_file());
+        let _ = fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn copy_into_leaves_no_staging_file_behind() {
+        let (base, src, dest_cfg) = fixture("copy-staging", false);
+        copy_into(&src, &dest_cfg).unwrap();
+
+        let leftovers: Vec<String> = fs::read_dir(dest_cfg.join("projects/-tmp-proj"))
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .filter(|n| n.ends_with(".part"))
+            .collect();
+        assert!(leftovers.is_empty(), "left behind: {:?}", leftovers);
+        let _ = fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn copy_into_overwrites_an_existing_copy_rather_than_appending() {
+        let (base, src, dest_cfg) = fixture("copy-overwrite", false);
+        let dest = destination_path(&src, &dest_cfg);
+        fs::create_dir_all(dest.parent().unwrap()).unwrap();
+        fs::write(&dest, b"stale content that is clearly longer\n").unwrap();
+
+        copy_into(&src, &dest_cfg).unwrap();
+
+        assert_eq!(fs::read(&dest).unwrap(), b"{\"type\":\"user\"}\n");
+        let _ = fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn copy_into_ignores_a_stale_staging_file_from_an_interrupted_run() {
+        let (base, src, dest_cfg) = fixture("copy-stale-part", false);
+        let dest = destination_path(&src, &dest_cfg);
+        fs::create_dir_all(dest.parent().unwrap()).unwrap();
+        fs::write(dest.with_extension("jsonl.part"), b"half-written garbage").unwrap();
+
+        let report = copy_into(&src, &dest_cfg).unwrap();
+
+        assert_eq!(fs::read(&report.dest).unwrap(), b"{\"type\":\"user\"}\n");
+        let _ = fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn list_in_finds_the_transcript_but_not_the_sidecar() {
+        let (base, _src, _dest) = fixture("list-in", true);
+        let found = list_in(&base.join("src"), "work", Some("-tmp-proj"));
+
+        assert_eq!(found.len(), 1, "found: {:?}", found);
+        assert_eq!(found[0].id, "sess-1");
+        assert_eq!(found[0].account, "work");
+        let _ = fs::remove_dir_all(base);
     }
 
     #[test]
