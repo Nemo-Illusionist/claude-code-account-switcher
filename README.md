@@ -134,6 +134,7 @@ Short version: **cswap** if you want one active account plus automatic rotation 
 | `claude-acc session copy <id> --to <name>` | Copy a session into another account so `claude --resume` can see it |
 | `claude-acc resume-hook [on\|off]` | Show/set whether plain `claude --resume <id>` gets the same check |
 | `claude-acc desktop add\|list\|run\|remove [<name>]` | Claude Desktop profiles — separate app profiles that run side by side (macOS) |
+| `claude-acc desktop clone-config <name>` | Copy MCP servers and preferences into a desktop profile (`--from`, `--force`) |
 | `claude-acc statusline [--install]` | Render (or install) a Claude Code status line with the active account |
 | `claude-acc run <name>` | Run claude under a specific account |
 | `claude-acc whoami` | Print the email (or name) of the active account |
@@ -515,8 +516,10 @@ The app is Electron, so it honours Chromium's `--user-data-dir`. Point it at a d
 
 ```bash
 claude-acc desktop add work      # create the profile and open Claude on it to sign in
+claude-acc desktop add work -s   # ...and seed its MCP servers from the app's own profile
 claude-acc desktop list          # profiles, and which of them are signed in
 claude-acc desktop run work      # open Claude on that profile again
+claude-acc desktop clone-config work   # copy MCP servers into an existing profile
 claude-acc desktop remove work   # delete the profile and everything in it
 ```
 
@@ -545,11 +548,39 @@ Your main instance is never quit, never touched, and never has its signed-in sta
 **Trade-offs, stated plainly:**
 
 - **Disk.** Isolation is total, so each profile re-downloads the heavy parts — sandbox images and caches run to several GB per profile. Nothing is shared in this version.
-- **MCP servers are per-profile.** A new profile starts with none; configure it in that window, or copy `claude_desktop_config.json` across by hand for now.
+- **MCP servers are per-profile.** A new profile starts with none — `-s` or `clone-config` brings them over, see below.
 - **`--user-data-dir` is a Chromium switch, not a documented Claude Desktop feature.** This is how VS Code and most Electron apps are routinely run, so the risk is small — but if the app ever pins its own data directory unconditionally, this stops working.
 - **macOS only, for now.** The mechanism is the same everywhere; only locating the executable is per-platform. Windows and Linux are tracked in [#75](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/75).
 
 If `Claude.app` isn't in `/Applications` or `~/Applications`, point at it with `CLAUDE_ACC_DESKTOP_APP=/path/to/Claude.app`.
+
+### Bringing MCP servers along (`clone-config`)
+
+A profile's MCP servers and app preferences live in `claude_desktop_config.json` **inside the profile directory**, so a new profile starts with neither. Re-adding a docker MCP server by hand in every profile gets old fast — this is the desktop analog of [`clone-settings`](#inheriting-claude-config) for CLI accounts:
+
+```bash
+claude-acc desktop add work -s               # seed at creation, from the app's own profile
+claude-acc desktop clone-config work         # or seed an existing profile
+claude-acc desktop clone-config work --from personal   # from another profile instead
+```
+
+```
+$ claude-acc desktop clone-config work
+MCP servers and preferences copied from ~/Library/…/Claude/.
+Server definitions only — any that sign in separately will ask for that again in the new profile.
+```
+
+An existing config is **kept, not replaced** — it likely holds servers someone added by hand:
+
+```
+$ claude-acc desktop clone-config work
+This profile already has a claude_desktop_config.json. Replace it with --force.
+```
+
+Two things worth knowing:
+
+- **Definitions, not sessions.** An MCP server that authenticates on its own will ask for that again in the new profile — as it should, since the point of a separate profile is a separate identity.
+- The file can hold server credentials, so it is copied with its mode intact (`0600` in the app's own profile) and via a staging file, so an interrupted copy can't leave half a config behind.
 
 ## Status line
 

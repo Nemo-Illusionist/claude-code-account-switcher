@@ -38,7 +38,16 @@ _claude_acc_complete() {
 
     # The value of a flag that takes one, whatever word number it lands on.
     case "$prev" in
-        --to|--from)
+        --from)
+            # `session copy --from` takes an account; `desktop` takes a profile.
+            if [[ "$cmd" == desktop ]]; then
+                COMPREPLY=($(compgen -W "$('__CLAUDE_ACC_BIN__' completions desktop)" -- "$cur"))
+            else
+                COMPREPLY=($(compgen -W "default $('__CLAUDE_ACC_BIN__' completions accounts)" -- "$cur"))
+            fi
+            return
+            ;;
+        --to)
             # `default` is not a managed account directory but every command
             # taking an account name accepts it as the standard ~/.claude one.
             COMPREPLY=($(compgen -W "default $('__CLAUDE_ACC_BIN__' completions accounts)" -- "$cur"))
@@ -59,7 +68,7 @@ _claude_acc_complete() {
             doctor) COMPREPLY=($(compgen -W "--json" -- "$cur")) ;;
             update) COMPREPLY=($(compgen -W "--check --version" -- "$cur")) ;;
             session) COMPREPLY=($(compgen -W "--to --from --force -f" -- "$cur")) ;;
-            desktop) COMPREPLY=($(compgen -W "--force -f" -- "$cur")) ;;
+            desktop) COMPREPLY=($(compgen -W "--seed -s --from --force -f" -- "$cur")) ;;
         esac
         return
     fi
@@ -76,7 +85,7 @@ _claude_acc_complete() {
                 COMPREPLY=($(compgen -W "copy" -- "$cur"))
                 ;;
             desktop)
-                COMPREPLY=($(compgen -W "add list run remove" -- "$cur"))
+                COMPREPLY=($(compgen -W "add clone-config list run remove" -- "$cur"))
                 ;;
             resume-hook)
                 COMPREPLY=($(compgen -W "on off" -- "$cur"))
@@ -92,7 +101,7 @@ _claude_acc_complete() {
                 ;;
             # `desktop add <name>` is a new name; run/remove take an existing one.
             desktop)
-                [[ "$sub" == run || "$sub" == remove ]] &&
+                [[ "$sub" == run || "$sub" == remove || "$sub" == clone-config ]] &&
                     COMPREPLY=($(compgen -W "$('__CLAUDE_ACC_BIN__' completions desktop)" -- "$cur"))
                 ;;
         esac

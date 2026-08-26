@@ -725,6 +725,43 @@ impl I18n {
             }
             (Msg::DesktopRemoved(ref n), Lang::En) => format!("Desktop profile '{}' deleted.", n),
             (Msg::DesktopRemoved(ref n), Lang::Ru) => format!("Профиль десктопа '{}' удалён.", n),
+            (Msg::DesktopCloneNoSource(ref n), Lang::En) => {
+                format!("{} has no claude_desktop_config.json to copy.", n)
+            }
+            (Msg::DesktopCloneNoSource(ref n), Lang::Ru) => {
+                format!(
+                    "В {} нет claude_desktop_config.json — копировать нечего.",
+                    n
+                )
+            }
+            (Msg::DesktopCloneKeep, Lang::En) => {
+                s("This profile already has a claude_desktop_config.json. \
+                 Replace it with --force.")
+            }
+            (Msg::DesktopCloneKeep, Lang::Ru) => {
+                s("У этого профиля уже есть claude_desktop_config.json. \
+                 Заменить — с --force.")
+            }
+            (Msg::DesktopCloneDone(ref n), Lang::En) => {
+                format!("MCP servers and preferences copied from {}.", n)
+            }
+            (Msg::DesktopCloneDone(ref n), Lang::Ru) => {
+                format!("MCP-серверы и настройки скопированы из {}.", n)
+            }
+            (Msg::DesktopCloneAuthNote, Lang::En) => s(
+                "Server definitions only — any that sign in separately will \
+                 ask for that again in the new profile.",
+            ),
+            (Msg::DesktopCloneAuthNote, Lang::Ru) => {
+                s("Скопированы только описания серверов — те, что логинятся \
+                 отдельно, попросят вход и в новом профиле.")
+            }
+            (Msg::DesktopCloneFailed(ref e), Lang::En) => {
+                format!("Could not copy the config: {}", e)
+            }
+            (Msg::DesktopCloneFailed(ref e), Lang::Ru) => {
+                format!("Не удалось скопировать конфиг: {}", e)
+            }
         }
     }
 
@@ -884,6 +921,11 @@ pub enum Msg {
     DesktopRemoveCancelled,
     DesktopRemoveFailed(String),
     DesktopRemoved(String),
+    DesktopCloneNoSource(String),
+    DesktopCloneKeep,
+    DesktopCloneDone(String),
+    DesktopCloneAuthNote,
+    DesktopCloneFailed(String),
 }
 
 fn relative_time(secs: u64, lang: Lang) -> String {

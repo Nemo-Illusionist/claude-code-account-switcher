@@ -50,7 +50,100 @@ fn launch(i18n: &I18n, app: &std::path::Path, profile: &std::path::Path) -> i32 
     }
 }
 
-pub fn add(config: &AppConfig, i18n: &I18n, name: &str) -> i32 {
+/// The profile a seed comes from: another managed profile with `--from`,
+/// otherwise the app's own. `None` means the caller already printed why.
+fn source_profile(
+    config: &AppConfig,
+    i18n: &I18n,
+    from: Option<&str>,
+) -> Option<(PathBuf, String)> {
+    match from {
+        Some(name) => {
+            if !require_name(i18n, name) {
+                return None;
+            }
+            if !desktop::profile_exists(config, name) {
+                i18n.print(Msg::DesktopNotFound(name.to_string()));
+                return None;
+            }
+            Some((desktop::profile_path(config, name), name.to_string()))
+        }
+        None => match desktop::standard_profile() {
+            Some(path) => Some((path, desktop::STANDARD_LABEL.to_string())),
+            None => {
+                i18n.print(Msg::DesktopUnsupported);
+                None
+            }
+        },
+    }
+}
+
+/// Copy the MCP config into `profile`, reporting what happened. Shared by
+/// `add --seed` and `clone-config`, which differ only in whether the profile
+/// was just created.
+fn seed_into(
+    config: &AppConfig,
+    i18n: &I18n,
+    profile: &std::path::Path,
+    from: Option<&str>,
+    force: bool,
+) -> i32 {
+    let Some((source, label)) = source_profile(config, i18n, from) else {
+        return 1;
+    };
+
+    let plan = desktop::plan_clone(
+        source.join(desktop::CONFIG_FILE).is_file(),
+        profile.join(desktop::CONFIG_FILE).is_file(),
+        force,
+    );
+    match plan {
+        desktop::ClonePlan::NoSource => {
+            i18n.print(Msg::DesktopCloneNoSource(label));
+            1
+        }
+        desktop::ClonePlan::Keep => {
+            i18n.print(Msg::DesktopCloneKeep);
+            1
+        }
+        desktop::ClonePlan::Copy => match desktop::clone_config(&source, profile) {
+            Ok(_) => {
+                i18n.print(Msg::DesktopCloneDone(label));
+                i18n.print(Msg::DesktopCloneAuthNote);
+                0
+            }
+            Err(e) => {
+                i18n.print(Msg::DesktopCloneFailed(e.to_string()));
+                1
+            }
+        },
+    }
+}
+
+pub fn clone_config(
+    config: &AppConfig,
+    i18n: &I18n,
+    name: &str,
+    from: Option<&str>,
+    force: bool,
+) -> i32 {
+    if !require_name(i18n, name) {
+        return 1;
+    }
+    if !desktop::profile_exists(config, name) {
+        i18n.print(Msg::DesktopNotFound(name.to_string()));
+        return 1;
+    }
+    seed_into(
+        config,
+        i18n,
+        &desktop::profile_path(config, name),
+        from,
+        force,
+    )
+}
+
+pub fn add(config: &AppConfig, i18n: &I18n, name: &str, seed: bool) -> i32 {
     if !require_name(i18n, name) {
         return 1;
     }
@@ -69,6 +162,13 @@ pub fn add(config: &AppConfig, i18n: &I18n, name: &str) -> i32 {
     }
 
     i18n.print(Msg::DesktopCreated(name.to_string()));
+
+    // A fresh profile has no config, so nothing here can be overwritten —
+    // and a failed seed is not a reason to withhold the profile itself.
+    if seed {
+        seed_into(config, i18n, &profile, None, false);
+    }
+
     i18n.print(Msg::DesktopSignInHint);
     i18n.print(Msg::DesktopDiskNote);
     let code = launch(i18n, &app, &profile);
@@ -103,7 +203,8 @@ pub fn list(config: &AppConfig, i18n: &I18n) -> i32 {
         && standard.is_dir()
     {
         println!(
-            "    ~/Library/…/Claude/  {}",
+            "    {}  {}",
+            desktop::STANDARD_LABEL,
             i18n.msg(Msg::DesktopStandard)
         );
     }

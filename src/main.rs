@@ -159,7 +159,26 @@ enum Commands {
 #[derive(Subcommand)]
 enum DesktopCommands {
     /// Create a profile and open Claude Desktop on it to sign in
-    Add { name: String },
+    Add {
+        name: String,
+        /// Seed the new profile's MCP servers and preferences from the app's
+        /// own profile
+        #[arg(short, long)]
+        seed: bool,
+    },
+    /// Copy claude_desktop_config.json (MCP servers, preferences) into a profile
+    ///
+    /// The source is the app's own profile unless `--from` names another one.
+    /// An existing config is kept, not replaced, without `--force`.
+    CloneConfig {
+        name: String,
+        /// Copy from this profile instead of the app's own
+        #[arg(long)]
+        from: Option<String>,
+        /// Replace the profile's existing config
+        #[arg(short, long)]
+        force: bool,
+    },
     /// List desktop profiles
     List,
     /// Open Claude Desktop on a profile
@@ -287,7 +306,12 @@ fn main() {
             }
         },
         Some(Commands::Desktop { action }) => std::process::exit(match action {
-            DesktopCommands::Add { name } => commands::desktop::add(&config, &i18n, &name),
+            DesktopCommands::Add { name, seed } => {
+                commands::desktop::add(&config, &i18n, &name, seed)
+            }
+            DesktopCommands::CloneConfig { name, from, force } => {
+                commands::desktop::clone_config(&config, &i18n, &name, from.as_deref(), force)
+            }
             DesktopCommands::List => commands::desktop::list(&config, &i18n),
             DesktopCommands::Run { name } => commands::desktop::run(&config, &i18n, &name),
             DesktopCommands::Remove { force, name } => {
