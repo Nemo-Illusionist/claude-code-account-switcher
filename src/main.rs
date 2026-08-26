@@ -103,6 +103,15 @@ enum Commands {
         #[command(subcommand)]
         action: SessionCommands,
     },
+    /// Show or set whether the claude wrapper checks `--resume` ids
+    ///
+    /// With the hook on, a plain `claude --resume <id>` for a session that
+    /// belongs to another account offers to bring it over first. Off, it goes
+    /// straight through. `claude-acc run --resume` checks either way.
+    ResumeHook {
+        /// on | off — omit to show the current state
+        state: Option<String>,
+    },
     /// Audit each account's actual OAuth identity (email, UUID)
     Doctor {
         /// Output as JSON (suitable for scripting)
@@ -158,6 +167,13 @@ enum SessionCommands {
         #[arg(short, long)]
         force: bool,
     },
+    /// Preflight a `--resume` for the generated claude wrapper (internal)
+    #[command(hide = true)]
+    Preflight {
+        /// The arguments on their way to the real claude binary
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
 }
 
 /// Whether `command` is safe to follow with the passive "update available"
@@ -178,6 +194,7 @@ fn should_show_update_hint(command: &Option<Commands>) -> bool {
             | Some(Commands::Doctor { .. })
             | Some(Commands::Update { .. })
             | Some(Commands::Run { .. })
+            | Some(Commands::Session { .. })
     )
 }
 
@@ -238,7 +255,13 @@ fn main() {
                 from.as_deref(),
                 force,
             )),
+            SessionCommands::Preflight { args } => {
+                std::process::exit(commands::session::preflight_hook(&config, &i18n, &args))
+            }
         },
+        Some(Commands::ResumeHook { state }) => {
+            std::process::exit(commands::resume_hook::run(&config, &i18n, state.as_deref()))
+        }
         Some(Commands::Doctor { json }) => {
             std::process::exit(commands::doctor::run(&config, &i18n, json))
         }

@@ -513,21 +513,6 @@ impl I18n {
             (Msg::ResumeCopyConfirm(ref from, ref to), Lang::Ru) => {
                 format!("Скопировать из '{}' в '{}' и продолжить? [y/N] ", from, to)
             }
-            (Msg::ResumeNewerElsewhere(ref acc), Lang::En) => format!(
-                "Account '{}' holds a newer copy of this session than the one you're resuming:",
-                acc
-            ),
-            (Msg::ResumeNewerElsewhere(ref acc), Lang::Ru) => format!(
-                "В аккаунте '{}' копия этой сессии свежее той, которую вы продолжаете:",
-                acc
-            ),
-            (Msg::ResumeUseNewerConfirm(ref from), Lang::En) => format!(
-                "Replace this account's copy with the one from '{}'? [y/N] ",
-                from
-            ),
-            (Msg::ResumeUseNewerConfirm(ref from), Lang::Ru) => {
-                format!("Заменить копию этого аккаунта копией из '{}'? [y/N] ", from)
-            }
             (Msg::ResumeContinuingWithout, Lang::En) => {
                 s("Starting claude anyway — it won't find that session here.")
             }
@@ -545,6 +530,70 @@ impl I18n {
             }
             (Msg::ResumeCopied(ref from, ref to), Lang::Ru) => {
                 format!("Скопировано из '{}' в '{}'. Запускаю claude...", from, to)
+            }
+            (Msg::ResumeSeveralCopies(ref id), Lang::En) => format!(
+                "Session {} exists in more than one account. Which copy do you want to resume?",
+                id
+            ),
+            (Msg::ResumeSeveralCopies(ref id), Lang::Ru) => format!(
+                "Сессия {} есть в нескольких аккаунтах. Какую копию продолжить?",
+                id
+            ),
+            (Msg::ResumePickThisAccount, Lang::En) => s("this account"),
+            (Msg::ResumePickThisAccount, Lang::Ru) => s("этот аккаунт"),
+            (Msg::ResumePickNoChoice(ref acc), Lang::En) => {
+                format!("No choice made — keeping the copy in '{}'.", acc)
+            }
+            (Msg::ResumePickNoChoice(ref acc), Lang::Ru) => {
+                format!("Выбор не сделан — оставляю копию в '{}'.", acc)
+            }
+            (Msg::ResumePickNewest, Lang::En) => s("newest"),
+            (Msg::ResumePickNewest, Lang::Ru) => s("самая свежая"),
+
+            // resume hook toggle
+            (Msg::ResumeHookState(ref v), Lang::En) => {
+                format!("Resume check in the claude wrapper: {}", v)
+            }
+            (Msg::ResumeHookState(ref v), Lang::Ru) => {
+                format!("Проверка --resume во враппере claude: {}", v)
+            }
+            (Msg::ResumeHookSet(ref v), Lang::En) => {
+                format!("Resume check in the claude wrapper: {}", v)
+            }
+            (Msg::ResumeHookSet(ref v), Lang::Ru) => {
+                format!("Проверка --resume во враппере claude: {}", v)
+            }
+            (Msg::ResumeHookExplainOn, Lang::En) => {
+                s("Plain 'claude --resume <id>' will now offer a session another account holds.")
+            }
+            (Msg::ResumeHookExplainOff, Lang::En) => s(
+                "Plain 'claude --resume <id>' now goes straight through.\n'claude-acc run <account> --resume <id>' still checks.",
+            ),
+            (Msg::ResumeHookExplainOn, Lang::Ru) => s(
+                "Обычный 'claude --resume <id>' теперь предложит сессию, лежащую в другом аккаунте.",
+            ),
+            (Msg::ResumeHookExplainOff, Lang::Ru) => s(
+                "Обычный 'claude --resume <id>' теперь проходит без вопросов.\n'claude-acc run <account> --resume <id>' по-прежнему проверяет.",
+            ),
+            (Msg::ResumeHookEnvOverride, Lang::En) => {
+                s("Currently off for this shell: CLAUDE_ACC_NO_RESUME_HOOK is set.")
+            }
+            (Msg::ResumeHookEnvOverride, Lang::Ru) => {
+                s("Сейчас выключено для этой оболочки: задана CLAUDE_ACC_NO_RESUME_HOOK.")
+            }
+            (Msg::ResumeHookHint, Lang::En) => s("Change it:  claude-acc resume-hook on|off"),
+            (Msg::ResumeHookHint, Lang::Ru) => s("Изменить:  claude-acc resume-hook on|off"),
+            (Msg::ResumeHookInvalid(ref v), Lang::En) => {
+                format!("Expected 'on' or 'off', got '{}'.", v)
+            }
+            (Msg::ResumeHookInvalid(ref v), Lang::Ru) => {
+                format!("Ожидалось 'on' или 'off', получено '{}'.", v)
+            }
+            (Msg::ResumeHookWriteFailed(ref e), Lang::En) => {
+                format!("Could not save the setting: {}", e)
+            }
+            (Msg::ResumeHookWriteFailed(ref e), Lang::Ru) => {
+                format!("Не удалось сохранить настройку: {}", e)
             }
         }
     }
@@ -666,11 +715,21 @@ pub enum Msg {
     SessionCopyFailed(String),
     ResumeNotHere(String, String),
     ResumeCopyConfirm(String, String),
-    ResumeNewerElsewhere(String),
-    ResumeUseNewerConfirm(String),
     ResumeContinuingWithout,
     ResumeContinuingLocal(String),
     ResumeCopied(String, String),
+    ResumeSeveralCopies(String),
+    ResumePickThisAccount,
+    ResumePickNewest,
+    ResumePickNoChoice(String),
+    ResumeHookState(String),
+    ResumeHookSet(String),
+    ResumeHookExplainOn,
+    ResumeHookExplainOff,
+    ResumeHookEnvOverride,
+    ResumeHookHint,
+    ResumeHookInvalid(String),
+    ResumeHookWriteFailed(String),
 }
 
 fn relative_time(secs: u64, lang: Lang) -> String {
