@@ -106,7 +106,7 @@ _claude_acc_completion() {
             doctor) flags=('--json:Output as JSON') ;;
             update) flags=('--check:Only check, do not download' '--version:Install a specific version') ;;
             session) flags=('--to:Destination account' '--from:Source account' '--force:Skip confirmation' '-f:Skip confirmation') ;;
-            desktop) flags=('--seed:Seed MCP config from the app profile' '-s:Seed MCP config from the app profile' '--from:Copy the config from this profile' '--force:Skip confirmation / replace' '-f:Skip confirmation / replace') ;;
+            desktop) flags=('--seed:Seed MCP config from the app profile' '-s:Seed MCP config from the app profile' '--from:Copy the config from this profile' '--force:Skip confirmation / replace / sign-in check' '-f:Skip confirmation / replace') ;;
         esac
         (( ${#flags} )) && _describe 'option' flags
         return

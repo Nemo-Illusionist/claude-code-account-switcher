@@ -154,6 +154,70 @@ fn has_claude_package(packages_root: &Path) -> bool {
     })
 }
 
+/// A running Claude Desktop process, and the profile it was launched on
+/// (`None` for the app's own).
+#[derive(Debug, PartialEq)]
+pub struct Instance {
+    pub pid: u32,
+    pub profile: Option<String>,
+}
+
+/// Every Claude Desktop instance currently running.
+///
+/// Signing in has to happen with none of them open: it finishes through a
+/// `claude://` link, and the system hands that to whichever instance is
+/// registered for the scheme — not necessarily the one that started the
+/// login. Once a profile is signed in, instances coexist happily.
+pub fn running_instances() -> Vec<Instance> {
+    if !cfg!(target_os = "macos") {
+        return Vec::new();
+    }
+    let Ok(out) = Command::new("ps")
+        .args(["-ax", "-o", "pid=,command="])
+        .output()
+    else {
+        return Vec::new();
+    };
+    parse_ps(&String::from_utf8_lossy(&out.stdout))
+}
+
+/// Main app processes from `ps` output, with the profile each is on.
+///
+/// The **first token** has to be the app's executable. Matching the line
+/// anywhere would count any process that merely mentions the path in its
+/// arguments — a shell running a script about it, this tool being told where
+/// the app is.
+///
+/// That alone excludes today's helpers, whose bundles sit at
+/// `.../Frameworks/Claude Helper.app/...` and `.../Claude Helper
+/// (Renderer).app/...`, so their first token stops at the space before
+/// `Helper`. The `--type=` check is a second net for a future helper whose
+/// path happens to have no space in it; every Chromium child carries one.
+fn parse_ps(output: &str) -> Vec<Instance> {
+    output
+        .lines()
+        .filter_map(|line| {
+            let (pid, rest) = line.trim_start().split_once(char::is_whitespace)?;
+            let executable = rest.split_whitespace().next()?;
+            if !executable.ends_with("/Contents/MacOS/Claude") || rest.contains("--type=") {
+                return None;
+            }
+            Some(Instance {
+                pid: pid.parse().ok()?,
+                profile: rest
+                    .split_whitespace()
+                    .find_map(|arg| arg.strip_prefix("--user-data-dir="))
+                    .map(|dir| {
+                        Path::new(dir)
+                            .file_name()
+                            .map(|n| n.to_string_lossy().into_owned())
+                            .unwrap_or_else(|| dir.to_string())
+                    }),
+            })
+        })
+        .collect()
+}
+
 /// Whether reading a profile's identity works here. The credential scheme is
 /// Chromium's, but the way the key is stored is not: macOS uses the Keychain,
 /// Windows DPAPI, Linux libsecret or a plaintext fallback. Only the macOS
@@ -411,6 +475,56 @@ mod tests {
         write_config(&p, "{not json");
         assert!(!is_signed_in(&p));
         let _ = fs::remove_dir_all(&c.base_dir);
+    }
+
+    // Real `ps -ax -o pid=,command=` output, trimmed: the app's own instance,
+    // one launched on a profile, and two of the helpers that must not be
+    // mistaken for either.
+    const PS: &str = concat!(
+        " 92746 /Applications/Claude.app/Contents/MacOS/Claude\n",
+        " 93513 /Applications/Claude.app/Contents/MacOS/Claude --user-data-dir=/Users/me/.claude-switch/desktop/work\n",
+        " 93000 /Applications/Claude.app/Contents/Frameworks/Claude Helper.app/Contents/MacOS/Claude Helper --type=gpu-process --user-data-dir=/Users/me/.claude-switch/desktop/work\n",
+        " 93001 /Applications/Claude.app/Contents/Frameworks/Claude Helper.app/Contents/MacOS/Claude Helper --type=renderer\n",
+        " 93002 /Applications/Claude.app/Contents/Frameworks/Claude Helper (Renderer).app/Contents/MacOS/Claude Helper (Renderer) --type=renderer\n",
+        "  1234 /usr/bin/something-else\n",
+        // A shell running a script that merely names the path, and this tool
+        // being told where the app lives. Both mention it; neither is Claude.
+        " 1235 /bin/zsh -c open -a /Applications/Claude.app/Contents/MacOS/Claude\n",
+        " 1236 claude-acc desktop add work\n",
+    );
+
+    #[test]
+    fn only_the_app_itself_counts_as_running() {
+        // Helpers, and anything that merely mentions the path in its
+        // arguments, are not the app — the executable is what decides.
+        let found = parse_ps(PS);
+        assert_eq!(found.len(), 2, "{:?}", found);
+        assert_eq!(
+            found[0],
+            Instance {
+                pid: 92746,
+                profile: None
+            }
+        );
+        assert_eq!(
+            found[1],
+            Instance {
+                pid: 93513,
+                profile: Some("work".to_string())
+            }
+        );
+    }
+
+    #[test]
+    fn nothing_running_is_nothing_found() {
+        assert!(parse_ps("").is_empty());
+        assert!(parse_ps(" 1234 /usr/bin/something-else\n").is_empty());
+    }
+
+    #[test]
+    fn a_profile_path_with_no_file_name_falls_back_to_the_path() {
+        let line = " 42 /Applications/Claude.app/Contents/MacOS/Claude --user-data-dir=/\n";
+        assert_eq!(parse_ps(line)[0].profile.as_deref(), Some("/"));
     }
 
     #[test]

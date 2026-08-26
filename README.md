@@ -516,6 +516,14 @@ The app is Electron, so it honours Chromium's `--user-data-dir`. Point it at a d
 
 > **Profiles run side by side.** There is no "switch". Your work account and your personal account can both be open, in two windows, at the same time. The app takes no single-instance lock, and Chromium's lock lives inside each profile directory.
 
+**Signing in has to happen with Claude closed.** Not a nicety — signing in finishes through a `claude://` link, and the system hands that to whichever instance is registered for the scheme, which is not the one that started the login. With another window open, the new profile simply never receives it. So:
+
+1. Quit Claude.
+2. `claude-acc desktop add <name>`, and sign in in the window that opens.
+3. From then on, open as many profiles as you like — they run side by side.
+
+`desktop add` refuses while Claude is running and names what's open, rather than launching a window that can't finish signing in. The same check applies to `desktop run` on a profile that isn't signed in yet; a profile that already is opens freely. `--force` overrides it.
+
 ```bash
 claude-acc desktop add work      # create the profile and open Claude on it to sign in
 claude-acc desktop add work -s   # ...and seed its MCP servers from the app's own profile
@@ -556,7 +564,6 @@ Your main instance is never quit, never touched, and never has its signed-in sta
 - **Disk.** Isolation is total, so a profile would re-download its whole ~10.5 GB runtime. `clone-runtime` makes that free on APFS — see below. Caches (~1.5 GB) are still per-profile.
 - **MCP servers are per-profile.** A new profile starts with none — `-s` or `clone-config` brings them over, see below.
 - **`--user-data-dir` is a Chromium switch, not a documented Claude Desktop feature.** This is how VS Code and most Electron apps are routinely run, so the risk is small — but if the app ever pins its own data directory unconditionally, this stops working.
-- **Sign in with only one Claude window open.** Signing in finishes through a `claude://` link, which the system hands to whichever window it feels like — do it with two open and both can end up on the same account. `desktop add` says so before it launches.
 
 ### Where it works
 

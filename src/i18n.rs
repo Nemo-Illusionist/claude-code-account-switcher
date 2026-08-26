@@ -799,17 +799,37 @@ impl I18n {
             (Msg::DesktopTokenExpired, Lang::Ru) => {
                 s("креды истекли — откройте этот профиль, чтобы обновить их")
             }
-            (Msg::DesktopSignInAloneWarning, Lang::En) => s(
-                "Close your other Claude windows first: signing in finishes \
-                 through a claude:// link, which the system hands to whichever \
-                 window it likes — sign in with two open and both can end up \
-                 on the same account.",
+            (Msg::DesktopQuitFirst, Lang::En) => s(
+                "Quit Claude before signing in. Signing in finishes through a \
+                 claude:// link, and the system hands that to whichever \
+                 instance is registered for it — with another one open, the \
+                 new profile never receives it. Currently open:",
             ),
-            (Msg::DesktopSignInAloneWarning, Lang::Ru) => {
-                s("Сначала закройте остальные окна Claude: вход завершается \
-                 переходом по ссылке claude://, а её система отдаёт любому из \
-                 открытых окон — при двух открытых оба могут оказаться на \
-                 одном аккаунте.")
+            (Msg::DesktopQuitFirst, Lang::Ru) => s(
+                "Закройте Claude перед входом. Вход завершается переходом по \
+                 ссылке claude://, а её система отдаёт тому экземпляру, что \
+                 зарегистрирован на неё, — при другом открытом окне новый \
+                 профиль её просто не получит. Сейчас открыто:",
+            ),
+            (Msg::DesktopRunningInstance(ref pid, ref what), Lang::En) => {
+                format!("  pid {}  —  {}", pid, what)
+            }
+            (Msg::DesktopRunningInstance(ref pid, ref what), Lang::Ru) => {
+                format!("  pid {}  —  {}", pid, what)
+            }
+            (Msg::DesktopQuitFirstHint, Lang::En) => s(
+                "Quit them, sign in, and after that profiles open side by side \
+                 as usual. To go ahead anyway: --force",
+            ),
+            (Msg::DesktopQuitFirstHint, Lang::Ru) => {
+                s("Закройте их, войдите — после этого профили открываются \
+                 одновременно как обычно. Всё равно продолжить: --force")
+            }
+            (Msg::DesktopSignInForced, Lang::En) => {
+                s("Claude is already running; --force given, so the sign-in may not arrive.")
+            }
+            (Msg::DesktopSignInForced, Lang::Ru) => {
+                s("Claude уже запущен; передан --force, так что вход может не дойти.")
             }
             (Msg::DesktopIdentityMacOnly, Lang::En) => s(
                 "Reading a profile's account is macOS-only for now: the key to \
@@ -1075,7 +1095,10 @@ pub enum Msg {
     DesktopIdentityHint,
     DesktopNotSignedIn,
     DesktopStorePackage,
-    DesktopSignInAloneWarning,
+    DesktopQuitFirst,
+    DesktopRunningInstance(String, String),
+    DesktopQuitFirstHint,
+    DesktopSignInForced,
     DesktopIdentityMacOnly,
     DesktopRuntimeNoSource(String),
     DesktopRuntimeKeep,
