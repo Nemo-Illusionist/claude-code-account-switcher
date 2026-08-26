@@ -201,6 +201,20 @@ JetBrains IDE (PhpStorm, IntelliJ и т.п.) и VSCode запускают `claud
 
 Никаких ручных шагов не нужно — `claude-acc install` делает обе вещи. Новые аккаунты, создаваемые через `claude-acc add`, получают `ide/` symlink автоматически.
 
+## Автодополнение в оболочке
+
+`claude-acc install` заодно настраивает автодополнение по Tab для zsh, bash и PowerShell. Оно покрывает все команды и их аргументы — имена аккаунтов (с `default` там, где команда его принимает), id сессий для `session copy` в текущей директории, `resume-hook on|off`, путь для `import` и флаги каждой команды:
+
+```
+$ claude-acc session copy <TAB>
+363edaeb-e81c-4021-94f4-7fe7d91815f4  0266a566-0336-4055-8f05-c553d368528e
+
+$ claude-acc session copy 0266a566-… --to <TAB>
+default  personal  work
+```
+
+Id сессий намеренно ограничены текущей директорией: полный список — это сотни uuid по всем проектам, которые вы когда-либо открывали, и выбрать из такого меню невозможно.
+
 ## Что переключается
 
 `CLAUDE_CONFIG_DIR` перемещает всю директорию `~/.claude/`, включая ([docs](https://code.claude.com/docs/en/settings)):
