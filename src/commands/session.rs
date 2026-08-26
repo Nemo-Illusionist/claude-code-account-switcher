@@ -162,7 +162,7 @@ fn pick_source(copies: &[SessionRef], to: &str, from: Option<&str>) -> Source {
 
 /// Prompt for one of several candidate copies. Returns the chosen index into
 /// `copies`, or `None` if the user cancelled or typed something unusable.
-fn ask_which(copies: &[SessionRef], candidates: &[usize], i18n: &I18n) -> Option<usize> {
+pub(super) fn ask_which(copies: &[SessionRef], candidates: &[usize], i18n: &I18n) -> Option<usize> {
     println!();
     i18n.print(Msg::SessionPickSource);
     for (n, &i) in candidates.iter().enumerate() {
@@ -181,7 +181,7 @@ fn ask_which(copies: &[SessionRef], candidates: &[usize], i18n: &I18n) -> Option
 /// One line describing a copy: which account, how stale, how big. The age is
 /// the point — when two accounts hold the same id, "which was touched last"
 /// is what tells them apart.
-fn describe(s: &SessionRef, i18n: &I18n) -> String {
+pub(super) fn describe(s: &SessionRef, i18n: &I18n) -> String {
     let age = match s.modified {
         Some(epoch) => i18n.msg(Msg::RelativeTime(sessions::age_secs(epoch))),
         None => "?".to_string(),
@@ -194,7 +194,7 @@ fn describe(s: &SessionRef, i18n: &I18n) -> String {
     )
 }
 
-fn confirm(i18n: &I18n, question: Msg) -> bool {
+pub(super) fn confirm(i18n: &I18n, question: Msg) -> bool {
     print!("{}", i18n.msg(question));
     if io::stdout().flush().is_err() {
         return false;

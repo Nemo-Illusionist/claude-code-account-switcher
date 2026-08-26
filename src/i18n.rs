@@ -497,6 +497,55 @@ impl I18n {
             (Msg::SessionCopyFailed(ref e), Lang::Ru) => {
                 format!("Не удалось скопировать сессию: {}", e)
             }
+
+            // run --resume across accounts
+            (Msg::ResumeNotHere(ref id, ref acc), Lang::En) => format!(
+                "Session {} isn't in account '{}', but another account has it:",
+                id, acc
+            ),
+            (Msg::ResumeNotHere(ref id, ref acc), Lang::Ru) => format!(
+                "Сессии {} нет в аккаунте '{}', но она есть в другом:",
+                id, acc
+            ),
+            (Msg::ResumeCopyConfirm(ref from, ref to), Lang::En) => {
+                format!("Copy it from '{}' into '{}' and resume? [y/N] ", from, to)
+            }
+            (Msg::ResumeCopyConfirm(ref from, ref to), Lang::Ru) => {
+                format!("Скопировать из '{}' в '{}' и продолжить? [y/N] ", from, to)
+            }
+            (Msg::ResumeNewerElsewhere(ref acc), Lang::En) => format!(
+                "Account '{}' holds a newer copy of this session than the one you're resuming:",
+                acc
+            ),
+            (Msg::ResumeNewerElsewhere(ref acc), Lang::Ru) => format!(
+                "В аккаунте '{}' копия этой сессии свежее той, которую вы продолжаете:",
+                acc
+            ),
+            (Msg::ResumeUseNewerConfirm(ref from), Lang::En) => format!(
+                "Replace this account's copy with the one from '{}'? [y/N] ",
+                from
+            ),
+            (Msg::ResumeUseNewerConfirm(ref from), Lang::Ru) => {
+                format!("Заменить копию этого аккаунта копией из '{}'? [y/N] ", from)
+            }
+            (Msg::ResumeContinuingWithout, Lang::En) => {
+                s("Starting claude anyway — it won't find that session here.")
+            }
+            (Msg::ResumeContinuingWithout, Lang::Ru) => {
+                s("Запускаю claude — эту сессию он здесь не найдёт.")
+            }
+            (Msg::ResumeContinuingLocal(ref acc), Lang::En) => {
+                format!("Keeping the copy already in '{}'.", acc)
+            }
+            (Msg::ResumeContinuingLocal(ref acc), Lang::Ru) => {
+                format!("Оставляю копию, которая уже есть в '{}'.", acc)
+            }
+            (Msg::ResumeCopied(ref from, ref to), Lang::En) => {
+                format!("Copied from '{}' into '{}'. Starting claude...", from, to)
+            }
+            (Msg::ResumeCopied(ref from, ref to), Lang::Ru) => {
+                format!("Скопировано из '{}' в '{}'. Запускаю claude...", from, to)
+            }
         }
     }
 
@@ -615,6 +664,13 @@ pub enum Msg {
     SessionCopiedSubagents(usize),
     SessionResumeHint(String, String),
     SessionCopyFailed(String),
+    ResumeNotHere(String, String),
+    ResumeCopyConfirm(String, String),
+    ResumeNewerElsewhere(String),
+    ResumeUseNewerConfirm(String),
+    ResumeContinuingWithout,
+    ResumeContinuingLocal(String),
+    ResumeCopied(String, String),
 }
 
 fn relative_time(secs: u64, lang: Lang) -> String {
