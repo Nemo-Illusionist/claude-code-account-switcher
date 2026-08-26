@@ -417,12 +417,16 @@ mod tests {
     fn launch_passes_the_profile_after_args() {
         // Order matters: anything before `--args` is consumed by `open`
         // itself, so a misplaced switch would silently do nothing.
-        let cmd = launch_command(Path::new("/Applications/Claude.app"), Path::new("/tmp/p"));
-        let args: Vec<String> = cmd
-            .get_args()
-            .map(|a| a.to_string_lossy().into_owned())
-            .collect();
-        assert_eq!(cmd.get_program(), "open");
+        //
+        // `via_open` is passed explicitly rather than going through
+        // `launch_command`, so the macOS form is asserted on every platform
+        // — the point of splitting `launch_argv` out in the first place.
+        let (program, args) = launch_argv(
+            Path::new("/Applications/Claude.app"),
+            Path::new("/tmp/p"),
+            true,
+        );
+        assert_eq!(program, PathBuf::from("open"));
         assert_eq!(
             args,
             vec![
@@ -436,17 +440,34 @@ mod tests {
     }
 
     #[test]
+    fn launch_command_uses_the_form_this_platform_needs() {
+        // The wiring between the two, asserted without hardcoding either
+        // platform's answer into the expectation.
+        let app = Path::new("/somewhere/Claude");
+        let profile = Path::new("/tmp/p");
+        let cmd = launch_command(app, profile);
+        let (program, args) = launch_argv(app, profile, cfg!(target_os = "macos"));
+        assert_eq!(cmd.get_program(), program.as_os_str());
+        let actual: Vec<String> = cmd
+            .get_args()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(actual, args);
+    }
+
+    #[test]
     fn a_profile_path_with_a_space_stays_one_argument() {
         // No shell is involved, so the path needs no quoting — and must not
         // get any, or the app would look for a directory named `"..."`.
-        let cmd = launch_command(Path::new("/Applications/Claude.app"), Path::new("/tmp/a b"));
-        let last = cmd
-            .get_args()
-            .last()
-            .unwrap()
-            .to_string_lossy()
-            .into_owned();
-        assert_eq!(last, "--user-data-dir=/tmp/a b");
+        // True of both launch forms, hence the loop.
+        for via_open in [true, false] {
+            let (_, args) = launch_argv(
+                Path::new("/Applications/Claude.app"),
+                Path::new("/tmp/a b"),
+                via_open,
+            );
+            assert_eq!(args.last().unwrap(), "--user-data-dir=/tmp/a b");
+        }
     }
 
     #[test]
