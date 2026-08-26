@@ -102,6 +102,10 @@ enum Commands {
         /// Only check whether an update is available; don't download
         #[arg(long)]
         check: bool,
+        /// Install a specific version instead of the latest (e.g. 0.10.5) —
+        /// for rolling back after a bad release
+        #[arg(long)]
+        version: Option<String>,
     },
     /// Output shell activation code (used by shell hook)
     #[command(hide = true)]
@@ -161,9 +165,12 @@ fn main() {
         }
         Some(Commands::Whoami) => commands::whoami::run(&config),
         Some(Commands::Install) => commands::install::run(&config, &i18n),
-        Some(Commands::Update { check }) => {
-            std::process::exit(commands::update::run(&config, &i18n, check))
-        }
+        Some(Commands::Update { check, version }) => std::process::exit(commands::update::run(
+            &config,
+            &i18n,
+            check,
+            version.as_deref(),
+        )),
         Some(Commands::Activate { shell }) => {
             let syntax = match shell.as_str() {
                 "powershell" | "pwsh" => ShellSyntax::PowerShell,

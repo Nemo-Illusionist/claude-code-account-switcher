@@ -281,6 +281,28 @@ impl I18n {
             (Msg::UpdateAvailable(ref cur, ref new), Lang::Ru) => {
                 format!("Доступно обновление: v{} → v{}", cur, new)
             }
+            (Msg::UpdateDowngrading(ref cur, ref target), Lang::En) => {
+                format!("Rolling back: v{} → v{}", cur, target)
+            }
+            (Msg::UpdateDowngrading(ref cur, ref target), Lang::Ru) => {
+                format!("Откатываю: v{} → v{}", cur, target)
+            }
+            (Msg::UpdateInvalidVersion(ref v), Lang::En) => {
+                format!(
+                    "'{}' is not a valid version (expected X.Y.Z, e.g. 0.10.5).",
+                    v
+                )
+            }
+            (Msg::UpdateInvalidVersion(ref v), Lang::Ru) => format!(
+                "'{}' — некорректная версия (ожидается X.Y.Z, например 0.10.5).",
+                v
+            ),
+            (Msg::UpdateVersionNotFound(ref v), Lang::En) => {
+                format!("No release v{} found on GitHub.", v)
+            }
+            (Msg::UpdateVersionNotFound(ref v), Lang::Ru) => {
+                format!("Релиз v{} не найден на GitHub.", v)
+            }
             (Msg::UpdateDownloading(ref v), Lang::En) => format!("Downloading v{}...", v),
             (Msg::UpdateDownloading(ref v), Lang::Ru) => format!("Скачиваю v{}...", v),
             (Msg::UpdateDone(ref v, ref p), Lang::En) => {
@@ -414,6 +436,9 @@ pub enum Msg {
     StatuslineInstallFailed(String),
     UpdateUpToDate(String),
     UpdateAvailable(String, String),
+    UpdateDowngrading(String, String),
+    UpdateInvalidVersion(String),
+    UpdateVersionNotFound(String),
     UpdateDownloading(String),
     UpdateDone(String, String),
     UpdateCheckFailed,
