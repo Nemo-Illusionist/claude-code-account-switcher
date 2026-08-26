@@ -485,7 +485,9 @@ The wrapper is careful about staying out of the way:
 - it does nothing without a terminal on both stdin and stdout, so scripts, pipes and CI are never prompted at;
 - whatever happens, claude still starts — a failure in the check is never a failure to launch.
 
-After updating, run `claude-acc install` once to refresh the wrapper script; the hook is part of it.
+**macOS and Linux only.** The hook lives in the wrapper script, and there is no wrapper on Windows — PATH-based interception there would need a `.cmd`/`.exe` shim. `claude-acc run <account> --resume <id>` does the same check on every platform.
+
+`claude-acc update` refreshes the wrapper for you; `claude-acc install` does too, if you ever need to force it.
 
 ## Status line
 
