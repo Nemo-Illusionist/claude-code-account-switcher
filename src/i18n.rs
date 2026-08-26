@@ -762,6 +762,46 @@ impl I18n {
             (Msg::DesktopCloneFailed(ref e), Lang::Ru) => {
                 format!("Не удалось скопировать конфиг: {}", e)
             }
+            (Msg::DesktopUsageHeader, Lang::En) => s("Claude Desktop usage:"),
+            (Msg::DesktopUsageHeader, Lang::Ru) => s("Использование Claude Desktop:"),
+            (Msg::DesktopKeychainNote, Lang::En) => s(
+                "macOS will now ask for your login keychain password: reading a \
+                 profile's account and usage means decrypting its token, and the \
+                 key for that lives in the 'Claude Safe Storage' keychain entry. \
+                 Declining only costs you this listing.",
+            ),
+            (Msg::DesktopKeychainNote, Lang::Ru) => s(
+                "Сейчас macOS запросит пароль от связки ключей «Вход»: чтобы \
+                 узнать аккаунт и расход профиля, нужно расшифровать его токен, \
+                 а ключ для этого лежит в записи «Claude Safe Storage». Если \
+                 отказать, не будет только этого списка.",
+            ),
+            (Msg::DesktopKeychainDenied, Lang::En) => {
+                s("no keychain access — the account behind this profile stays unknown")
+            }
+            (Msg::DesktopKeychainDenied, Lang::Ru) => {
+                s("нет доступа к связке ключей — аккаунт профиля остаётся неизвестен")
+            }
+            (Msg::DesktopTokenUnreadable, Lang::En) => {
+                s("credentials could not be read — the app may have changed their format")
+            }
+            (Msg::DesktopTokenUnreadable, Lang::Ru) => {
+                s("не удалось прочитать креды — приложение могло сменить их формат")
+            }
+            (Msg::DesktopTokenExpired, Lang::En) => {
+                s("credentials have expired — open this profile to refresh them")
+            }
+            (Msg::DesktopTokenExpired, Lang::Ru) => {
+                s("креды истекли — откройте этот профиль, чтобы обновить их")
+            }
+            (Msg::DesktopNotSignedIn, Lang::En) => s("not signed in"),
+            (Msg::DesktopNotSignedIn, Lang::Ru) => s("вход не выполнен"),
+            (Msg::DesktopIdentityHint, Lang::En) => {
+                s("  Which account each is signed in as:  claude-acc desktop usage")
+            }
+            (Msg::DesktopIdentityHint, Lang::Ru) => {
+                s("  Под каким аккаунтом каждый:  claude-acc desktop usage")
+            }
         }
     }
 
@@ -926,6 +966,13 @@ pub enum Msg {
     DesktopCloneDone(String),
     DesktopCloneAuthNote,
     DesktopCloneFailed(String),
+    DesktopUsageHeader,
+    DesktopKeychainNote,
+    DesktopKeychainDenied,
+    DesktopTokenUnreadable,
+    DesktopTokenExpired,
+    DesktopIdentityHint,
+    DesktopNotSignedIn,
 }
 
 fn relative_time(secs: u64, lang: Lang) -> String {

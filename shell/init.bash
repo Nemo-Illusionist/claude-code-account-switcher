@@ -85,7 +85,7 @@ _claude_acc_complete() {
                 COMPREPLY=($(compgen -W "copy" -- "$cur"))
                 ;;
             desktop)
-                COMPREPLY=($(compgen -W "add clone-config list run remove" -- "$cur"))
+                COMPREPLY=($(compgen -W "add clone-config list usage run remove" -- "$cur"))
                 ;;
             resume-hook)
                 COMPREPLY=($(compgen -W "on off" -- "$cur"))

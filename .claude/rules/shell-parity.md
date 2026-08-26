@@ -51,6 +51,7 @@ The script implements nearly every command. Absent for the reasons above:
 | `session copy` | same, plus the copy and sidecar machinery |
 | `resume-hook` | the script generates its own `claude` wrapper |
 | `install` | the script is sourced, never installed |
+| `desktop usage` | decrypting a profile token needs PBKDF2-SHA1 + AES-128-CBC with an explicit key; stock macOS ships LibreSSL, whose `openssl` has no `kdf`. The rest of `desktop` is ported |
 
 Adding a row is allowed. Adding one silently is not.
 

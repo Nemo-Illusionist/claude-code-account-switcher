@@ -65,7 +65,7 @@ Register-ArgumentCompleter -CommandName claude-acc -ScriptBlock {
                 $candidates = & $accountsWithDefault
             }
             'session'     { $candidates = @('copy') }
-            'desktop'     { $candidates = @('add','clone-config','list','run','remove') }
+            'desktop'     { $candidates = @('add','clone-config','list','usage','run','remove') }
             'resume-hook' { $candidates = @('on','off') }
         }
     } elseif ($count -eq 4 -and $cmd -eq 'session' -and $sub -eq 'copy') {

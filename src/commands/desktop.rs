@@ -1,6 +1,7 @@
 use crate::config::{AppConfig, is_reserved_name, validate_name};
 use crate::desktop;
 use crate::i18n::{I18n, Msg};
+use crate::identity;
 use std::fs;
 use std::io::{self, Write};
 use std::path::PathBuf;
@@ -187,16 +188,25 @@ pub fn list(config: &AppConfig, i18n: &I18n) -> i32 {
     }
 
     i18n.print(Msg::DesktopListHeader);
+    let mut any_unknown = false;
     for name in &profiles {
         let profile = desktop::profile_path(config, name);
+        // Cached identity where we have one, otherwise just whether the
+        // profile holds a credential. Nothing here reads the Keychain or the
+        // network — `desktop usage` is where that happens.
+        let suffix = identity_suffix(&profile);
         let state = if desktop::is_signed_in(&profile) {
+            // The hint is about the *email*, so a uuid-only row still needs
+            // it — that is precisely the row it exists for.
+            any_unknown |= identity::read_cache(&profile)
+                .and_then(|c| c.email)
+                .is_none();
             i18n.msg(Msg::DesktopSignedIn)
         } else {
             i18n.msg(Msg::DesktopSignedOut)
         };
-        println!("    {}  {}", name, state);
+        println!("    {}{}  {}", name, suffix, state);
     }
-
     // The app's own profile, so the list reads as the full picture rather
     // than only the part this tool created.
     if let Some(standard) = desktop::standard_profile()
@@ -208,7 +218,91 @@ pub fn list(config: &AppConfig, i18n: &I18n) -> i32 {
             i18n.msg(Msg::DesktopStandard)
         );
     }
+    // After the rows, so it reads as a footnote to the whole listing.
+    if any_unknown {
+        i18n.print(Msg::DesktopIdentityHint);
+    }
     0
+}
+
+/// `"  <email>  Max 20x"` for a profile whose identity we know, `"  aa6c22d5-…"`
+/// when only the plaintext uuid is available, `""` when neither.
+///
+/// The uuid fallback is deliberately shown truncated and unadorned: it says
+/// "these two profiles are different accounts" without pretending to be an
+/// identity anyone recognises.
+fn identity_suffix(profile: &std::path::Path) -> String {
+    let cached = crate::commands::usage::label_suffix(identity::read_cache(profile));
+    if !cached.is_empty() {
+        return cached;
+    }
+    match crate::desktop_auth::last_known_account_uuid(profile) {
+        Some(uuid) => format!("  {}…", uuid.chars().take(8).collect::<String>()),
+        None => String::new(),
+    }
+}
+
+/// Identity and rate-limit usage for every profile, live.
+///
+/// Separate from `list` for the same reason `usage` is separate from `list`
+/// on the CLI side: it needs the token, hence the network — and here also a
+/// Keychain prompt, which no listing command should spring on anyone.
+pub fn usage(config: &AppConfig, i18n: &I18n) -> i32 {
+    let profiles = desktop::list_profiles(config).unwrap_or_default();
+    if profiles.is_empty() {
+        i18n.print(Msg::DesktopListEmpty);
+        return 0;
+    }
+    if !desktop::supported() {
+        i18n.print(Msg::DesktopUnsupported);
+        return 1;
+    }
+
+    // Said before the prompt appears, not after: an unexplained request for
+    // the login keychain password is exactly what people should refuse.
+    i18n.print(Msg::DesktopKeychainNote);
+    println!();
+    i18n.print(Msg::DesktopUsageHeader);
+
+    for name in &profiles {
+        let profile = desktop::profile_path(config, name);
+        match crate::desktop_auth::profile_token(&profile) {
+            crate::desktop_auth::TokenResult::Ok(token) => {
+                // Refresh the cache first so the row can lead with the live
+                // email rather than a stale one — same side effect `doctor`
+                // has for CLI accounts.
+                if let Some(fresh) = identity::fetch_profile(&token) {
+                    let _ = identity::write_cache_at(
+                        &profile.join(".account-info.json"),
+                        &fresh,
+                        &token,
+                    );
+                }
+                println!("    {}{}", name, identity_suffix(&profile));
+                match identity::fetch_usage(&token) {
+                    Some(u) => crate::commands::usage::print_usage(&u, i18n),
+                    None => println!("      {}", i18n.msg(Msg::DoctorOffline)),
+                }
+            }
+            other => {
+                println!("    {}{}", name, identity_suffix(&profile));
+                println!("      {}", i18n.msg(reason(other)));
+            }
+        }
+    }
+    0
+}
+
+fn reason(result: crate::desktop_auth::TokenResult) -> Msg {
+    use crate::desktop_auth::TokenResult;
+    match result {
+        TokenResult::NotSignedIn => Msg::DesktopNotSignedIn,
+        TokenResult::NoKeychain => Msg::DesktopKeychainDenied,
+        TokenResult::Unreadable => Msg::DesktopTokenUnreadable,
+        TokenResult::Expired => Msg::DesktopTokenExpired,
+        // `usage` handles the success case before calling this.
+        TokenResult::Ok(_) => Msg::DesktopTokenUnreadable,
+    }
 }
 
 pub fn run(config: &AppConfig, i18n: &I18n, name: &str) -> i32 {
@@ -268,6 +362,70 @@ mod tests {
     fn i18n() -> I18n {
         I18n {
             lang: crate::i18n::Lang::En,
+        }
+    }
+
+    fn scratch(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("cc-dtop-{}-{}", tag, std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn a_profile_we_know_nothing_about_gets_no_suffix() {
+        let dir = scratch("suffix-none");
+        assert_eq!(identity_suffix(&dir), "");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_plaintext_uuid_stands_in_until_the_identity_is_known() {
+        // Enough to tell two profiles apart without any Keychain access.
+        let dir = scratch("suffix-uuid");
+        fs::write(
+            dir.join("config.json"),
+            r#"{"lastKnownAccountUuid":"aa6c22d5-f7d1-4ac1-bb29-22abc90481c1"}"#,
+        )
+        .unwrap();
+        assert_eq!(identity_suffix(&dir), "  aa6c22d5…");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_cached_email_wins_over_the_uuid() {
+        let dir = scratch("suffix-email");
+        fs::write(
+            dir.join("config.json"),
+            r#"{"lastKnownAccountUuid":"aa6c22d5-f7d1-4ac1-bb29-22abc90481c1"}"#,
+        )
+        .unwrap();
+        fs::write(
+            dir.join(".account-info.json"),
+            r#"{"email":"a@b.com","plan":"Max 20x"}"#,
+        )
+        .unwrap();
+        assert_eq!(identity_suffix(&dir), "  <a@b.com>  Max 20x");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn every_token_failure_says_something_different() {
+        use crate::desktop_auth::TokenResult;
+        let i = i18n();
+        let messages = [
+            i.msg(reason(TokenResult::NotSignedIn)),
+            i.msg(reason(TokenResult::NoKeychain)),
+            i.msg(reason(TokenResult::Unreadable)),
+            i.msg(reason(TokenResult::Expired)),
+        ];
+        for (n, m) in messages.iter().enumerate() {
+            assert!(!m.is_empty());
+            assert!(
+                !messages[n + 1..].contains(m),
+                "two failures print the same thing: {}",
+                m
+            );
         }
     }
 

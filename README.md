@@ -135,6 +135,7 @@ Short version: **cswap** if you want one active account plus automatic rotation 
 | `claude-acc resume-hook [on\|off]` | Show/set whether plain `claude --resume <id>` gets the same check |
 | `claude-acc desktop add\|list\|run\|remove [<name>]` | Claude Desktop profiles — separate app profiles that run side by side (macOS) |
 | `claude-acc desktop clone-config <name>` | Copy MCP servers and preferences into a desktop profile (`--from`, `--force`) |
+| `claude-acc desktop usage` | Account, plan and 5h / 7d usage behind every desktop profile |
 | `claude-acc statusline [--install]` | Render (or install) a Claude Code status line with the active account |
 | `claude-acc run <name>` | Run claude under a specific account |
 | `claude-acc whoami` | Print the email (or name) of the active account |
@@ -517,7 +518,8 @@ The app is Electron, so it honours Chromium's `--user-data-dir`. Point it at a d
 ```bash
 claude-acc desktop add work      # create the profile and open Claude on it to sign in
 claude-acc desktop add work -s   # ...and seed its MCP servers from the app's own profile
-claude-acc desktop list          # profiles, and which of them are signed in
+claude-acc desktop list          # profiles, and which account each is signed in as
+claude-acc desktop usage         # ...plus their 5h / 7d rate-limit usage, live
 claude-acc desktop run work      # open Claude on that profile again
 claude-acc desktop clone-config work   # copy MCP servers into an existing profile
 claude-acc desktop remove work   # delete the profile and everything in it
@@ -540,6 +542,8 @@ Claude Desktop profiles:
     work  (signed out)
     ~/Library/…/Claude/  (the app's own profile)
 ```
+
+Once signed in, that row carries the account it belongs to — see [`desktop usage`](#which-account-each-profile-is-signed-in-as-desktop-usage).
 
 The last row is the app's own profile — the one you get when you open Claude from the Dock. Nothing here reads or writes it; it is listed so the picture is complete.
 
@@ -581,6 +585,43 @@ Two things worth knowing:
 
 - **Definitions, not sessions.** An MCP server that authenticates on its own will ask for that again in the new profile — as it should, since the point of a separate profile is a separate identity.
 - The file can hold server credentials, so it is copied with its mode intact (`0600` in the app's own profile) and via a staging file, so an interrupted copy can't leave half a config behind.
+
+### Which account each profile is signed in as (`desktop usage`)
+
+`desktop list` reads nothing but files, so it can only say whether a profile holds a credential. `desktop usage` goes further — it decrypts the profile's token and asks the API, giving you the email, the plan, and the same 5h / 7d bars [`usage`](#usage-tracking-usage) shows for CLI accounts:
+
+```
+$ claude-acc desktop usage
+macOS will now ask for your login keychain password: reading a profile's account and usage means decrypting its token, and the key for that lives in the 'Claude Safe Storage' keychain entry. Declining only costs you this listing.
+
+Claude Desktop usage:
+    work  <work@company.com>  Max 20x
+      5h  [██████░░░░░░░░░░░░░░]   32%  resets in 52m
+      7d  [████████░░░░░░░░░░░░]   40%  resets in 5d 16h
+```
+
+It caches what it learns, so `desktop list` shows the email from then on without asking for anything:
+
+```
+$ claude-acc desktop list
+Claude Desktop profiles:
+    work  <work@company.com>  Max 20x  (signed in)
+    ~/Library/…/Claude/  (the app's own profile)
+```
+
+**About that keychain prompt.** The desktop app stores its token the way every Chromium app does on macOS: encrypted with a key kept in the keychain entry `Claude Safe Storage`, whose access list names only the app itself. Reading it therefore asks you for your login keychain password — once, if you pick "Always Allow". That is a real thing to be asked for, so `desktop usage` says what it is about to do *before* the dialog appears rather than after, and nothing else in this tool ever touches that entry. Decline and you lose this one listing; everything else keeps working.
+
+Without it, a profile still shows its account **uuid**, which sits in plaintext in the profile's own `config.json`:
+
+```
+$ claude-acc desktop list
+Claude Desktop profiles:
+    work  aa6c22d5…  (signed in)
+```
+
+Not an identity anyone recognises, but enough to see that two profiles are two different accounts.
+
+> `desktop usage` is a Rust-CLI feature. Decrypting the token needs PBKDF2-HMAC-SHA1 and AES-128-CBC with an explicit key — stock macOS ships LibreSSL, whose `openssl` has no `kdf` subcommand, so the shell script would need Homebrew's OpenSSL or Python to do it. It shows the uuid instead.
 
 ## Status line
 

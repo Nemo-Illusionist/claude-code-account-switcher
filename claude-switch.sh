@@ -137,6 +137,7 @@ _claude_msg_en=(
     links_active        "← active"
     help_desktop        "Manage Claude Desktop profiles"
     desktop_usage       "Usage: claude-acc desktop add|clone-config|list|run|remove [<name>]"
+    desktop_usage_rust  "claude-acc desktop usage needs the Rust CLI — decrypting a profile token needs PBKDF2-SHA1 + AES, which stock macOS openssl can't do."
     desktop_app_not_found "Claude.app not found in /Applications or ~/Applications. Set CLAUDE_ACC_DESKTOP_APP to its path."
     desktop_no_default  "'default' isn't a desktop profile — that's the app's own, which you open as usual."
     desktop_exists      "Desktop profile '%s' already exists."
@@ -255,6 +256,7 @@ _claude_msg_ru=(
     links_active        "← активна"
     help_desktop        "Профили Claude Desktop"
     desktop_usage       "Использование: claude-acc desktop add|clone-config|list|run|remove [<name>]"
+    desktop_usage_rust  "claude-acc desktop usage есть только в Rust CLI — расшифровка токена профиля требует PBKDF2-SHA1 + AES, чего стоковый openssl macOS не умеет."
     desktop_app_not_found "Claude.app не найден в /Applications или ~/Applications. Укажите путь в CLAUDE_ACC_DESKTOP_APP."
     desktop_no_default  "'default' — не профиль десктопа: это собственный профиль приложения, откройте его как обычно."
     desktop_exists      "Профиль десктопа '%s' уже существует."
@@ -979,6 +981,18 @@ _claude_acc_desktop_signed_in() {
     grep -q '"oauth:tokenCache\(V2\)\?":"[^"]' "$profile/config.json" 2>/dev/null
 }
 
+# The account uuid sits in plaintext in config.json — enough to tell two
+# profiles apart without touching the keychain. The email needs the token
+# decrypted, which is Rust-only; see desktop_usage_rust.
+_claude_acc_desktop_uuid() {
+    local profile="$1" uuid
+    [[ -f "$profile/config.json" ]] || return
+    if command -v jq >/dev/null 2>&1; then
+        uuid=$(jq -r '.lastKnownAccountUuid // empty' "$profile/config.json" 2>/dev/null)
+        [[ -n "$uuid" ]] && echo "  ${uuid:0:8}…"
+    fi
+}
+
 _claude_acc_desktop_name_ok() {
     local name="$1"
     if [[ -z "$name" ]]; then
@@ -1042,7 +1056,7 @@ _claude_acc_desktop_list() {
         else
             state=$(_msg desktop_signed_out)
         fi
-        echo "    $name  $state"
+        echo "    $name$(_claude_acc_desktop_uuid "$CLAUDE_SWITCH_DESKTOP_DIR/$name")  $state"
     done
 
     # The app's own profile, so the list reads as the full picture rather
@@ -1180,6 +1194,7 @@ _claude_acc_desktop() {
 
     case "$action" in
         add)          _claude_acc_desktop_add "$@" ;;
+        usage)        _msg desktop_usage_rust; return 1 ;;
         clone-config) _claude_acc_desktop_clone_config "$@" ;;
         list)         _claude_acc_desktop_list ;;
         run)          _claude_acc_desktop_run "$@" ;;
