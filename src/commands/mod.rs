@@ -13,6 +13,7 @@ pub mod list;
 pub mod login;
 pub mod remove;
 pub mod reset;
+pub mod resume_hook;
 pub mod run;
 pub mod session;
 pub mod sessions;

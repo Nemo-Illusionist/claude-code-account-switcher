@@ -11,6 +11,20 @@ if [ -z "$CLAUDE_CONFIG_DIR" ] && [ -z "$CLAUDE_ACC_RUN_DEFAULT" ]; then
 fi
 unset CLAUDE_ACC_RUN_DEFAULT
 
+# A `--resume <id>` naming a session that belongs to a different account gets
+# an unknown-session error from claude, with no hint the transcript exists one
+# account over. Offer to bring it in first — but only when there is a terminal
+# to ask on, and only when --resume is actually present, so the common launch
+# pays nothing. claude-acc re-checks the arguments itself; a match here is
+# just a cheap filter. Never fatal: whatever happens, claude still starts.
+case " $* " in
+    *" --resume "*|*" --resume="*|*" -r "*)
+        if [ -t 0 ] && [ -t 1 ]; then
+            '__CLAUDE_ACC_BIN__' session preflight -- "$@" || true
+        fi
+        ;;
+esac
+
 self="$0"
 case "$self" in
     /*) ;;

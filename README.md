@@ -131,6 +131,7 @@ Short version: **cswap** if you want one active account plus automatic rotation 
 | `claude-acc usage` | Show 5h / 7d rate-limit usage for every account |
 | `claude-acc sessions [--all]` | List Claude Code sessions across accounts (current directory by default) |
 | `claude-acc session copy <id> --to <name>` | Copy a session into another account so `claude --resume` can see it |
+| `claude-acc resume-hook [on\|off]` | Show/set whether plain `claude --resume <id>` gets the same check |
 | `claude-acc statusline [--install]` | Render (or install) a Claude Code status line with the active account |
 | `claude-acc run <name>` | Run claude under a specific account |
 | `claude-acc whoami` | Print the email (or name) of the active account |
@@ -450,19 +451,41 @@ than a normal turn.
 Copy it from 'default' into 'work' and resume? [y/N]
 ```
 
-Answer `n` and claude starts anyway, exactly as before. If several accounts hold the id you get the same numbered pick as `session copy`.
+Answer `n` and claude starts anyway, exactly as before — it reports the unknown session itself.
 
-It also speaks up in the reverse case — when the account you're resuming under **does** have the session, but another account's copy is newer:
+When the id exists **both here and in another account**, those are two conversations that have drifted apart, and only you know which one you meant. So you get the copies as a numbered pick, with the current account's own copy among them:
 
 ```
-Account 'default' holds a newer copy of this session than the one you're resuming:
-  default       just now      60 KB
-  work          15h ago       60 KB
+Session 0266a566-0336-4055-8f05-c553d368528e exists in more than one account. Which copy do you want to resume?
+  [1]  default       25m ago       60 KB
+  [2]  work          15h ago       60 KB  ← this account, newest
 
-Replace this account's copy with the one from 'default'? [y/N]
+Number (Enter to cancel):
 ```
 
-An *older* copy elsewhere is just history, so that stays quiet. So does a bare `--resume` with no id — that opens claude's own session picker, and getting in front of it would only be in the way.
+Picking this account's copy (or pressing Enter) leaves everything alone. Picking another copies it in first.
+
+Anything else is claude's ordinary behaviour, untouched: an id no other account has, and a bare `--resume` with no id — that opens claude's own session picker, and getting in front of it would only be in the way.
+
+### The same check for plain `claude --resume`
+
+`claude` on your PATH is this tool's wrapper (see [IDE integration](#ide-integration)), so the check doesn't have to be limited to `claude-acc run`. With the hook on — the default — a plain `claude --resume <id>` gets exactly the prompts above:
+
+```
+claude-acc resume-hook          # show the current state
+claude-acc resume-hook off      # plain `claude --resume` goes straight through
+claude-acc resume-hook on
+```
+
+The setting lives in `~/.claude-switch/config`. `CLAUDE_ACC_NO_RESUME_HOOK=1` turns it off for a single shell without changing the stored value. `claude-acc run <account> --resume <id>` checks either way — the hook only governs the bare `claude` path.
+
+The wrapper is careful about staying out of the way:
+
+- it does nothing unless `--resume` is actually among the arguments, so an ordinary launch pays nothing;
+- it does nothing without a terminal on both stdin and stdout, so scripts, pipes and CI are never prompted at;
+- whatever happens, claude still starts — a failure in the check is never a failure to launch.
+
+After updating, run `claude-acc install` once to refresh the wrapper script; the hook is part of it.
 
 ## Status line
 
