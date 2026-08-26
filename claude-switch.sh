@@ -532,7 +532,13 @@ _claude_acc_add() {
     ln -sfn "$HOME/.claude/ide" "$acc_dir/ide"
     (( seed_flag )) && _claude_acc_seed_from_default "$acc_dir"
     _msg add_created "$name"
-    CLAUDE_CONFIG_DIR="$acc_dir" claude auth login
+    # A leaked ANTHROPIC_API_KEY etc. can make `claude auth login` skip the
+    # OAuth flow entirely, or auth a different identity than acc_dir intends.
+    (
+        unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN \
+            CLAUDE_CODE_OAUTH_TOKEN AWS_BEARER_TOKEN_BEDROCK
+        CLAUDE_CONFIG_DIR="$acc_dir" claude auth login
+    )
     echo ""
     _msg add_done
     _msg add_hint_default "$name"
@@ -555,7 +561,13 @@ _claude_acc_login() {
     fi
 
     _msg login_start "$name"
-    CLAUDE_CONFIG_DIR="$acc_dir" claude auth login
+    # A leaked ANTHROPIC_API_KEY etc. can make `claude auth login` skip the
+    # OAuth flow entirely, or auth a different identity than acc_dir intends.
+    (
+        unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN \
+            CLAUDE_CODE_OAUTH_TOKEN AWS_BEARER_TOKEN_BEDROCK
+        CLAUDE_CONFIG_DIR="$acc_dir" claude auth login
+    )
     _msg login_done
 }
 
