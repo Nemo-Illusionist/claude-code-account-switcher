@@ -35,10 +35,10 @@ Register-ArgumentCompleter -CommandName claude-acc -ScriptBlock {
         $sub = $words[1]
         $accounts = @()
         switch ($sub) {
-            { $_ -in 'login','remove','run','clone-settings' } {
+            { $_ -in 'remove','clone-settings' } {
                 $accounts = (& '__CLAUDE_ACC_BIN__' completions accounts) -split "`n"
             }
-            { $_ -in 'default','link' } {
+            { $_ -in 'default','link','login','run' } {
                 $accounts = @('default') + ((& '__CLAUDE_ACC_BIN__' completions accounts) -split "`n")
             }
         }
