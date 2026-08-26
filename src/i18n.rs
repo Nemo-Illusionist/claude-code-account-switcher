@@ -605,6 +605,126 @@ impl I18n {
             (Msg::ResumeHookWriteFailed(ref e), Lang::Ru) => {
                 format!("Не удалось сохранить настройку: {}", e)
             }
+
+            // desktop
+            (Msg::DesktopUnsupported, Lang::En) => {
+                s("Desktop profiles are macOS-only for now. Windows and Linux: see issue #75.")
+            }
+            (Msg::DesktopUnsupported, Lang::Ru) => {
+                s("Профили десктопа пока только для macOS. Windows и Linux — см. issue #75.")
+            }
+            (Msg::DesktopAppNotFound, Lang::En) => {
+                s("Claude.app not found in /Applications or ~/Applications. \
+                 Set CLAUDE_ACC_DESKTOP_APP to its path.")
+            }
+            (Msg::DesktopAppNotFound, Lang::Ru) => {
+                s("Claude.app не найден в /Applications или ~/Applications. \
+                 Укажите путь в CLAUDE_ACC_DESKTOP_APP.")
+            }
+            (Msg::DesktopNoDefault, Lang::En) => {
+                s("'default' isn't a desktop profile — that's the app's own, \
+                 which you open as usual.")
+            }
+            (Msg::DesktopNoDefault, Lang::Ru) => {
+                s("'default' — не профиль десктопа: это собственный профиль \
+                 приложения, откройте его как обычно.")
+            }
+            (Msg::DesktopExists(ref n), Lang::En) => {
+                format!("Desktop profile '{}' already exists.", n)
+            }
+            (Msg::DesktopExists(ref n), Lang::Ru) => {
+                format!("Профиль десктопа '{}' уже существует.", n)
+            }
+            (Msg::DesktopNotFound(ref n), Lang::En) => format!(
+                "Desktop profile '{}' not found. Create it: claude-acc desktop add {}",
+                n, n
+            ),
+            (Msg::DesktopNotFound(ref n), Lang::Ru) => format!(
+                "Профиль десктопа '{}' не найден. Создать: claude-acc desktop add {}",
+                n, n
+            ),
+            (Msg::DesktopCreateFailed(ref e), Lang::En) => {
+                format!("Could not create the profile directory: {}", e)
+            }
+            (Msg::DesktopCreateFailed(ref e), Lang::Ru) => {
+                format!("Не удалось создать директорию профиля: {}", e)
+            }
+            (Msg::DesktopCreated(ref n), Lang::En) => {
+                format!("Desktop profile '{}' created. Opening Claude on it...", n)
+            }
+            (Msg::DesktopCreated(ref n), Lang::Ru) => {
+                format!("Профиль десктопа '{}' создан. Открываю Claude на нём...", n)
+            }
+            (Msg::DesktopSignInHint, Lang::En) => {
+                s("It opens signed out — sign in there with the account for this profile.")
+            }
+            (Msg::DesktopSignInHint, Lang::Ru) => {
+                s("Оно откроется без входа — войдите там под аккаунтом для этого профиля.")
+            }
+            (Msg::DesktopDiskNote, Lang::En) => s(
+                "The profile is fully isolated, so the app re-downloads its \
+                 sandbox images into it — expect several GB.",
+            ),
+            (Msg::DesktopDiskNote, Lang::Ru) => {
+                s("Профиль полностью изолирован, поэтому приложение заново \
+                 скачает в него образы песочницы — это несколько ГБ.")
+            }
+            (Msg::DesktopHintRun(ref n), Lang::En) => {
+                format!("Open it again later:  claude-acc desktop run {}", n)
+            }
+            (Msg::DesktopHintRun(ref n), Lang::Ru) => {
+                format!("Открыть его позже:  claude-acc desktop run {}", n)
+            }
+            (Msg::DesktopListEmpty, Lang::En) => {
+                s("No desktop profiles. Add one: claude-acc desktop add <name>")
+            }
+            (Msg::DesktopListEmpty, Lang::Ru) => {
+                s("Нет профилей десктопа. Добавьте: claude-acc desktop add <name>")
+            }
+            (Msg::DesktopListHeader, Lang::En) => s("Claude Desktop profiles:"),
+            (Msg::DesktopListHeader, Lang::Ru) => s("Профили Claude Desktop:"),
+            (Msg::DesktopSignedIn, Lang::En) => s("(signed in)"),
+            (Msg::DesktopSignedIn, Lang::Ru) => s("(выполнен вход)"),
+            (Msg::DesktopSignedOut, Lang::En) => s("(signed out)"),
+            (Msg::DesktopSignedOut, Lang::Ru) => s("(вход не выполнен)"),
+            (Msg::DesktopStandard, Lang::En) => s("(the app's own profile)"),
+            (Msg::DesktopStandard, Lang::Ru) => s("(собственный профиль приложения)"),
+            (Msg::DesktopLaunching(ref n), Lang::En) => {
+                format!("Opening Claude on profile '{}'...", n)
+            }
+            (Msg::DesktopLaunching(ref n), Lang::Ru) => {
+                format!("Открываю Claude на профиле '{}'...", n)
+            }
+            (Msg::DesktopLaunchFailed(ref e), Lang::En) => format!("Could not open Claude: {}", e),
+            (Msg::DesktopLaunchFailed(ref e), Lang::Ru) => {
+                format!("Не удалось открыть Claude: {}", e)
+            }
+            (Msg::DesktopRemoveWarn(ref n), Lang::En) => format!(
+                "This deletes the whole profile '{}' — its sign-in, its \
+                 settings and its MCP servers. Quit that window first.",
+                n
+            ),
+            (Msg::DesktopRemoveWarn(ref n), Lang::Ru) => format!(
+                "Профиль '{}' будет удалён целиком — вход, настройки и \
+                 MCP-серверы. Сначала закройте его окно.",
+                n
+            ),
+            (Msg::DesktopRemoveConfirm(ref n), Lang::En) => {
+                format!("Delete profile '{}'? [y/N] ", n)
+            }
+            (Msg::DesktopRemoveConfirm(ref n), Lang::Ru) => {
+                format!("Удалить профиль '{}'? [y/N] ", n)
+            }
+            (Msg::DesktopRemoveCancelled, Lang::En) => s("Cancelled."),
+            (Msg::DesktopRemoveCancelled, Lang::Ru) => s("Отменено."),
+            (Msg::DesktopRemoveFailed(ref e), Lang::En) => {
+                format!("Could not delete the profile: {}", e)
+            }
+            (Msg::DesktopRemoveFailed(ref e), Lang::Ru) => {
+                format!("Не удалось удалить профиль: {}", e)
+            }
+            (Msg::DesktopRemoved(ref n), Lang::En) => format!("Desktop profile '{}' deleted.", n),
+            (Msg::DesktopRemoved(ref n), Lang::Ru) => format!("Профиль десктопа '{}' удалён.", n),
         }
     }
 
@@ -742,6 +862,28 @@ pub enum Msg {
     ResumeHookHint,
     ResumeHookInvalid(String),
     ResumeHookWriteFailed(String),
+    DesktopUnsupported,
+    DesktopAppNotFound,
+    DesktopNoDefault,
+    DesktopExists(String),
+    DesktopNotFound(String),
+    DesktopCreateFailed(String),
+    DesktopCreated(String),
+    DesktopSignInHint,
+    DesktopDiskNote,
+    DesktopHintRun(String),
+    DesktopListEmpty,
+    DesktopListHeader,
+    DesktopSignedIn,
+    DesktopSignedOut,
+    DesktopStandard,
+    DesktopLaunching(String),
+    DesktopLaunchFailed(String),
+    DesktopRemoveWarn(String),
+    DesktopRemoveConfirm(String),
+    DesktopRemoveCancelled,
+    DesktopRemoveFailed(String),
+    DesktopRemoved(String),
 }
 
 fn relative_time(secs: u64, lang: Lang) -> String {

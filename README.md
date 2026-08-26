@@ -105,6 +105,7 @@ Other tools solving nearby problems, and how they differ (summarised from their 
 | Auto-rotation when a limit is hit | no (out of scope) | yes — strategies, cooldown, hysteresis | no | no |
 | Status line with the active account | `statusline --install` | no | no | no |
 | IDE launches (JetBrains, VS Code) | wrapper on `PATH` + `ide/` symlink | follow the global login | follow the global profile | no |
+| Claude **desktop app** accounts | `desktop` — isolated profiles, open side by side (macOS) | no | no | no |
 | Adopt an existing config dir without re-login | `import` — re-keys the macOS Keychain entry | `add` / `import` of credential exports | capture the current login as a profile | n/a |
 | Other coding CLIs (Codex, Gemini) | no | no | yes | n/a |
 | Runtime | Rust binary (or a single zsh script) | Python (uv / pipx) | Rust | direnv |
@@ -132,6 +133,7 @@ Short version: **cswap** if you want one active account plus automatic rotation 
 | `claude-acc sessions [--all]` | List Claude Code sessions across accounts (current directory by default) |
 | `claude-acc session copy <id> --to <name>` | Copy a session into another account so `claude --resume` can see it |
 | `claude-acc resume-hook [on\|off]` | Show/set whether plain `claude --resume <id>` gets the same check |
+| `claude-acc desktop add\|list\|run\|remove [<name>]` | Claude Desktop profiles — separate app profiles that run side by side (macOS) |
 | `claude-acc statusline [--install]` | Render (or install) a Claude Code status line with the active account |
 | `claude-acc run <name>` | Run claude under a specific account |
 | `claude-acc whoami` | Print the email (or name) of the active account |
@@ -204,7 +206,7 @@ No manual setup required — `claude-acc install` does both. New accounts create
 
 ## Shell completions
 
-`claude-acc install` also wires up Tab completion for zsh, bash and PowerShell. It covers every command and its arguments — account names (with `default` where the command accepts it), `session copy` ids for the current directory, `resume-hook on|off`, `import`'s path, and each command's flags:
+`claude-acc install` also wires up Tab completion for zsh, bash and PowerShell. It covers every command and its arguments — account names (with `default` where the command accepts it), `session copy` ids for the current directory, `desktop` profile names, `resume-hook on|off`, `import`'s path, and each command's flags:
 
 ```
 $ claude-acc session copy <TAB>
@@ -503,6 +505,52 @@ The wrapper is careful about staying out of the way:
 
 `claude-acc update` refreshes the wrapper for you; `claude-acc install` does too, if you ever need to force it.
 
+## Claude Desktop profiles (`desktop`)
+
+Everything above is about the CLI. The **desktop app** has the same problem — one app, one signed-in account — and it turns out to have a clean answer.
+
+The app is Electron, so it honours Chromium's `--user-data-dir`. Point it at a directory of our own and it gets a fully isolated profile: its own sign-in, its own settings, its own MCP servers. That is the same move this tool already makes for the CLI with `CLAUDE_CONFIG_DIR` — and it has one property the CLI accounts don't:
+
+> **Profiles run side by side.** There is no "switch". Your work account and your personal account can both be open, in two windows, at the same time. The app takes no single-instance lock, and Chromium's lock lives inside each profile directory.
+
+```bash
+claude-acc desktop add work      # create the profile and open Claude on it to sign in
+claude-acc desktop list          # profiles, and which of them are signed in
+claude-acc desktop run work      # open Claude on that profile again
+claude-acc desktop remove work   # delete the profile and everything in it
+```
+
+`desktop add` creates `~/.claude-switch/desktop/<name>/` and opens the app on it. The window comes up signed out — sign in there with the account this profile is for:
+
+```
+$ claude-acc desktop add work
+Desktop profile 'work' created. Opening Claude on it...
+It opens signed out — sign in there with the account for this profile.
+The profile is fully isolated, so the app re-downloads its sandbox images into it — expect several GB.
+
+Open it again later:  claude-acc desktop run work
+```
+
+```
+$ claude-acc desktop list
+Claude Desktop profiles:
+    work  (signed out)
+    ~/Library/…/Claude/  (the app's own profile)
+```
+
+The last row is the app's own profile — the one you get when you open Claude from the Dock. Nothing here reads or writes it; it is listed so the picture is complete.
+
+Your main instance is never quit, never touched, and never has its signed-in state copied around. That is the whole reason this approach is worth having: the alternative — quitting the app and swapping profile data on disk — mixes authentication state and triggers server-side re-authentication, which is exactly what the Windows tools in this space keep running into.
+
+**Trade-offs, stated plainly:**
+
+- **Disk.** Isolation is total, so each profile re-downloads the heavy parts — sandbox images and caches run to several GB per profile. Nothing is shared in this version.
+- **MCP servers are per-profile.** A new profile starts with none; configure it in that window, or copy `claude_desktop_config.json` across by hand for now.
+- **`--user-data-dir` is a Chromium switch, not a documented Claude Desktop feature.** This is how VS Code and most Electron apps are routinely run, so the risk is small — but if the app ever pins its own data directory unconditionally, this stops working.
+- **macOS only, for now.** The mechanism is the same everywhere; only locating the executable is per-platform. Windows and Linux are tracked in [#75](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/75).
+
+If `Claude.app` isn't in `/Applications` or `~/Applications`, point at it with `CLAUDE_ACC_DESKTOP_APP=/path/to/Claude.app`.
+
 ## Status line
 
 Claude Code can show a custom status bar at the bottom of the screen. `claude-acc statusline` renders one that leads with **the account this session is running under** — the one thing Claude Code itself can't show — followed by git branch, model, project, and a 5-hour rate-limit bar:
@@ -566,6 +614,7 @@ Both versions read and write the same files under `~/.claude-switch/`:
 ```
 ~/.claude-switch/
 ├── accounts/        ← per-account CLAUDE_CONFIG_DIR
+├── desktop/         ← per-profile Claude Desktop user-data dirs
 ├── config           ← default account
 └── links            ← directory ↔ account bindings
 ```

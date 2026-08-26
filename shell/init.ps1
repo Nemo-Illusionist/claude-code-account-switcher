@@ -35,7 +35,7 @@ Register-ArgumentCompleter -CommandName claude-acc -ScriptBlock {
     $candidates = @()
 
     if ($count -le 2) {
-        $candidates = @('list','add','login','remove','default','reset','link','unlink','links','status','usage','sessions','session','resume-hook','statusline','update','install','run','doctor','whoami','clone-settings','import','help')
+        $candidates = @('list','add','login','remove','default','reset','link','unlink','links','status','usage','sessions','session','desktop','resume-hook','statusline','update','install','run','doctor','whoami','clone-settings','import','help')
     } elseif ($prev -in '--to','--from') {
         # The value of a flag that takes one, whatever word number it is on.
         $candidates = & $accountsWithDefault
@@ -51,6 +51,7 @@ Register-ArgumentCompleter -CommandName claude-acc -ScriptBlock {
             'doctor'     { $candidates = @('--json') }
             'update'     { $candidates = @('--check','--version') }
             'session'    { $candidates = @('--to','--from','--force','-f') }
+            'desktop'    { $candidates = @('--force','-f') }
         }
     } elseif ($count -eq 3) {
         switch ($cmd) {
@@ -61,10 +62,14 @@ Register-ArgumentCompleter -CommandName claude-acc -ScriptBlock {
                 $candidates = & $accountsWithDefault
             }
             'session'     { $candidates = @('copy') }
+            'desktop'     { $candidates = @('add','list','run','remove') }
             'resume-hook' { $candidates = @('on','off') }
         }
     } elseif ($count -eq 4 -and $cmd -eq 'session' -and $sub -eq 'copy') {
         $candidates = (& '__CLAUDE_ACC_BIN__' completions sessions) -split "`n"
+    } elseif ($count -eq 4 -and $cmd -eq 'desktop' -and $sub -in 'run','remove') {
+        # `desktop add <name>` is a new name; run/remove take an existing one.
+        $candidates = (& '__CLAUDE_ACC_BIN__' completions desktop) -split "`n"
     }
 
     $candidates | Where-Object { $_ -and $_ -like "$wordToComplete*" } | ForEach-Object {

@@ -3,6 +3,7 @@ pub mod add;
 pub mod clone_settings;
 pub mod completions;
 pub mod default;
+pub mod desktop;
 pub mod doctor;
 pub mod import;
 pub mod init;

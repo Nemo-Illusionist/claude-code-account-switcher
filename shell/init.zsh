@@ -32,6 +32,12 @@ _claude_acc_accounts() {
     _describe 'account' accounts
 }
 
+_claude_acc_profiles() {
+    local -a profiles
+    profiles=(${(f)"$('__CLAUDE_ACC_BIN__' completions desktop)"})
+    _describe 'profile' profiles
+}
+
 _claude_acc_completion() {
     local -a subcmds flags states subsubs sessions
     subcmds=(
@@ -48,6 +54,7 @@ _claude_acc_completion() {
         'usage:Show 5h / 7d usage for every account'
         'sessions:List Claude Code sessions across accounts'
         'session:Work with a single session transcript'
+        'desktop:Manage Claude Desktop profiles'
         'resume-hook:Toggle the --resume check in the claude wrapper'
         'statusline:Render / install the Claude Code status line'
         'update:Update the binary to the latest release'
@@ -90,6 +97,7 @@ _claude_acc_completion() {
             doctor) flags=('--json:Output as JSON') ;;
             update) flags=('--check:Only check, do not download' '--version:Install a specific version') ;;
             session) flags=('--to:Destination account' '--from:Source account' '--force:Skip confirmation' '-f:Skip confirmation') ;;
+            desktop) flags=('--force:Skip confirmation' '-f:Skip confirmation') ;;
         esac
         (( ${#flags} )) && _describe 'option' flags
         return
@@ -107,6 +115,15 @@ _claude_acc_completion() {
                 subsubs=('copy:Copy a session into another account')
                 _describe 'subcommand' subsubs
                 ;;
+            desktop)
+                subsubs=(
+                    'add:Create a profile and sign in'
+                    'list:List desktop profiles'
+                    'run:Open Claude Desktop on a profile'
+                    'remove:Delete a profile'
+                )
+                _describe 'subcommand' subsubs
+                ;;
             resume-hook)
                 states=('on:Check --resume in the claude wrapper' 'off:Pass --resume straight through')
                 _describe 'state' states
@@ -121,6 +138,12 @@ _claude_acc_completion() {
                     sessions=(${(f)"$('__CLAUDE_ACC_BIN__' completions sessions)"})
                     _describe 'session' sessions
                 fi
+                ;;
+            # `desktop add <name>` is a new name; run/remove take an existing one.
+            desktop)
+                case "${words[3]}" in
+                    run|remove) _claude_acc_profiles ;;
+                esac
                 ;;
         esac
     fi
