@@ -233,6 +233,18 @@ impl I18n {
             (Msg::DoctorSharedIdentity(ref names), Lang::Ru) => {
                 format!("↔ та же личность, что и {}", names)
             }
+            (Msg::DuplicateAccountWarning(ref new_name, ref existing), Lang::En) => {
+                format!(
+                    "⚠ '{}' looks like the same account as '{}' (same email/uuid) — you now have two config dirs sharing one Claude subscription, not two separate identities.",
+                    new_name, existing
+                )
+            }
+            (Msg::DuplicateAccountWarning(ref new_name, ref existing), Lang::Ru) => {
+                format!(
+                    "⚠ '{}' похож на тот же аккаунт, что и '{}' (совпадают email/uuid) — теперь у вас два конфиг-каталога с одной подпиской Claude, а не два разных аккаунта.",
+                    new_name, existing
+                )
+            }
 
             // import
             (Msg::ImportSourceNotDir(ref p), Lang::En) => {
@@ -391,6 +403,7 @@ pub enum Msg {
     DoctorAllOk,
     DoctorPartial(usize, usize),
     DoctorSharedIdentity(String),
+    DuplicateAccountWarning(String, String),
     RelativeTime(u64),
     SeedCopied(String),
     SeedNothingToCopy,

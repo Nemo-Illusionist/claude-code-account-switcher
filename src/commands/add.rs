@@ -69,6 +69,14 @@ pub fn run(config: &AppConfig, i18n: &I18n, name: &str, seed_from_default: bool)
         .expect("Failed to run claude auth login");
     identity::restore_side_effect_keychain(keychain_snapshot);
 
+    // Best-effort: hint if this login turned out to be the same identity as
+    // an already-known account (a leftover from a prior doctor run's cache —
+    // see identity::find_duplicate_account). Never blocks; just a heads-up.
+    let known = super::known_account_cache_paths(config, name);
+    if let Some(existing) = identity::find_duplicate_account(&acc_dir, &known) {
+        i18n.print(Msg::DuplicateAccountWarning(name.to_string(), existing));
+    }
+
     println!();
     i18n.print(Msg::AddDone);
     i18n.print(Msg::AddHintDefault(name.to_string()));
