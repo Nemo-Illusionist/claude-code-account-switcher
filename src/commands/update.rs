@@ -13,27 +13,61 @@ use crate::i18n::{I18n, Msg};
 const REPO_URL: &str = env!("CARGO_PKG_REPOSITORY");
 const CURRENT: &str = env!("CARGO_PKG_VERSION");
 
-pub fn run(config: &AppConfig, i18n: &I18n, check_only: bool) -> i32 {
+pub fn run(config: &AppConfig, i18n: &I18n, check_only: bool, version: Option<&str>) -> i32 {
     let Some(slug) = repo_slug(REPO_URL) else {
         i18n.print(Msg::UpdateRepoUnknown);
         return 1;
     };
 
-    let Some(tag) = latest_release_tag(&slug) else {
-        i18n.print(Msg::UpdateCheckFailed);
-        return 1;
+    // Pinning to an explicit --version skips the "is this actually newer"
+    // check entirely (below) — that check exists to avoid noisy re-downloads
+    // on every `update` run, but it would also block a deliberate rollback to
+    // an older release, which is the whole point of --version.
+    let (tag, target_version) = match version {
+        Some(v) => {
+            let Some(target_version) = normalize_version(v) else {
+                i18n.print(Msg::UpdateInvalidVersion(v.to_string()));
+                return 1;
+            };
+            let tag = format!("v{target_version}");
+            if !release_tag_exists(&slug, &tag) {
+                i18n.print(Msg::UpdateVersionNotFound(target_version));
+                return 1;
+            }
+            (tag, target_version)
+        }
+        None => {
+            let Some(tag) = latest_release_tag(&slug) else {
+                i18n.print(Msg::UpdateCheckFailed);
+                return 1;
+            };
+            let target_version = tag.trim_start_matches('v').to_string();
+            (tag, target_version)
+        }
     };
-    let latest = tag.trim_start_matches('v');
 
-    if !is_newer(latest, CURRENT) {
+    if target_version == CURRENT {
+        i18n.print(Msg::UpdateUpToDate(CURRENT.to_string()));
+        return 0;
+    }
+    if version.is_none() && !is_newer(&target_version, CURRENT) {
         i18n.print(Msg::UpdateUpToDate(CURRENT.to_string()));
         return 0;
     }
 
-    i18n.print(Msg::UpdateAvailable(
-        CURRENT.to_string(),
-        latest.to_string(),
-    ));
+    if is_newer(&target_version, CURRENT) {
+        i18n.print(Msg::UpdateAvailable(
+            CURRENT.to_string(),
+            target_version.clone(),
+        ));
+    } else {
+        // Only reachable via --version pinning to an older release — the
+        // "is this newer" check above already filtered this out otherwise.
+        i18n.print(Msg::UpdateDowngrading(
+            CURRENT.to_string(),
+            target_version.clone(),
+        ));
+    }
     if check_only {
         return 0;
     }
@@ -55,7 +89,7 @@ pub fn run(config: &AppConfig, i18n: &I18n, check_only: bool) -> i32 {
         "https://github.com/{}/releases/download/{}/{}",
         slug, tag, asset
     );
-    i18n.print(Msg::UpdateDownloading(latest.to_string()));
+    i18n.print(Msg::UpdateDownloading(target_version.clone()));
     if !download(&url, &tmp) {
         let _ = std::fs::remove_file(&tmp);
         i18n.print(Msg::UpdateDownloadFailed);
@@ -75,7 +109,7 @@ pub fn run(config: &AppConfig, i18n: &I18n, check_only: bool) -> i32 {
     }
 
     i18n.print(Msg::UpdateDone(
-        latest.to_string(),
+        target_version,
         target.display().to_string(),
     ));
     0
@@ -127,6 +161,33 @@ fn latest_release_tag(slug: &str) -> Option<String> {
     }
     let v: serde_json::Value = serde_json::from_slice(&out.stdout).ok()?;
     v.get("tag_name")?.as_str().map(String::from)
+}
+
+/// Whether GitHub has a published release for `tag` (e.g. "v0.10.5"). Used
+/// to give a clear "no such version" error for `--version` instead of
+/// letting a bogus version fall through to a confusing download failure.
+fn release_tag_exists(slug: &str, tag: &str) -> bool {
+    let url = format!(
+        "https://api.github.com/repos/{}/releases/tags/{}",
+        slug, tag
+    );
+    Command::new("curl")
+        .args(["-fsSL", "--max-time", "10"])
+        .args(["-H", "User-Agent: claude-acc"])
+        .args(["-H", "Accept: application/vnd.github+json"])
+        .arg(&url)
+        .output()
+        .map(|out| out.status.success())
+        .unwrap_or(false)
+}
+
+/// Normalizes a user-supplied `--version` value ("v0.10.5" or "0.10.5") to
+/// the bare "X.Y.Z" form release tags use, validating it parses as a
+/// version at all (catches typos before making any network call).
+fn normalize_version(v: &str) -> Option<String> {
+    let trimmed = v.trim().trim_start_matches('v');
+    parse_version(trimmed)?;
+    Some(trimmed.to_string())
 }
 
 /// "owner/repo" from a GitHub URL (https or scp-style git@), else `None`.
@@ -254,5 +315,23 @@ mod tests {
         assert!(!is_newer("0.7.9", "0.8.0"));
         // Unparseable input is treated as "not newer" (fail safe).
         assert!(!is_newer("garbage", "0.8.0"));
+    }
+
+    #[test]
+    fn normalize_version_strips_leading_v() {
+        assert_eq!(normalize_version("v0.10.5"), Some("0.10.5".to_string()));
+        assert_eq!(normalize_version("0.10.5"), Some("0.10.5".to_string()));
+    }
+
+    #[test]
+    fn normalize_version_trims_whitespace() {
+        assert_eq!(normalize_version("  v0.10.5  "), Some("0.10.5".to_string()));
+    }
+
+    #[test]
+    fn normalize_version_rejects_garbage() {
+        assert_eq!(normalize_version("not-a-version"), None);
+        assert_eq!(normalize_version("1.2"), None);
+        assert_eq!(normalize_version(""), None);
     }
 }
