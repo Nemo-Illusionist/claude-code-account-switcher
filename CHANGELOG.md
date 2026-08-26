@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.12.0](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.11.0...v0.12.0) (2026-08-26)
+
+
+### Features
+
+* print a passive hint when a newer claude-acc version is out ([#74](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/74)) ([48cf191](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/48cf191e96b0bfa66279d61f625ef03d2435448f))
+* update accepts --version for pinning/rollback ([#72](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/72)) ([952c1c0](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/952c1c06a88ffc93813d6441385cb4c6bb6b1f95))
+
 ## [0.11.0](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.10.5...v0.11.0) (2026-08-26)
 
 
