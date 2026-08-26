@@ -1,10 +1,10 @@
-use crate::config::{AppConfig, validate_name};
+use crate::config::{AppConfig, is_reserved_name, validate_name};
 use crate::i18n::{I18n, Msg};
 use std::fs;
 use std::io::{self, Write};
 
 pub fn run(config: &AppConfig, i18n: &I18n, name: &str, force: bool) {
-    if name == "default" {
+    if is_reserved_name(name) {
         i18n.print(Msg::ReservedName(name.to_string()));
         std::process::exit(1);
     }

@@ -1,8 +1,13 @@
-use crate::config::{AppConfig, validate_name};
+use crate::config::{AppConfig, is_reserved_name, validate_name};
 use crate::i18n::{I18n, Msg};
 use crate::seed;
 
 pub fn run(config: &AppConfig, i18n: &I18n, name: &str) {
+    if is_reserved_name(name) {
+        i18n.print(Msg::ReservedName(name.to_string()));
+        std::process::exit(1);
+    }
+
     if !validate_name(name) {
         i18n.print(Msg::NameInvalid);
         std::process::exit(1);

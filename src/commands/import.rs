@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::config::{AppConfig, validate_name};
+use crate::config::{AppConfig, is_reserved_name, validate_name};
 use crate::i18n::{I18n, Msg};
 use crate::identity::{self, AuditResult};
 
@@ -13,7 +13,7 @@ use crate::identity::{self, AuditResult};
 // `.credentials.json` fallback travels with the dir on its own.
 
 pub fn run(config: &AppConfig, i18n: &I18n, name: &str, source: &str, move_into: bool) -> i32 {
-    if name == "default" {
+    if is_reserved_name(name) {
         i18n.print(Msg::ReservedName(name.to_string()));
         return 1;
     }

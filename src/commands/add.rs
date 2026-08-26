@@ -1,4 +1,4 @@
-use crate::config::{AppConfig, validate_name};
+use crate::config::{AppConfig, is_reserved_name, validate_name};
 use crate::environment::strip_claude_auth_env;
 use crate::i18n::{I18n, Msg};
 use crate::ide;
@@ -21,7 +21,7 @@ fn build_login_command(acc_dir: &Path) -> Command {
 }
 
 pub fn run(config: &AppConfig, i18n: &I18n, name: &str, seed_from_default: bool) {
-    if name == "default" {
+    if is_reserved_name(name) {
         i18n.print(Msg::ReservedName(name.to_string()));
         std::process::exit(1);
     }
