@@ -120,6 +120,52 @@ pub fn launch_command(app: &Path, profile: &Path) -> Command {
     cmd
 }
 
+/// The app's MCP servers and preferences, inside the profile directory. New
+/// profiles start without one.
+pub const CONFIG_FILE: &str = "claude_desktop_config.json";
+
+/// How the profile is shown in a message: managed profiles by name, the app's
+/// own by the abbreviated path `list` already uses for it.
+pub const STANDARD_LABEL: &str = "~/Library/…/Claude/";
+
+#[derive(Debug, PartialEq)]
+pub enum ClonePlan {
+    /// Nothing to copy — the source has no config of its own.
+    NoSource,
+    /// The destination already has one; copying would discard it.
+    Keep,
+    Copy,
+}
+
+/// Whether to copy the config file. Split out from the copying so the
+/// "don't silently discard what's already there" rule can be tested without
+/// a filesystem.
+pub fn plan_clone(source_exists: bool, dest_exists: bool, force: bool) -> ClonePlan {
+    if !source_exists {
+        return ClonePlan::NoSource;
+    }
+    if dest_exists && !force {
+        return ClonePlan::Keep;
+    }
+    ClonePlan::Copy
+}
+
+/// Copy `CONFIG_FILE` from one profile into another, via a staging file so an
+/// interrupted copy can't leave the destination holding half a config.
+///
+/// `fs::copy` carries the source's mode across, which matters here: the file
+/// can hold MCP server credentials and is `0600` in the app's own profile.
+pub fn clone_config(source: &Path, dest: &Path) -> io::Result<u64> {
+    let src = source.join(CONFIG_FILE);
+    let dst = dest.join(CONFIG_FILE);
+    fs::create_dir_all(dest)?;
+    let staged = dst.with_extension("json.part");
+    let _ = fs::remove_file(&staged);
+    let bytes = fs::copy(&src, &staged)?;
+    fs::rename(&staged, &dst)?;
+    Ok(bytes)
+}
+
 /// Whether the profile holds a signed-in session.
 ///
 /// Only the presence of a credential is checked, not its validity — reading
@@ -288,6 +334,62 @@ mod tests {
         let present = c.base_dir.join("Claude.app");
         fs::create_dir_all(&present).unwrap();
         assert_eq!(pick_app(Some("/no/such/app"), &[present]), None);
+        let _ = fs::remove_dir_all(&c.base_dir);
+    }
+
+    #[test]
+    fn cloning_needs_a_source_config() {
+        assert_eq!(plan_clone(false, false, false), ClonePlan::NoSource);
+        // Even --force can't copy a file that isn't there.
+        assert_eq!(plan_clone(false, true, true), ClonePlan::NoSource);
+    }
+
+    #[test]
+    fn an_existing_destination_config_is_kept_unless_forced() {
+        // The file holds MCP servers someone configured by hand; silently
+        // replacing it would be the worst possible default.
+        assert_eq!(plan_clone(true, true, false), ClonePlan::Keep);
+        assert_eq!(plan_clone(true, true, true), ClonePlan::Copy);
+    }
+
+    #[test]
+    fn an_empty_destination_is_copied_into() {
+        assert_eq!(plan_clone(true, false, false), ClonePlan::Copy);
+    }
+
+    #[test]
+    fn clone_config_writes_the_file_and_leaves_no_staging_behind() {
+        let c = temp_config("clone");
+        let src = profile_path(&c, "source");
+        let dst = profile_path(&c, "target");
+        fs::create_dir_all(&src).unwrap();
+        let body = r#"{"mcpServers":{"docker":{"command":"docker"}}}"#;
+        fs::write(src.join(CONFIG_FILE), body).unwrap();
+
+        let bytes = clone_config(&src, &dst).unwrap();
+        assert_eq!(bytes as usize, body.len());
+        assert_eq!(fs::read_to_string(dst.join(CONFIG_FILE)).unwrap(), body);
+        assert!(
+            !dst.join("claude_desktop_config.json.part").exists(),
+            "staging file survived"
+        );
+        let _ = fs::remove_dir_all(&c.base_dir);
+    }
+
+    #[test]
+    fn clone_config_replaces_rather_than_appends() {
+        // Regression shape: a plain write over a longer existing file would
+        // leave the old tail behind.
+        let c = temp_config("clone-over");
+        let src = profile_path(&c, "source");
+        let dst = profile_path(&c, "target");
+        fs::create_dir_all(&src).unwrap();
+        fs::create_dir_all(&dst).unwrap();
+        fs::write(src.join(CONFIG_FILE), "{}").unwrap();
+        fs::write(dst.join(CONFIG_FILE), r#"{"mcpServers":{"old":{}}}"#).unwrap();
+
+        clone_config(&src, &dst).unwrap();
+        assert_eq!(fs::read_to_string(dst.join(CONFIG_FILE)).unwrap(), "{}");
         let _ = fs::remove_dir_all(&c.base_dir);
     }
 

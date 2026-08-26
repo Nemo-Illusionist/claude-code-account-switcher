@@ -78,7 +78,16 @@ _claude_acc_completion() {
     # The value of a flag that takes one. Checked before anything positional:
     # `--to <TAB>` wants an account, whatever word number it lands on.
     case "$prev" in
-        --to|--from)
+        --from)
+            # `session copy --from` takes an account; `desktop` takes a profile.
+            if [[ "$cmd" == desktop ]]; then
+                _claude_acc_profiles
+            else
+                _claude_acc_accounts with-default
+            fi
+            return
+            ;;
+        --to)
             _claude_acc_accounts with-default
             return
             ;;
@@ -97,7 +106,7 @@ _claude_acc_completion() {
             doctor) flags=('--json:Output as JSON') ;;
             update) flags=('--check:Only check, do not download' '--version:Install a specific version') ;;
             session) flags=('--to:Destination account' '--from:Source account' '--force:Skip confirmation' '-f:Skip confirmation') ;;
-            desktop) flags=('--force:Skip confirmation' '-f:Skip confirmation') ;;
+            desktop) flags=('--seed:Seed MCP config from the app profile' '-s:Seed MCP config from the app profile' '--from:Copy the config from this profile' '--force:Skip confirmation / replace' '-f:Skip confirmation / replace') ;;
         esac
         (( ${#flags} )) && _describe 'option' flags
         return
@@ -118,6 +127,7 @@ _claude_acc_completion() {
             desktop)
                 subsubs=(
                     'add:Create a profile and sign in'
+                    'clone-config:Copy MCP servers into a profile'
                     'list:List desktop profiles'
                     'run:Open Claude Desktop on a profile'
                     'remove:Delete a profile'
@@ -142,7 +152,7 @@ _claude_acc_completion() {
             # `desktop add <name>` is a new name; run/remove take an existing one.
             desktop)
                 case "${words[3]}" in
-                    run|remove) _claude_acc_profiles ;;
+                    run|remove|clone-config) _claude_acc_profiles ;;
                 esac
                 ;;
         esac

@@ -136,7 +136,7 @@ _claude_msg_en=(
     links_header        "Links:"
     links_active        "← active"
     help_desktop        "Manage Claude Desktop profiles"
-    desktop_usage       "Usage: claude-acc desktop add|list|run|remove [<name>]"
+    desktop_usage       "Usage: claude-acc desktop add|clone-config|list|run|remove [<name>]"
     desktop_app_not_found "Claude.app not found in /Applications or ~/Applications. Set CLAUDE_ACC_DESKTOP_APP to its path."
     desktop_no_default  "'default' isn't a desktop profile — that's the app's own, which you open as usual."
     desktop_exists      "Desktop profile '%s' already exists."
@@ -156,6 +156,11 @@ _claude_msg_en=(
     desktop_remove_confirm "Delete profile '%s'? [y/N] "
     desktop_remove_cancelled "Cancelled."
     desktop_removed     "Desktop profile '%s' deleted."
+    desktop_clone_no_source "%s has no claude_desktop_config.json to copy."
+    desktop_clone_keep  "This profile already has a claude_desktop_config.json. Replace it with --force."
+    desktop_clone_done  "MCP servers and preferences copied from %s."
+    desktop_clone_auth_note "Server definitions only — any that sign in separately will ask for that again in the new profile."
+    desktop_clone_failed "Could not copy the config."
 )
 
 _claude_msg_ru=(
@@ -249,7 +254,7 @@ _claude_msg_ru=(
     links_header        "Привязки:"
     links_active        "← активна"
     help_desktop        "Профили Claude Desktop"
-    desktop_usage       "Использование: claude-acc desktop add|list|run|remove [<name>]"
+    desktop_usage       "Использование: claude-acc desktop add|clone-config|list|run|remove [<name>]"
     desktop_app_not_found "Claude.app не найден в /Applications или ~/Applications. Укажите путь в CLAUDE_ACC_DESKTOP_APP."
     desktop_no_default  "'default' — не профиль десктопа: это собственный профиль приложения, откройте его как обычно."
     desktop_exists      "Профиль десктопа '%s' уже существует."
@@ -269,6 +274,11 @@ _claude_msg_ru=(
     desktop_remove_confirm "Удалить профиль '%s'? [y/N] "
     desktop_remove_cancelled "Отменено."
     desktop_removed     "Профиль десктопа '%s' удалён."
+    desktop_clone_no_source "В %s нет claude_desktop_config.json — копировать нечего."
+    desktop_clone_keep  "У этого профиля уже есть claude_desktop_config.json. Заменить — с --force."
+    desktop_clone_done  "MCP-серверы и настройки скопированы из %s."
+    desktop_clone_auth_note "Скопированы только описания серверов — те, что логинятся отдельно, попросят вход и в новом профиле."
+    desktop_clone_failed "Не удалось скопировать конфиг."
 )
 
 _msg() {
@@ -508,7 +518,7 @@ _claude_acc_help() {
     echo "  claude-acc add -s <name>     $(_msg help_add) (seeded from ~/.claude/)"
     echo "  claude-acc clone-settings <name>  $(_msg help_clone_settings)"
     echo "  claude-acc import <name> <path>   $(_msg help_import)"
-    echo "  claude-acc desktop add|list|run|remove [<name>]  $(_msg help_desktop)"
+    echo "  claude-acc desktop add|clone-config|list|run|remove [<name>]  $(_msg help_desktop)"
 }
 
 _claude_acc_list() {
@@ -983,7 +993,13 @@ _claude_acc_desktop_name_ok() {
 }
 
 _claude_acc_desktop_add() {
-    local name="$1"
+    local seed_flag=0 name=""
+    while (( $# > 0 )); do
+        case "$1" in
+            -s|--seed) seed_flag=1; shift ;;
+            *)         name="$1"; shift ;;
+        esac
+    done
     _claude_acc_desktop_name_ok "$name" || return 1
 
     local profile="$CLAUDE_SWITCH_DESKTOP_DIR/$name"
@@ -1001,6 +1017,9 @@ _claude_acc_desktop_add() {
 
     mkdir -p "$profile" || return 1
     _msg desktop_created "$name"
+    # A fresh profile has no config, so nothing can be overwritten — and a
+    # failed seed is not a reason to withhold the profile itself.
+    (( seed_flag )) && _claude_acc_desktop_seed "$profile" "" false
     _msg desktop_signin_hint
     _msg desktop_disk_note
     _claude_acc_desktop_launch "$app" "$profile" || return 1
@@ -1085,16 +1104,87 @@ _claude_acc_desktop_remove() {
     _msg desktop_removed "$name"
 }
 
+# --- Seed a profile's MCP servers / preferences ---
+# The file lives inside the user-data dir, so a new profile starts without
+# one. Copying is via a staging file so an interrupted copy can't leave the
+# destination holding half a config; cp preserves the source mode, which
+# matters because the file can hold MCP credentials and is 0600.
+CLAUDE_DESKTOP_CONFIG_FILE="claude_desktop_config.json"
+CLAUDE_DESKTOP_STANDARD_LABEL="~/Library/…/Claude/"
+
+_claude_acc_desktop_seed() {
+    local profile="$1" from="$2" force="$3"
+    local source label
+
+    if [[ -n "$from" ]]; then
+        _claude_acc_desktop_name_ok "$from" || return 1
+        source="$CLAUDE_SWITCH_DESKTOP_DIR/$from"
+        if [[ ! -d "$source" ]]; then
+            _msg desktop_not_found "$from" "$from"
+            return 1
+        fi
+        label="$from"
+    else
+        source="$HOME/Library/Application Support/Claude"
+        label="$CLAUDE_DESKTOP_STANDARD_LABEL"
+    fi
+
+    if [[ ! -f "$source/$CLAUDE_DESKTOP_CONFIG_FILE" ]]; then
+        _msg desktop_clone_no_source "$label"
+        return 1
+    fi
+    if [[ -f "$profile/$CLAUDE_DESKTOP_CONFIG_FILE" && "$force" != true ]]; then
+        _msg desktop_clone_keep
+        return 1
+    fi
+
+    local staged="$profile/$CLAUDE_DESKTOP_CONFIG_FILE.part"
+    rm -f "$staged"
+    if ! cp -p "$source/$CLAUDE_DESKTOP_CONFIG_FILE" "$staged"; then
+        _msg desktop_clone_failed
+        return 1
+    fi
+    mv -f "$staged" "$profile/$CLAUDE_DESKTOP_CONFIG_FILE" || {
+        _msg desktop_clone_failed
+        return 1
+    }
+    _msg desktop_clone_done "$label"
+    _msg desktop_clone_auth_note
+}
+
+_claude_acc_desktop_clone_config() {
+    local from="" force=false
+    local -a rest
+    while (( $# > 0 )); do
+        case "$1" in
+            --from)        from="$2"; shift 2 ;;
+            -f|--force)    force=true; shift ;;
+            *)             rest+=("$1"); shift ;;
+        esac
+    done
+
+    local name="${rest[1]}"
+    _claude_acc_desktop_name_ok "$name" || return 1
+
+    local profile="$CLAUDE_SWITCH_DESKTOP_DIR/$name"
+    if [[ ! -d "$profile" ]]; then
+        _msg desktop_not_found "$name" "$name"
+        return 1
+    fi
+    _claude_acc_desktop_seed "$profile" "$from" "$force"
+}
+
 _claude_acc_desktop() {
     local action="$1"
     shift 2>/dev/null
 
     case "$action" in
-        add)    _claude_acc_desktop_add "$@" ;;
-        list)   _claude_acc_desktop_list ;;
-        run)    _claude_acc_desktop_run "$@" ;;
-        remove) _claude_acc_desktop_remove "$@" ;;
-        *)      _msg desktop_usage; return 1 ;;
+        add)          _claude_acc_desktop_add "$@" ;;
+        clone-config) _claude_acc_desktop_clone_config "$@" ;;
+        list)         _claude_acc_desktop_list ;;
+        run)          _claude_acc_desktop_run "$@" ;;
+        remove)       _claude_acc_desktop_remove "$@" ;;
+        *)            _msg desktop_usage; return 1 ;;
     esac
 }
 
@@ -1843,7 +1933,7 @@ _claude_acc_completion() {
                 ;;
             desktop)
                 local -a desktop_actions
-                desktop_actions=(add list run remove)
+                desktop_actions=(add clone-config list run remove)
                 _describe 'action' desktop_actions
                 ;;
         esac
@@ -1853,7 +1943,7 @@ _claude_acc_completion() {
     elif (( CURRENT == 4 )) && [[ "${words[2]}" == "desktop" ]]; then
         # desktop add <name> is a new name; run/remove take an existing one.
         case "${words[3]}" in
-            run|remove)
+            run|remove|clone-config)
                 local -a profiles
                 profiles=("$CLAUDE_SWITCH_DESKTOP_DIR"/*(N/:t))
                 _describe 'profile' profiles
