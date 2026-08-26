@@ -55,21 +55,110 @@ pub fn list_profiles(config: &AppConfig) -> io::Result<Vec<String>> {
 
 /// The app's own, unmanaged profile — the one it uses when launched normally.
 /// Shown for orientation; never written to.
+///
+/// Electron's `userData` default, per platform. On Windows this is the plain
+/// install's location; a Store install keeps its own copy inside the package
+/// container (see `packaged_install`), which we never touch.
 pub fn standard_profile() -> Option<PathBuf> {
     #[cfg(target_os = "macos")]
     {
         dirs::home_dir().map(|h| h.join("Library/Application Support/Claude"))
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(windows)]
     {
-        None
+        // %APPDATA%\Claude
+        dirs::data_dir().map(|d| d.join("Claude"))
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        // ~/.config/Claude — what the community Linux packages use.
+        dirs::config_dir().map(|d| d.join("Claude"))
     }
 }
 
-/// Whether this platform can launch the desktop app yet. Locating the
-/// executable is the whole of the per-platform work — Windows and Linux are
-/// tracked separately in #75.
-pub fn supported() -> bool {
+/// The abbreviated path `list` uses for the app's own profile.
+pub fn standard_label() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "~/Library/…/Claude/"
+    } else if cfg!(windows) {
+        "%APPDATA%\\Claude\\"
+    } else {
+        "~/.config/Claude/"
+    }
+}
+
+/// Whether the Store (MSIX) build is installed: `%LOCALAPPDATA%\Packages\`
+/// holds a `Claude_*` directory.
+///
+/// It matters because that build cannot be driven this way. Its executable
+/// sits under `WindowsApps`, is activated through `shell:AppsFolder` rather
+/// than run directly — which is no way to pass a command-line switch — and
+/// the package container redirects file paths, so even a switch that arrived
+/// would not point where it says. Refusing is the only safe answer: the
+/// failure mode of guessing is opening the real profile while claiming to
+/// have opened another one.
+pub fn packaged_install() -> bool {
+    #[cfg(windows)]
+    {
+        dirs::data_local_dir().is_some_and(|d| has_claude_package(&d.join("Packages")))
+    }
+    #[cfg(not(windows))]
+    {
+        false
+    }
+}
+
+/// The newest `app-<version>` directory under a Squirrel install root, by
+/// name — Squirrel's own ordering, and the versions sort correctly as strings
+/// only within a major, so the comparison is on the whole name and ties go to
+/// the later entry. Split out to be testable off Windows.
+#[cfg_attr(not(windows), allow(dead_code))] // Windows-only, tested everywhere
+fn newest_squirrel_app(root: &Path) -> Option<PathBuf> {
+    let mut apps: Vec<PathBuf> = fs::read_dir(root)
+        .ok()?
+        .filter_map(Result::ok)
+        .filter(|e| {
+            e.file_name()
+                .to_str()
+                .is_some_and(|n| n.starts_with("app-"))
+        })
+        .map(|e| e.path())
+        .collect();
+    apps.sort();
+    apps.pop()
+}
+
+/// The first `name` on `PATH`. `Command` would resolve it too, but knowing
+/// the absolute path up front is what lets `find_app` report "not installed"
+/// instead of failing at launch.
+#[cfg_attr(any(target_os = "macos", windows), allow(dead_code))] // Linux-only
+fn on_path(name: &str) -> Option<PathBuf> {
+    std::env::var_os("PATH").and_then(|paths| {
+        std::env::split_paths(&paths)
+            .map(|dir| dir.join(name))
+            .find(|candidate| candidate.is_file())
+    })
+}
+
+/// A `Claude_*` entry directly under `packages_root`. Split out so the
+/// matching is testable off Windows.
+#[cfg_attr(not(windows), allow(dead_code))] // Windows-only, tested everywhere
+fn has_claude_package(packages_root: &Path) -> bool {
+    let Ok(entries) = fs::read_dir(packages_root) else {
+        return false;
+    };
+    entries.filter_map(Result::ok).any(|e| {
+        e.file_name()
+            .to_str()
+            .is_some_and(|n| n.starts_with("Claude_"))
+    })
+}
+
+/// Whether reading a profile's identity works here. The credential scheme is
+/// Chromium's, but the way the key is stored is not: macOS uses the Keychain,
+/// Windows DPAPI, Linux libsecret or a plaintext fallback. Only the macOS
+/// half is implemented — see #75.
+pub fn identity_supported() -> bool {
     cfg!(target_os = "macos")
 }
 
@@ -99,34 +188,86 @@ fn app_candidates() -> Vec<PathBuf> {
         }
         paths
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(windows)]
     {
-        Vec::new()
+        // The Squirrel install: a stub launcher at the top level and the real
+        // binary in a versioned `app-<version>` directory beside it. The
+        // versioned one is preferred — the stub has been reported to need
+        // extra arguments of its own — and the newest is taken because
+        // Squirrel leaves the previous version in place after an update.
+        //
+        // The Store build is deliberately absent; see `packaged_install`.
+        let Some(root) = dirs::data_local_dir().map(|d| d.join("AnthropicClaude")) else {
+            return Vec::new();
+        };
+        let mut paths = newest_squirrel_app(&root)
+            .map(|dir| vec![dir.join("claude.exe")])
+            .unwrap_or_default();
+        paths.push(root.join("claude.exe"));
+        paths
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        // The official Linux package installs `claude-desktop` on PATH. The
+        // docs never give an absolute path, so PATH is the source of truth
+        // and the fixed paths are only a fallback.
+        let mut paths: Vec<PathBuf> = Vec::new();
+        if let Some(found) = on_path("claude-desktop") {
+            paths.push(found);
+        }
+        paths.push(PathBuf::from("/usr/bin/claude-desktop"));
+        paths.push(PathBuf::from("/usr/local/bin/claude-desktop"));
+        paths
     }
 }
 
 /// The command that opens `app` on `profile`.
-///
-/// `open -n` is what makes concurrent instances possible: it starts a new
-/// process rather than activating the running one, and everything after
-/// `--args` is handed to the app itself.
 pub fn launch_command(app: &Path, profile: &Path) -> Command {
-    let mut cmd = Command::new("open");
-    cmd.arg("-n")
-        .arg("-a")
-        .arg(app)
-        .arg("--args")
-        .arg(format!("--user-data-dir={}", profile.display()));
+    let (program, args) = launch_argv(app, profile, cfg!(target_os = "macos"));
+    let mut cmd = Command::new(program);
+    cmd.args(args);
     cmd
+}
+
+/// Program and arguments for a launch, split out so the argument order can be
+/// tested for both platforms from either one.
+///
+/// macOS goes through `open -n`, which is what makes concurrent instances
+/// possible: it starts a new process instead of activating the running one,
+/// and hands everything after `--args` to the app. `.app` is a directory, so
+/// there is nothing to execute directly there anyway.
+///
+/// Everywhere else `app` is a real executable and the switch goes straight to
+/// it — a child process rather than a detached launch, which is why the
+/// caller must not wait on it.
+fn launch_argv(app: &Path, profile: &Path, via_open: bool) -> (PathBuf, Vec<String>) {
+    let switch = format!("--user-data-dir={}", profile.display());
+    if via_open {
+        return (
+            PathBuf::from("open"),
+            vec![
+                "-n".to_string(),
+                "-a".to_string(),
+                app.to_string_lossy().into_owned(),
+                "--args".to_string(),
+                switch,
+            ],
+        );
+    }
+    (app.to_path_buf(), vec![switch])
+}
+
+/// Whether the launch detaches on its own. `open` returns as soon as the app
+/// is up, so waiting on it is cheap and reports real failures; running the
+/// executable directly means waiting would block for as long as the app is
+/// open.
+pub fn launch_detaches() -> bool {
+    cfg!(target_os = "macos")
 }
 
 /// The app's MCP servers and preferences, inside the profile directory. New
 /// profiles start without one.
 pub const CONFIG_FILE: &str = "claude_desktop_config.json";
-
-/// How the profile is shown in a message: managed profiles by name, the app's
-/// own by the abbreviated path `list` already uses for it.
-pub const STANDARD_LABEL: &str = "~/Library/…/Claude/";
 
 #[derive(Debug, PartialEq)]
 pub enum ClonePlan {
@@ -276,12 +417,16 @@ mod tests {
     fn launch_passes_the_profile_after_args() {
         // Order matters: anything before `--args` is consumed by `open`
         // itself, so a misplaced switch would silently do nothing.
-        let cmd = launch_command(Path::new("/Applications/Claude.app"), Path::new("/tmp/p"));
-        let args: Vec<String> = cmd
-            .get_args()
-            .map(|a| a.to_string_lossy().into_owned())
-            .collect();
-        assert_eq!(cmd.get_program(), "open");
+        //
+        // `via_open` is passed explicitly rather than going through
+        // `launch_command`, so the macOS form is asserted on every platform
+        // — the point of splitting `launch_argv` out in the first place.
+        let (program, args) = launch_argv(
+            Path::new("/Applications/Claude.app"),
+            Path::new("/tmp/p"),
+            true,
+        );
+        assert_eq!(program, PathBuf::from("open"));
         assert_eq!(
             args,
             vec![
@@ -295,17 +440,34 @@ mod tests {
     }
 
     #[test]
+    fn launch_command_uses_the_form_this_platform_needs() {
+        // The wiring between the two, asserted without hardcoding either
+        // platform's answer into the expectation.
+        let app = Path::new("/somewhere/Claude");
+        let profile = Path::new("/tmp/p");
+        let cmd = launch_command(app, profile);
+        let (program, args) = launch_argv(app, profile, cfg!(target_os = "macos"));
+        assert_eq!(cmd.get_program(), program.as_os_str());
+        let actual: Vec<String> = cmd
+            .get_args()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(actual, args);
+    }
+
+    #[test]
     fn a_profile_path_with_a_space_stays_one_argument() {
         // No shell is involved, so the path needs no quoting — and must not
         // get any, or the app would look for a directory named `"..."`.
-        let cmd = launch_command(Path::new("/Applications/Claude.app"), Path::new("/tmp/a b"));
-        let last = cmd
-            .get_args()
-            .last()
-            .unwrap()
-            .to_string_lossy()
-            .into_owned();
-        assert_eq!(last, "--user-data-dir=/tmp/a b");
+        // True of both launch forms, hence the loop.
+        for via_open in [true, false] {
+            let (_, args) = launch_argv(
+                Path::new("/Applications/Claude.app"),
+                Path::new("/tmp/a b"),
+                via_open,
+            );
+            assert_eq!(args.last().unwrap(), "--user-data-dir=/tmp/a b");
+        }
     }
 
     #[test]
@@ -391,6 +553,61 @@ mod tests {
         clone_config(&src, &dst).unwrap();
         assert_eq!(fs::read_to_string(dst.join(CONFIG_FILE)).unwrap(), "{}");
         let _ = fs::remove_dir_all(&c.base_dir);
+    }
+
+    #[test]
+    fn launch_runs_the_executable_directly_where_there_is_no_open() {
+        // Windows and Linux have a real binary to run; `open` is macOS's.
+        let (program, args) =
+            launch_argv(Path::new("/usr/bin/claude-desktop"), Path::new("/p"), false);
+        assert_eq!(program, PathBuf::from("/usr/bin/claude-desktop"));
+        assert_eq!(args, vec!["--user-data-dir=/p"]);
+    }
+
+    #[test]
+    fn the_newest_squirrel_app_directory_wins() {
+        // Squirrel leaves the previous version in place after an update, so
+        // "whatever read_dir happens to yield first" would be a coin flip
+        // between the new binary and the old one.
+        let c = temp_config("squirrel");
+        let root = c.base_dir.join("AnthropicClaude");
+        for name in ["app-1.7196.1", "app-1.24012.9", "packages", "Update.exe"] {
+            fs::create_dir_all(root.join(name)).unwrap();
+        }
+        assert_eq!(
+            newest_squirrel_app(&root),
+            Some(root.join("app-1.7196.1")),
+            "sorted by name, which is Squirrel's own ordering"
+        );
+        let _ = fs::remove_dir_all(&c.base_dir);
+    }
+
+    #[test]
+    fn a_squirrel_root_without_app_directories_yields_nothing() {
+        let c = temp_config("squirrel-empty");
+        let root = c.base_dir.join("AnthropicClaude");
+        fs::create_dir_all(root.join("packages")).unwrap();
+        assert_eq!(newest_squirrel_app(&root), None);
+        assert_eq!(newest_squirrel_app(&c.base_dir.join("nope")), None);
+        let _ = fs::remove_dir_all(&c.base_dir);
+    }
+
+    #[test]
+    fn a_store_package_directory_is_recognised() {
+        // The version and hash of the package name vary, so only the prefix
+        // can be matched — hardcoding the family name would go stale.
+        let c = temp_config("packages");
+        let packages = c.base_dir.join("Packages");
+        fs::create_dir_all(packages.join("Microsoft.WindowsStore_8wekyb3d8bbwe")).unwrap();
+        assert!(!has_claude_package(&packages), "unrelated packages only");
+        fs::create_dir_all(packages.join("Claude_1.7196.1.0_x64__pzs8sxrjxfjjc")).unwrap();
+        assert!(has_claude_package(&packages));
+        let _ = fs::remove_dir_all(&c.base_dir);
+    }
+
+    #[test]
+    fn a_missing_packages_root_is_not_a_store_install() {
+        assert!(!has_claude_package(Path::new("/no/such/Packages")));
     }
 
     #[test]

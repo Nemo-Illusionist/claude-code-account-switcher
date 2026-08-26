@@ -6,16 +6,20 @@ use std::fs;
 use std::io::{self, Write};
 use std::path::PathBuf;
 
-/// The app, once both "this platform is supported" and "the app is installed"
-/// have been established. Every launching command needs the same two answers.
+/// The installed app, or `None` with the reason already printed. Every
+/// launching command needs the same answer.
 fn require_app(i18n: &I18n) -> Option<PathBuf> {
-    if !desktop::supported() {
-        i18n.print(Msg::DesktopUnsupported);
-        return None;
-    }
     let app = desktop::find_app();
     if app.is_none() {
-        i18n.print(Msg::DesktopAppNotFound);
+        // A Store install is present but unusable, which is a different
+        // problem from not having the app at all — and saying so is the
+        // whole point, since the alternative is a user wondering why a
+        // clearly-installed app "isn't found".
+        if desktop::packaged_install() {
+            i18n.print(Msg::DesktopStorePackage);
+        } else {
+            i18n.print(Msg::DesktopAppNotFound);
+        }
     }
     app
 }
@@ -35,10 +39,22 @@ fn require_name(i18n: &I18n, name: &str) -> bool {
 }
 
 fn launch(i18n: &I18n, app: &std::path::Path, profile: &std::path::Path) -> i32 {
+    let mut cmd = desktop::launch_command(app, profile);
+    if !desktop::launch_detaches() {
+        // The app itself is the child here, and it lives as long as its
+        // window does — waiting would hang the terminal for the session.
+        return match cmd.spawn() {
+            Ok(_) => 0,
+            Err(e) => {
+                i18n.print(Msg::DesktopLaunchFailed(e.to_string()));
+                1
+            }
+        };
+    }
     // `open` returns as soon as the app is up, so waiting costs a moment and
     // buys a real exit status — spawning instead would report success even
     // when the app failed to start.
-    match desktop::launch_command(app, profile).status() {
+    match cmd.status() {
         Ok(status) if status.success() => 0,
         Ok(status) => {
             i18n.print(Msg::DesktopLaunchFailed(status.to_string()));
@@ -70,7 +86,7 @@ fn source_profile(
             Some((desktop::profile_path(config, name), name.to_string()))
         }
         None => match desktop::standard_profile() {
-            Some(path) => Some((path, desktop::STANDARD_LABEL.to_string())),
+            Some(path) => Some((path, desktop::standard_label().to_string())),
             None => {
                 i18n.print(Msg::DesktopUnsupported);
                 None
@@ -171,6 +187,7 @@ pub fn add(config: &AppConfig, i18n: &I18n, name: &str, seed: bool) -> i32 {
     }
 
     i18n.print(Msg::DesktopSignInHint);
+    i18n.print(Msg::DesktopSignInAloneWarning);
     i18n.print(Msg::DesktopDiskNote);
     let code = launch(i18n, &app, &profile);
     if code == 0 {
@@ -214,7 +231,7 @@ pub fn list(config: &AppConfig, i18n: &I18n) -> i32 {
     {
         println!(
             "    {}  {}",
-            desktop::STANDARD_LABEL,
+            desktop::standard_label(),
             i18n.msg(Msg::DesktopStandard)
         );
     }
@@ -253,8 +270,8 @@ pub fn usage(config: &AppConfig, i18n: &I18n) -> i32 {
         i18n.print(Msg::DesktopListEmpty);
         return 0;
     }
-    if !desktop::supported() {
-        i18n.print(Msg::DesktopUnsupported);
+    if !desktop::identity_supported() {
+        i18n.print(Msg::DesktopIdentityMacOnly);
         return 1;
     }
 

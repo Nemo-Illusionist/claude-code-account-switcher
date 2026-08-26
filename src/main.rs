@@ -105,7 +105,7 @@ enum Commands {
         #[command(subcommand)]
         action: SessionCommands,
     },
-    /// Manage Claude Desktop profiles (macOS)
+    /// Manage Claude Desktop profiles
     ///
     /// Each profile is a separate app data directory, so profiles are signed
     /// in to different accounts and — unlike CLI accounts — can run side by
@@ -182,7 +182,7 @@ enum DesktopCommands {
     },
     /// List desktop profiles
     List,
-    /// Show the account and rate-limit usage behind every profile
+    /// Show the account and rate-limit usage behind every profile (macOS)
     ///
     /// Needs each profile's token, so macOS asks for the login keychain
     /// password once — `list` never does.

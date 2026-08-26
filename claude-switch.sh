@@ -144,6 +144,7 @@ _claude_msg_en=(
     desktop_not_found   "Desktop profile '%s' not found. Create it: claude-acc desktop add %s"
     desktop_created     "Desktop profile '%s' created. Opening Claude on it..."
     desktop_signin_hint "It opens signed out — sign in there with the account for this profile."
+    desktop_signin_alone "Close your other Claude windows first: signing in finishes through a claude:// link, which the system hands to whichever window it likes — sign in with two open and both can end up on the same account."
     desktop_disk_note   "The profile is fully isolated, so the app re-downloads its sandbox images into it — expect several GB."
     desktop_hint_run    "Open it again later:  claude-acc desktop run %s"
     desktop_list_empty  "No desktop profiles. Add one: claude-acc desktop add <name>"
@@ -263,6 +264,7 @@ _claude_msg_ru=(
     desktop_not_found   "Профиль десктопа '%s' не найден. Создать: claude-acc desktop add %s"
     desktop_created     "Профиль десктопа '%s' создан. Открываю Claude на нём..."
     desktop_signin_hint "Оно откроется без входа — войдите там под аккаунтом для этого профиля."
+    desktop_signin_alone "Сначала закройте остальные окна Claude: вход завершается переходом по ссылке claude://, а её система отдаёт любому из открытых окон — при двух открытых оба могут оказаться на одном аккаунте."
     desktop_disk_note   "Профиль полностью изолирован, поэтому приложение заново скачает в него образы песочницы — это несколько ГБ."
     desktop_hint_run    "Открыть его позже:  claude-acc desktop run %s"
     desktop_list_empty  "Нет профилей десктопа. Добавьте: claude-acc desktop add <name>"
@@ -1035,6 +1037,7 @@ _claude_acc_desktop_add() {
     # failed seed is not a reason to withhold the profile itself.
     (( seed_flag )) && _claude_acc_desktop_seed "$profile" "" false
     _msg desktop_signin_hint
+    _msg desktop_signin_alone
     _msg desktop_disk_note
     _claude_acc_desktop_launch "$app" "$profile" || return 1
     echo ""
