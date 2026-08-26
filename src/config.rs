@@ -12,6 +12,14 @@ pub fn validate_name(name: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
 }
 
+/// Whether `name` is the reserved "default" name — not a real managed
+/// account directory, used across commands to mean "the standard ~/.claude
+/// account". `add`, `remove`, and `clone-settings` reject it as a target
+/// (there's nothing to add/remove/clone-into for the standard account).
+pub fn is_reserved_name(name: &str) -> bool {
+    name == "default"
+}
+
 pub struct AppConfig {
     pub base_dir: PathBuf,
 }
@@ -223,5 +231,13 @@ mod tests {
     fn validate_name_rejects_unicode() {
         assert!(!validate_name("работа"));
         assert!(!validate_name("café"));
+    }
+
+    #[test]
+    fn is_reserved_name_matches_only_default() {
+        assert!(is_reserved_name("default"));
+        assert!(!is_reserved_name("work"));
+        assert!(!is_reserved_name("Default"));
+        assert!(!is_reserved_name(""));
     }
 }

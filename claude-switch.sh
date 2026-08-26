@@ -828,6 +828,10 @@ _claude_acc_clone_settings() {
         _msg clone_settings_usage
         return 1
     fi
+    if [[ "$name" == "default" ]]; then
+        _msg reserved_name "$name"
+        return 1
+    fi
     _claude_validate_name "$name" || return 1
     local acc_dir="$CLAUDE_SWITCH_ACCOUNTS_DIR/$name"
     if [[ ! -d "$acc_dir" ]]; then
