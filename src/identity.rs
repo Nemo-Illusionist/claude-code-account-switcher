@@ -60,6 +60,43 @@ pub fn default_cache_path(switch_dir: &Path) -> PathBuf {
     switch_dir.join("default.account-info.json")
 }
 
+/// Does `(uuid, email)` identify the same account as `cached`? Uuid is the
+/// stable signal and takes priority; email is compared case-insensitively as
+/// a fallback for a `cached` entry that predates uuid caching. Pure — no I/O.
+fn identity_matches(uuid: Option<&str>, email: Option<&str>, cached: &CachedInfo) -> bool {
+    let uuid_match = uuid.is_some() && uuid == cached.uuid.as_deref();
+    if uuid_match {
+        return true;
+    }
+    email.is_some()
+        && email.map(str::to_lowercase) == cached.email.as_deref().map(str::to_lowercase)
+}
+
+/// Best-effort duplicate-account hint: audits `new_dir`'s live identity (also
+/// refreshing its cache, as a side effect of `audit_account`) and compares it
+/// against the *cached* identity of every account in `known` — each
+/// `(label, cache_path)` pair, caller-supplied so it can point at either a
+/// managed account's `.account-info.json` or the standard account's
+/// `default.account-info.json` under whatever label it wants shown (e.g.
+/// "~/.claude/"). Caller must exclude `new_dir` itself from `known`.
+///
+/// Returns the label of the first match, or `None` if `new_dir` can't be
+/// freshly audited (offline / no token) or nothing matches. "Best-effort"
+/// because it only sees accounts a prior `doctor` run cached — one never
+/// audited won't be caught. Mirrors github.com/stablyai/orca's
+/// findDuplicateClaudeAccount, adapted to our CLI's synchronous, cache-based
+/// comparison (no daemon keeping identities warm).
+pub fn find_duplicate_account(new_dir: &Path, known: &[(String, PathBuf)]) -> Option<String> {
+    let AuditResult::Ok(profile) = audit_account(new_dir) else {
+        return None;
+    };
+    known.iter().find_map(|(label, cache_path)| {
+        let cached = read_cache_at(cache_path)?;
+        identity_matches(profile.uuid.as_deref(), profile.email.as_deref(), &cached)
+            .then(|| label.clone())
+    })
+}
+
 fn audit_at(token_dir: &Path, cache_path: &Path) -> AuditResult {
     let Some(token) = read_token(token_dir) else {
         return AuditResult::NoToken;
@@ -786,5 +823,69 @@ mod tests {
             "organization": {}
         });
         assert_eq!(derive_plan(&v), None);
+    }
+
+    fn cached(email: Option<&str>, uuid: Option<&str>) -> CachedInfo {
+        CachedInfo {
+            email: email.map(String::from),
+            uuid: uuid.map(String::from),
+            org: None,
+            fetched_at: None,
+            token_hash: None,
+            plan: None,
+        }
+    }
+
+    #[test]
+    fn identity_matches_by_uuid_regardless_of_email() {
+        let c = cached(Some("old@example.com"), Some("uuid-1"));
+        assert!(identity_matches(
+            Some("uuid-1"),
+            Some("new@example.com"),
+            &c
+        ));
+    }
+
+    #[test]
+    fn identity_matches_by_email_case_insensitively_when_uuid_absent() {
+        let c = cached(Some("Person@Example.com"), None);
+        assert!(identity_matches(None, Some("person@example.com"), &c));
+    }
+
+    #[test]
+    fn identity_matches_prefers_uuid_over_a_conflicting_email() {
+        // A stale cached email shouldn't cause a false mismatch when the
+        // uuid — the stable signal — actually agrees.
+        let c = cached(Some("stale@example.com"), Some("uuid-1"));
+        assert!(identity_matches(
+            Some("uuid-1"),
+            Some("current@example.com"),
+            &c
+        ));
+    }
+
+    #[test]
+    fn identity_matches_false_when_neither_uuid_nor_email_agree() {
+        let c = cached(Some("a@example.com"), Some("uuid-a"));
+        assert!(!identity_matches(Some("uuid-b"), Some("b@example.com"), &c));
+    }
+
+    #[test]
+    fn identity_matches_false_when_nothing_to_compare() {
+        let c = cached(None, None);
+        assert!(!identity_matches(None, None, &c));
+    }
+
+    #[test]
+    fn find_duplicate_account_none_when_new_dir_has_no_token() {
+        let new_dir =
+            std::env::temp_dir().join(format!("claude-acc-test-no-token-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&new_dir);
+        fs::create_dir_all(&new_dir).unwrap();
+
+        let result = find_duplicate_account(&new_dir, &[]);
+
+        let _ = fs::remove_dir_all(&new_dir);
+        assert_eq!(result, None);
     }
 }

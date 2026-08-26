@@ -32,7 +32,7 @@ fn build_login_command(acc_dir: Option<&Path>) -> Command {
 
 pub fn run(config: &AppConfig, i18n: &I18n, name: &str) {
     if name == "default" {
-        login_default(i18n);
+        login_default(config, i18n);
         return;
     }
 
@@ -57,19 +57,36 @@ pub fn run(config: &AppConfig, i18n: &I18n, name: &str) {
         .expect("Failed to run claude auth login");
     identity::restore_side_effect_keychain(keychain_snapshot);
 
+    warn_if_duplicate(config, i18n, name, &acc_dir);
+
     i18n.print(Msg::LoginDone);
 }
 
 /// Re-login the standard `~/.claude` account. No keychain snapshot/restore
 /// here — unlike logging into a *different* account, this login is meant to
 /// change the standard account's own credentials.
-fn login_default(i18n: &I18n) {
+fn login_default(config: &AppConfig, i18n: &I18n) {
     i18n.print(Msg::LoginStart("default".to_string()));
     build_login_command(None)
         .status()
         .expect("Failed to run claude auth login");
 
+    if let Some(dir) = identity::standard_token_dir() {
+        warn_if_duplicate(config, i18n, "~/.claude/", &dir);
+    }
+
     i18n.print(Msg::LoginDone);
+}
+
+/// Best-effort: hint if `label`'s just-refreshed login turned out to be the
+/// same identity as an already-known account (from a prior doctor run's
+/// cache — see identity::find_duplicate_account). Never blocks; just a
+/// heads-up.
+fn warn_if_duplicate(config: &AppConfig, i18n: &I18n, label: &str, acc_dir: &std::path::Path) {
+    let known = super::known_account_cache_paths(config, label);
+    if let Some(existing) = identity::find_duplicate_account(acc_dir, &known) {
+        i18n.print(Msg::DuplicateAccountWarning(label.to_string(), existing));
+    }
 }
 
 #[cfg(test)]
