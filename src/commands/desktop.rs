@@ -160,6 +160,77 @@ pub fn clone_config(
     )
 }
 
+/// Clone the downloaded runtime from another profile, so this one doesn't
+/// re-fetch ten and a half gigabytes of identical bytes.
+#[cfg(target_os = "macos")]
+pub fn clone_runtime(
+    config: &AppConfig,
+    i18n: &I18n,
+    name: &str,
+    from: Option<&str>,
+    force: bool,
+) -> i32 {
+    use crate::desktop_runtime as runtime;
+
+    if !require_name(i18n, name) {
+        return 1;
+    }
+    if !desktop::profile_exists(config, name) {
+        i18n.print(Msg::DesktopNotFound(name.to_string()));
+        return 1;
+    }
+    let Some((source, label)) = source_profile(config, i18n, from) else {
+        return 1;
+    };
+
+    let profile = desktop::profile_path(config, name);
+    let items = runtime::shareable(&source);
+    let plan = runtime::plan(
+        items.len(),
+        runtime::shareable(&profile).len(),
+        // An unresolvable path is treated as "not the same filesystem": the
+        // cautious answer, since the cost of being wrong is a real 10 GB copy.
+        runtime::same_device(&source, &profile).unwrap_or(false),
+        force,
+    );
+
+    match plan {
+        runtime::RuntimePlan::NoSource => {
+            i18n.print(Msg::DesktopRuntimeNoSource(label));
+            1
+        }
+        runtime::RuntimePlan::Keep => {
+            i18n.print(Msg::DesktopRuntimeKeep);
+            1
+        }
+        runtime::RuntimePlan::WouldCopy => {
+            i18n.print(Msg::DesktopRuntimeWouldCopy);
+            1
+        }
+        runtime::RuntimePlan::Clone => match runtime::clone_into(&source, &profile, &items) {
+            Ok(report) => {
+                i18n.print(Msg::DesktopRuntimeCloned(
+                    report.items.to_string(),
+                    crate::sessions::human_size(report.logical),
+                    label,
+                ));
+                match report.on_disk {
+                    Some(bytes) => {
+                        i18n.print(Msg::DesktopRuntimeCost(crate::sessions::human_size(bytes)))
+                    }
+                    None => i18n.print(Msg::DesktopRuntimeCostUnknown),
+                }
+                i18n.print(Msg::DesktopRuntimeUnverified);
+                0
+            }
+            Err(e) => {
+                i18n.print(Msg::DesktopRuntimeFailed(e.to_string()));
+                1
+            }
+        },
+    }
+}
+
 pub fn add(config: &AppConfig, i18n: &I18n, name: &str, seed: bool) -> i32 {
     if !require_name(i18n, name) {
         return 1;
@@ -189,6 +260,7 @@ pub fn add(config: &AppConfig, i18n: &I18n, name: &str, seed: bool) -> i32 {
     i18n.print(Msg::DesktopSignInHint);
     i18n.print(Msg::DesktopSignInAloneWarning);
     i18n.print(Msg::DesktopDiskNote);
+    i18n.print(Msg::DesktopDiskHint(name.to_string()));
     let code = launch(i18n, &app, &profile);
     if code == 0 {
         println!();

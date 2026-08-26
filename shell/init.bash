@@ -85,7 +85,7 @@ _claude_acc_complete() {
                 COMPREPLY=($(compgen -W "copy" -- "$cur"))
                 ;;
             desktop)
-                COMPREPLY=($(compgen -W "add clone-config list usage run remove" -- "$cur"))
+                COMPREPLY=($(compgen -W "add clone-config clone-runtime list usage run remove" -- "$cur"))
                 ;;
             resume-hook)
                 COMPREPLY=($(compgen -W "on off" -- "$cur"))
@@ -101,7 +101,7 @@ _claude_acc_complete() {
                 ;;
             # `desktop add <name>` is a new name; run/remove take an existing one.
             desktop)
-                [[ "$sub" == run || "$sub" == remove || "$sub" == clone-config ]] &&
+                [[ "$sub" == run || "$sub" == remove || "$sub" == clone-config || "$sub" == clone-runtime ]] &&
                     COMPREPLY=($(compgen -W "$('__CLAUDE_ACC_BIN__' completions desktop)" -- "$cur"))
                 ;;
         esac

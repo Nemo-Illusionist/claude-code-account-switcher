@@ -2,6 +2,9 @@ mod commands;
 mod config;
 mod desktop;
 mod desktop_auth;
+// APFS clonefile and /bin/cp -c; the whole mechanism is macOS's.
+#[cfg(target_os = "macos")]
+mod desktop_runtime;
 mod environment;
 mod i18n;
 mod ide;
@@ -180,6 +183,23 @@ enum DesktopCommands {
         #[arg(short, long)]
         force: bool,
     },
+    /// Clone another profile's downloaded runtime into this one (macOS)
+    ///
+    /// The Cowork sandbox images, the embedded Claude Code and its VM come to
+    /// ~10.5 GB and are identical between profiles. On APFS they are cloned
+    /// copy-on-write, so the copy costs nothing until it diverges and saves
+    /// the new profile re-downloading all of it. Per-VM identity and live
+    /// caches are not copied — the app makes its own.
+    #[cfg(target_os = "macos")]
+    CloneRuntime {
+        name: String,
+        /// Clone from this profile instead of the app's own
+        #[arg(long)]
+        from: Option<String>,
+        /// Replace runtime the profile already has
+        #[arg(short, long)]
+        force: bool,
+    },
     /// List desktop profiles
     List,
     /// Show the account and rate-limit usage behind every profile (macOS)
@@ -317,6 +337,10 @@ fn main() {
             }
             DesktopCommands::CloneConfig { name, from, force } => {
                 commands::desktop::clone_config(&config, &i18n, &name, from.as_deref(), force)
+            }
+            #[cfg(target_os = "macos")]
+            DesktopCommands::CloneRuntime { name, from, force } => {
+                commands::desktop::clone_runtime(&config, &i18n, &name, from.as_deref(), force)
             }
             DesktopCommands::List => commands::desktop::list(&config, &i18n),
             DesktopCommands::Usage => commands::desktop::usage(&config, &i18n),

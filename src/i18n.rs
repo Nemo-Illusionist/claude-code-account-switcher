@@ -662,12 +662,17 @@ impl I18n {
                 s("Оно откроется без входа — войдите там под аккаунтом для этого профиля.")
             }
             (Msg::DesktopDiskNote, Lang::En) => s(
-                "The profile is fully isolated, so the app re-downloads its \
-                 sandbox images into it — expect several GB.",
+                "The profile is fully isolated, so the app would re-download \
+                 its whole runtime into it — about 10.5 GB. To skip that, \
+                 clone it instead (free, on APFS):",
             ),
             (Msg::DesktopDiskNote, Lang::Ru) => {
                 s("Профиль полностью изолирован, поэтому приложение заново \
-                 скачает в него образы песочницы — это несколько ГБ.")
+                 скачало бы в него весь рантайм — около 10.5 ГБ. Чтобы этого \
+                 избежать, склонируйте его (на APFS это бесплатно):")
+            }
+            (Msg::DesktopDiskHint(ref n), _) => {
+                format!("  claude-acc desktop clone-runtime {}", n)
             }
             (Msg::DesktopHintRun(ref n), Lang::En) => {
                 format!("Open it again later:  claude-acc desktop run {}", n)
@@ -829,6 +834,66 @@ impl I18n {
                  исполняемый файл запускается только через активацию Store, \
                  а пакет подменяет пути к файлам. Установщик с \
                  claude.com/download — можно. См. issue #75.")
+            }
+            (Msg::DesktopRuntimeNoSource(ref n), Lang::En) => {
+                format!("{} has no downloaded runtime to clone.", n)
+            }
+            (Msg::DesktopRuntimeNoSource(ref n), Lang::Ru) => {
+                format!("В {} нет скачанного рантайма — клонировать нечего.", n)
+            }
+            (Msg::DesktopRuntimeKeep, Lang::En) => {
+                s("This profile already has a downloaded runtime. Replace it \
+                 with --force.")
+            }
+            (Msg::DesktopRuntimeKeep, Lang::Ru) => {
+                s("У этого профиля уже есть скачанный рантайм. Заменить — с \
+                 --force.")
+            }
+            (Msg::DesktopRuntimeWouldCopy, Lang::En) => s(
+                "The profile is on a different filesystem from the source, so \
+                 this would copy every byte instead of cloning it — the \
+                 opposite of the point. Not done.",
+            ),
+            (Msg::DesktopRuntimeWouldCopy, Lang::Ru) => {
+                s("Профиль лежит на другой файловой системе, чем источник, \
+                 поэтому вместо клонирования скопировался бы каждый байт — \
+                 ровно наоборот от смысла. Не выполнено.")
+            }
+            (Msg::DesktopRuntimeCloned(ref n, ref size, ref from), Lang::En) => format!(
+                "Cloned {} runtime component(s), {} logical, from {}.",
+                n, size, from
+            ),
+            (Msg::DesktopRuntimeCloned(ref n, ref size, ref from), Lang::Ru) => format!(
+                "Склонировано компонентов рантайма: {}, логически {}, из {}.",
+                n, size, from
+            ),
+            (Msg::DesktopRuntimeCost(ref size), Lang::En) => {
+                format!("Disk actually used: {}.", size)
+            }
+            (Msg::DesktopRuntimeCost(ref size), Lang::Ru) => {
+                format!("Реально занято на диске: {}.", size)
+            }
+            (Msg::DesktopRuntimeCostUnknown, Lang::En) => {
+                s("Couldn't measure what it cost on disk.")
+            }
+            (Msg::DesktopRuntimeCostUnknown, Lang::Ru) => {
+                s("Не удалось измерить, во сколько это обошлось на диске.")
+            }
+            (Msg::DesktopRuntimeUnverified, Lang::En) => s(
+                "Whether the app accepts a pre-seeded runtime is untested — \
+                 if this profile misbehaves, delete its vm_bundles/, \
+                 claude-code/ and claude-code-vm/, and it will fetch its own.",
+            ),
+            (Msg::DesktopRuntimeUnverified, Lang::Ru) => {
+                s("Примет ли приложение подложенный рантайм — не проверено: \
+                 если профиль поведёт себя странно, удалите его vm_bundles/, \
+                 claude-code/ и claude-code-vm/, и он скачает свои.")
+            }
+            (Msg::DesktopRuntimeFailed(ref e), Lang::En) => {
+                format!("Could not clone the runtime: {}", e)
+            }
+            (Msg::DesktopRuntimeFailed(ref e), Lang::Ru) => {
+                format!("Не удалось склонировать рантайм: {}", e)
             }
             (Msg::DesktopNotSignedIn, Lang::En) => s("not signed in"),
             (Msg::DesktopNotSignedIn, Lang::Ru) => s("вход не выполнен"),
@@ -1012,6 +1077,15 @@ pub enum Msg {
     DesktopStorePackage,
     DesktopSignInAloneWarning,
     DesktopIdentityMacOnly,
+    DesktopRuntimeNoSource(String),
+    DesktopRuntimeKeep,
+    DesktopRuntimeWouldCopy,
+    DesktopRuntimeCloned(String, String, String),
+    DesktopRuntimeCost(String),
+    DesktopRuntimeCostUnknown,
+    DesktopRuntimeUnverified,
+    DesktopRuntimeFailed(String),
+    DesktopDiskHint(String),
 }
 
 fn relative_time(secs: u64, lang: Lang) -> String {

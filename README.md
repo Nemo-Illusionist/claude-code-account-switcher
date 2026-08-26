@@ -135,6 +135,7 @@ Short version: **cswap** if you want one active account plus automatic rotation 
 | `claude-acc resume-hook [on\|off]` | Show/set whether plain `claude --resume <id>` gets the same check |
 | `claude-acc desktop add\|list\|run\|remove [<name>]` | Claude Desktop profiles — separate app profiles that run side by side |
 | `claude-acc desktop clone-config <name>` | Copy MCP servers and preferences into a desktop profile (`--from`, `--force`) |
+| `claude-acc desktop clone-runtime <name>` | Clone the downloaded runtime into a profile, copy-on-write (macOS/APFS) |
 | `claude-acc desktop usage` | Account, plan and 5h / 7d usage behind every desktop profile (macOS) |
 | `claude-acc statusline [--install]` | Render (or install) a Claude Code status line with the active account |
 | `claude-acc run <name>` | Run claude under a specific account |
@@ -522,6 +523,7 @@ claude-acc desktop list          # profiles, and which account each is signed in
 claude-acc desktop usage         # ...plus their 5h / 7d rate-limit usage, live
 claude-acc desktop run work      # open Claude on that profile again
 claude-acc desktop clone-config work   # copy MCP servers into an existing profile
+claude-acc desktop clone-runtime work  # clone the ~10.5 GB runtime — free on APFS
 claude-acc desktop remove work   # delete the profile and everything in it
 ```
 
@@ -551,7 +553,7 @@ Your main instance is never quit, never touched, and never has its signed-in sta
 
 **Trade-offs, stated plainly:**
 
-- **Disk.** Isolation is total, so each profile re-downloads the heavy parts — sandbox images and caches run to several GB per profile. Nothing is shared in this version.
+- **Disk.** Isolation is total, so a profile would re-download its whole ~10.5 GB runtime. `clone-runtime` makes that free on APFS — see below. Caches (~1.5 GB) are still per-profile.
 - **MCP servers are per-profile.** A new profile starts with none — `-s` or `clone-config` brings them over, see below.
 - **`--user-data-dir` is a Chromium switch, not a documented Claude Desktop feature.** This is how VS Code and most Electron apps are routinely run, so the risk is small — but if the app ever pins its own data directory unconditionally, this stops working.
 - **Sign in with only one Claude window open.** Signing in finishes through a `claude://` link, which the system hands to whichever window it feels like — do it with two open and both can end up on the same account. `desktop add` says so before it launches.
@@ -635,6 +637,43 @@ Claude Desktop profiles:
 Not an identity anyone recognises, but enough to see that two profiles are two different accounts.
 
 > `desktop usage` is a Rust-CLI feature. Decrypting the token needs PBKDF2-HMAC-SHA1 and AES-128-CBC with an explicit key — stock macOS ships LibreSSL, whose `openssl` has no `kdf` subcommand, so the shell script would need Homebrew's OpenSSL or Python to do it. It shows the uuid instead.
+
+### Not paying for the runtime twice (`clone-runtime`)
+
+Most of a profile's weight is components the app downloads and then only reads:
+
+| Size | |
+|---|---|
+| ~10 GB | `vm_bundles/claudevm.bundle/` — Cowork sandbox images |
+| 250 MB | `claude-code-vm/<version>/` |
+| 220 MB | `claude-code/<version>/` |
+
+Identical in every profile, and a new profile fetches its own copy of all of it. On APFS it doesn't have to: `clone-runtime` clones them **copy-on-write**, so each profile gets fully independent files that share blocks with the original until one of them is written.
+
+```
+$ claude-acc desktop clone-runtime work
+Cloned 13 runtime component(s), 10.5 GB logical, from ~/Library/…/Claude/.
+Disk actually used: 12 KB.
+```
+
+Ten and a half gigabytes, in a third of a second, for twelve kilobytes of directory metadata. `--from <profile>` clones from another profile instead of the app's own; `--force` replaces a runtime the profile already has.
+
+**Why clone rather than share.** The Windows tools in this space point every profile at one `vm_bundles/` directory. They can, because they quit the app before switching, so only one instance ever touches those files. Ours run at the same time — two live VMs writing to one image is corruption, not a saving. A clone has no shared writer at all: writing to one leaves the other byte-for-byte intact, and only the changed blocks get allocated.
+
+**What is not cloned, deliberately.** The sandbox bundle mixes downloads with per-VM identity, and only the first kind may travel:
+
+| Cloned | Left for the app |
+|---|---|
+| `rootfs.img`, `vmlinuz`, `initrd*` — the images | `machineIdentifier`, `macAddress`, `gvisorMacAddress`, `vmIP` — two live VMs sharing a MAC address is a collision, not a saving |
+| `.*.origin` — which image set they came from, so the app doesn't refetch | `sessiondata.img`, `efivars.fd` — this profile's own state |
+| `claude-code/<version>/`, `claude-code-vm/<version>/` — whole, they are a download and a `.verified` marker | `Cache/` (1.2 GB), `Code Cache/` (346 MB) — live Chromium caches, written continuously and refilled by the app |
+
+Two caveats, both stated by the command itself:
+
+- **Cross-filesystem clones are refused, not performed.** `cp -c` silently falls back to a real copy when it can't clone, which would spend 10 GB to save 10 GB. If the profile isn't on the same filesystem as the source, the command says so and does nothing.
+- **Whether the app accepts a pre-seeded runtime is untested.** The filesystem mechanics are verified; the app's reaction is not — nobody has run Cowork in a profile seeded this way. If it misbehaves, delete that profile's `vm_bundles/`, `claude-code/` and `claude-code-vm/`, and the app fetches its own. Reports either way are welcome in [#92](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/92).
+
+Attachments are unaffected by any of this: Cowork keeps user files at the path in `coworkUserFilesPath`, which lives **outside** the profile and travels with [`clone-config`](#bringing-mcp-servers-along-clone-config), so a new profile points at the files you already have rather than a copy of them.
 
 ## Status line
 
