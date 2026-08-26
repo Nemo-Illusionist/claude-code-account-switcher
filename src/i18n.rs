@@ -662,12 +662,17 @@ impl I18n {
                 s("Оно откроется без входа — войдите там под аккаунтом для этого профиля.")
             }
             (Msg::DesktopDiskNote, Lang::En) => s(
-                "The profile is fully isolated, so the app re-downloads its \
-                 sandbox images into it — expect several GB.",
+                "The profile is fully isolated, so the app would re-download \
+                 its sandbox images into it — about 10 GB. To skip that, clone \
+                 them instead (free, on APFS):",
             ),
             (Msg::DesktopDiskNote, Lang::Ru) => {
                 s("Профиль полностью изолирован, поэтому приложение заново \
-                 скачает в него образы песочницы — это несколько ГБ.")
+                 скачало бы в него образы песочницы — около 10 ГБ. Чтобы этого \
+                 избежать, склонируйте их (на APFS это бесплатно):")
+            }
+            (Msg::DesktopDiskHint(ref n), _) => {
+                format!("  claude-acc desktop clone-sandbox {}", n)
             }
             (Msg::DesktopHintRun(ref n), Lang::En) => {
                 format!("Open it again later:  claude-acc desktop run {}", n)
@@ -829,6 +834,66 @@ impl I18n {
                  исполняемый файл запускается только через активацию Store, \
                  а пакет подменяет пути к файлам. Установщик с \
                  claude.com/download — можно. См. issue #75.")
+            }
+            (Msg::DesktopSandboxNoSource(ref n), Lang::En) => {
+                format!("{} has no Cowork sandbox images to clone.", n)
+            }
+            (Msg::DesktopSandboxNoSource(ref n), Lang::Ru) => {
+                format!("В {} нет образов песочницы Cowork — клонировать нечего.", n)
+            }
+            (Msg::DesktopSandboxKeep, Lang::En) => s(
+                "This profile already has sandbox images. Replace them with \
+                 --force.",
+            ),
+            (Msg::DesktopSandboxKeep, Lang::Ru) => {
+                s("У этого профиля уже есть образы песочницы. Заменить — с \
+                 --force.")
+            }
+            (Msg::DesktopSandboxWouldCopy, Lang::En) => s(
+                "The profile is on a different filesystem from the source, so \
+                 this would copy every byte instead of cloning it — the \
+                 opposite of the point. Not done.",
+            ),
+            (Msg::DesktopSandboxWouldCopy, Lang::Ru) => {
+                s("Профиль лежит на другой файловой системе, чем источник, \
+                 поэтому вместо клонирования скопировался бы каждый байт — \
+                 ровно наоборот от смысла. Не выполнено.")
+            }
+            (Msg::DesktopSandboxCloned(ref n, ref size, ref from), Lang::En) => format!(
+                "Cloned {} sandbox image(s), {} logical, from {}.",
+                n, size, from
+            ),
+            (Msg::DesktopSandboxCloned(ref n, ref size, ref from), Lang::Ru) => format!(
+                "Склонировано образов песочницы: {}, логически {}, из {}.",
+                n, size, from
+            ),
+            (Msg::DesktopSandboxCost(ref size), Lang::En) => {
+                format!("Disk actually used: {}.", size)
+            }
+            (Msg::DesktopSandboxCost(ref size), Lang::Ru) => {
+                format!("Реально занято на диске: {}.", size)
+            }
+            (Msg::DesktopSandboxCostUnknown, Lang::En) => {
+                s("Couldn't measure what it cost on disk.")
+            }
+            (Msg::DesktopSandboxCostUnknown, Lang::Ru) => {
+                s("Не удалось измерить, во сколько это обошлось на диске.")
+            }
+            (Msg::DesktopSandboxUnverified, Lang::En) => s(
+                "Whether the app accepts pre-seeded images is untested — if \
+                 Cowork misbehaves in this profile, delete its vm_bundles/ \
+                 and it will fetch its own.",
+            ),
+            (Msg::DesktopSandboxUnverified, Lang::Ru) => s(
+                "Примет ли приложение подложенные образы — не проверено: если \
+                 Cowork в этом профиле поведёт себя странно, удалите его \
+                 vm_bundles/, и он скачает свои.",
+            ),
+            (Msg::DesktopSandboxFailed(ref e), Lang::En) => {
+                format!("Could not clone the sandbox images: {}", e)
+            }
+            (Msg::DesktopSandboxFailed(ref e), Lang::Ru) => {
+                format!("Не удалось склонировать образы песочницы: {}", e)
             }
             (Msg::DesktopNotSignedIn, Lang::En) => s("not signed in"),
             (Msg::DesktopNotSignedIn, Lang::Ru) => s("вход не выполнен"),
@@ -1012,6 +1077,15 @@ pub enum Msg {
     DesktopStorePackage,
     DesktopSignInAloneWarning,
     DesktopIdentityMacOnly,
+    DesktopSandboxNoSource(String),
+    DesktopSandboxKeep,
+    DesktopSandboxWouldCopy,
+    DesktopSandboxCloned(String, String, String),
+    DesktopSandboxCost(String),
+    DesktopSandboxCostUnknown,
+    DesktopSandboxUnverified,
+    DesktopSandboxFailed(String),
+    DesktopDiskHint(String),
 }
 
 fn relative_time(secs: u64, lang: Lang) -> String {

@@ -160,6 +160,79 @@ pub fn clone_config(
     )
 }
 
+/// Clone the sandbox images from another profile, so this one doesn't
+/// re-download ten gigabytes of identical bytes.
+#[cfg(target_os = "macos")]
+pub fn clone_sandbox(
+    config: &AppConfig,
+    i18n: &I18n,
+    name: &str,
+    from: Option<&str>,
+    force: bool,
+) -> i32 {
+    use crate::desktop_vm;
+
+    if !require_name(i18n, name) {
+        return 1;
+    }
+    if !desktop::profile_exists(config, name) {
+        i18n.print(Msg::DesktopNotFound(name.to_string()));
+        return 1;
+    }
+    let Some((source, label)) = source_profile(config, i18n, from) else {
+        return 1;
+    };
+
+    let profile = desktop::profile_path(config, name);
+    let src_bundle = desktop_vm::bundle_of(&source);
+    let dest_bundle = desktop_vm::bundle_of(&profile);
+    let plan = desktop_vm::plan(
+        desktop_vm::images(&src_bundle).len(),
+        desktop_vm::images(&dest_bundle).len(),
+        // An unresolvable path is treated as "not the same filesystem": the
+        // cautious answer, since the cost of being wrong is a real 10 GB copy.
+        desktop_vm::same_device(&source, &profile).unwrap_or(false),
+        force,
+    );
+
+    match plan {
+        desktop_vm::SandboxPlan::NoSource => {
+            i18n.print(Msg::DesktopSandboxNoSource(label));
+            1
+        }
+        desktop_vm::SandboxPlan::Keep => {
+            i18n.print(Msg::DesktopSandboxKeep);
+            1
+        }
+        desktop_vm::SandboxPlan::WouldCopy => {
+            i18n.print(Msg::DesktopSandboxWouldCopy);
+            1
+        }
+        desktop_vm::SandboxPlan::Clone => match desktop_vm::clone_images(&src_bundle, &dest_bundle)
+        {
+            Ok(report) => {
+                i18n.print(Msg::DesktopSandboxCloned(
+                    report.files.to_string(),
+                    crate::sessions::human_size(report.logical),
+                    label,
+                ));
+                match report.on_disk {
+                    Some(bytes) => {
+                        i18n.print(Msg::DesktopSandboxCost(crate::sessions::human_size(bytes)))
+                    }
+                    None => i18n.print(Msg::DesktopSandboxCostUnknown),
+                }
+                i18n.print(Msg::DesktopSandboxUnverified);
+                0
+            }
+            Err(e) => {
+                i18n.print(Msg::DesktopSandboxFailed(e.to_string()));
+                1
+            }
+        },
+    }
+}
+
 pub fn add(config: &AppConfig, i18n: &I18n, name: &str, seed: bool) -> i32 {
     if !require_name(i18n, name) {
         return 1;
@@ -189,6 +262,7 @@ pub fn add(config: &AppConfig, i18n: &I18n, name: &str, seed: bool) -> i32 {
     i18n.print(Msg::DesktopSignInHint);
     i18n.print(Msg::DesktopSignInAloneWarning);
     i18n.print(Msg::DesktopDiskNote);
+    i18n.print(Msg::DesktopDiskHint(name.to_string()));
     let code = launch(i18n, &app, &profile);
     if code == 0 {
         println!();

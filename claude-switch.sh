@@ -136,7 +136,7 @@ _claude_msg_en=(
     links_header        "Links:"
     links_active        "← active"
     help_desktop        "Manage Claude Desktop profiles"
-    desktop_usage       "Usage: claude-acc desktop add|clone-config|list|run|remove [<name>]"
+    desktop_usage       "Usage: claude-acc desktop add|clone-config|clone-sandbox|list|run|remove [<name>]"
     desktop_usage_rust  "claude-acc desktop usage needs the Rust CLI — decrypting a profile token needs PBKDF2-SHA1 + AES, which stock macOS openssl can't do."
     desktop_app_not_found "Claude.app not found in /Applications or ~/Applications. Set CLAUDE_ACC_DESKTOP_APP to its path."
     desktop_no_default  "'default' isn't a desktop profile — that's the app's own, which you open as usual."
@@ -145,7 +145,14 @@ _claude_msg_en=(
     desktop_created     "Desktop profile '%s' created. Opening Claude on it..."
     desktop_signin_hint "It opens signed out — sign in there with the account for this profile."
     desktop_signin_alone "Close your other Claude windows first: signing in finishes through a claude:// link, which the system hands to whichever window it likes — sign in with two open and both can end up on the same account."
-    desktop_disk_note   "The profile is fully isolated, so the app re-downloads its sandbox images into it — expect several GB."
+    desktop_disk_note   "The profile is fully isolated, so the app would re-download its sandbox images into it — about 10 GB. To skip that, clone them instead (free, on APFS):"
+    desktop_disk_hint   "  claude-acc desktop clone-sandbox %s"
+    desktop_sandbox_no_source "%s has no Cowork sandbox images to clone."
+    desktop_sandbox_keep "This profile already has sandbox images. Replace them with --force."
+    desktop_sandbox_would_copy "The profile is on a different filesystem from the source, so this would copy every byte instead of cloning it — the opposite of the point. Not done."
+    desktop_sandbox_cloned "Cloned %s sandbox image(s) from %s."
+    desktop_sandbox_unverified "Whether the app accepts pre-seeded images is untested — if Cowork misbehaves in this profile, delete its vm_bundles/ and it will fetch its own."
+    desktop_sandbox_failed "Could not clone the sandbox images."
     desktop_hint_run    "Open it again later:  claude-acc desktop run %s"
     desktop_list_empty  "No desktop profiles. Add one: claude-acc desktop add <name>"
     desktop_list_header "Claude Desktop profiles:"
@@ -256,7 +263,7 @@ _claude_msg_ru=(
     links_header        "Привязки:"
     links_active        "← активна"
     help_desktop        "Профили Claude Desktop"
-    desktop_usage       "Использование: claude-acc desktop add|clone-config|list|run|remove [<name>]"
+    desktop_usage       "Использование: claude-acc desktop add|clone-config|clone-sandbox|list|run|remove [<name>]"
     desktop_usage_rust  "claude-acc desktop usage есть только в Rust CLI — расшифровка токена профиля требует PBKDF2-SHA1 + AES, чего стоковый openssl macOS не умеет."
     desktop_app_not_found "Claude.app не найден в /Applications или ~/Applications. Укажите путь в CLAUDE_ACC_DESKTOP_APP."
     desktop_no_default  "'default' — не профиль десктопа: это собственный профиль приложения, откройте его как обычно."
@@ -265,7 +272,14 @@ _claude_msg_ru=(
     desktop_created     "Профиль десктопа '%s' создан. Открываю Claude на нём..."
     desktop_signin_hint "Оно откроется без входа — войдите там под аккаунтом для этого профиля."
     desktop_signin_alone "Сначала закройте остальные окна Claude: вход завершается переходом по ссылке claude://, а её система отдаёт любому из открытых окон — при двух открытых оба могут оказаться на одном аккаунте."
-    desktop_disk_note   "Профиль полностью изолирован, поэтому приложение заново скачает в него образы песочницы — это несколько ГБ."
+    desktop_disk_note   "Профиль полностью изолирован, поэтому приложение заново скачало бы в него образы песочницы — около 10 ГБ. Чтобы этого избежать, склонируйте их (на APFS это бесплатно):"
+    desktop_disk_hint   "  claude-acc desktop clone-sandbox %s"
+    desktop_sandbox_no_source "В %s нет образов песочницы Cowork — клонировать нечего."
+    desktop_sandbox_keep "У этого профиля уже есть образы песочницы. Заменить — с --force."
+    desktop_sandbox_would_copy "Профиль лежит на другой файловой системе, чем источник, поэтому вместо клонирования скопировался бы каждый байт — ровно наоборот от смысла. Не выполнено."
+    desktop_sandbox_cloned "Склонировано образов песочницы: %s, из %s."
+    desktop_sandbox_unverified "Примет ли приложение подложенные образы — не проверено: если Cowork в этом профиле поведёт себя странно, удалите его vm_bundles/, и он скачает свои."
+    desktop_sandbox_failed "Не удалось склонировать образы песочницы."
     desktop_hint_run    "Открыть его позже:  claude-acc desktop run %s"
     desktop_list_empty  "Нет профилей десктопа. Добавьте: claude-acc desktop add <name>"
     desktop_list_header "Профили Claude Desktop:"
@@ -522,7 +536,7 @@ _claude_acc_help() {
     echo "  claude-acc add -s <name>     $(_msg help_add) (seeded from ~/.claude/)"
     echo "  claude-acc clone-settings <name>  $(_msg help_clone_settings)"
     echo "  claude-acc import <name> <path>   $(_msg help_import)"
-    echo "  claude-acc desktop add|clone-config|list|run|remove [<name>]  $(_msg help_desktop)"
+    echo "  claude-acc desktop add|clone-config|clone-sandbox|list|run|remove [<name>]  $(_msg help_desktop)"
 }
 
 _claude_acc_list() {
@@ -1039,6 +1053,7 @@ _claude_acc_desktop_add() {
     _msg desktop_signin_hint
     _msg desktop_signin_alone
     _msg desktop_disk_note
+    _msg desktop_disk_hint "$name"
     _claude_acc_desktop_launch "$app" "$profile" || return 1
     echo ""
     _msg desktop_hint_run "$name"
@@ -1191,6 +1206,98 @@ _claude_acc_desktop_clone_config() {
     _claude_acc_desktop_seed "$profile" "$from" "$force"
 }
 
+# --- Share the Cowork sandbox images between profiles ---
+# Almost all of a profile's weight is one file: vm_bundles/claudevm.bundle/
+# rootfs.img, ~10 GB. APFS clones it copy-on-write, so a second profile's
+# copy costs nothing until it diverges — safer than sharing one file between
+# two live VMs. Per-VM identity (macAddress, machineIdentifier, sessiondata)
+# is deliberately not copied; the app makes its own.
+CLAUDE_DESKTOP_BUNDLE="vm_bundles/claudevm.bundle"
+typeset -ga CLAUDE_DESKTOP_SANDBOX_FILES
+CLAUDE_DESKTOP_SANDBOX_FILES=(
+    rootfs.img vmlinuz initrd initrd-micro initrd-micro.zst
+    .rootfs.img.origin .vmlinuz.origin .initrd.origin
+    .initrd-micro.origin .initrd-micro.zst.origin
+)
+
+_claude_acc_desktop_sandbox_count() {
+    local bundle="$1" n=0 f
+    for f in "${CLAUDE_DESKTOP_SANDBOX_FILES[@]}"; do
+        [[ -f "$bundle/$f" ]] && (( n++ ))
+    done
+    echo "$n"
+}
+
+_claude_acc_desktop_clone_sandbox() {
+    local from="" force=false
+    local -a rest
+    while (( $# > 0 )); do
+        case "$1" in
+            --from)     from="$2"; shift 2 ;;
+            -f|--force) force=true; shift ;;
+            *)          rest+=("$1"); shift ;;
+        esac
+    done
+
+    local name="${rest[1]}"
+    _claude_acc_desktop_name_ok "$name" || return 1
+
+    local profile="$CLAUDE_SWITCH_DESKTOP_DIR/$name"
+    if [[ ! -d "$profile" ]]; then
+        _msg desktop_not_found "$name" "$name"
+        return 1
+    fi
+
+    local source label
+    if [[ -n "$from" ]]; then
+        _claude_acc_desktop_name_ok "$from" || return 1
+        source="$CLAUDE_SWITCH_DESKTOP_DIR/$from"
+        if [[ ! -d "$source" ]]; then
+            _msg desktop_not_found "$from" "$from"
+            return 1
+        fi
+        label="$from"
+    else
+        source="$HOME/Library/Application Support/Claude"
+        label="$CLAUDE_DESKTOP_STANDARD_LABEL"
+    fi
+
+    local src_bundle="$source/$CLAUDE_DESKTOP_BUNDLE"
+    local dst_bundle="$profile/$CLAUDE_DESKTOP_BUNDLE"
+    if [[ "$(_claude_acc_desktop_sandbox_count "$src_bundle")" == "0" ]]; then
+        _msg desktop_sandbox_no_source "$label"
+        return 1
+    fi
+    if [[ "$(_claude_acc_desktop_sandbox_count "$dst_bundle")" != "0" && "$force" != true ]]; then
+        _msg desktop_sandbox_keep
+        return 1
+    fi
+    # clonefile can't cross filesystems, and cp -c silently falls back to a
+    # real copy there — 10 GB spent to save 10 GB.
+    local src_dev dst_dev probe="$profile"
+    while [[ ! -e "$probe" && -n "$probe" ]]; do probe="${probe:h}"; done
+    src_dev=$(stat -f '%d' "$source" 2>/dev/null)
+    dst_dev=$(stat -f '%d' "$probe" 2>/dev/null)
+    if [[ -z "$src_dev" || -z "$dst_dev" || "$src_dev" != "$dst_dev" ]]; then
+        _msg desktop_sandbox_would_copy
+        return 1
+    fi
+
+    mkdir -p "$dst_bundle" || return 1
+    local f n=0
+    for f in "${CLAUDE_DESKTOP_SANDBOX_FILES[@]}"; do
+        [[ -f "$src_bundle/$f" ]] || continue
+        if ! /bin/cp -c "$src_bundle/$f" "$dst_bundle/$f" 2>/dev/null; then
+            rm -f "$dst_bundle/$f"
+            _msg desktop_sandbox_failed
+            return 1
+        fi
+        (( n++ ))
+    done
+    _msg desktop_sandbox_cloned "$n" "$label"
+    _msg desktop_sandbox_unverified
+}
+
 _claude_acc_desktop() {
     local action="$1"
     shift 2>/dev/null
@@ -1199,6 +1306,7 @@ _claude_acc_desktop() {
         add)          _claude_acc_desktop_add "$@" ;;
         usage)        _msg desktop_usage_rust; return 1 ;;
         clone-config) _claude_acc_desktop_clone_config "$@" ;;
+        clone-sandbox) _claude_acc_desktop_clone_sandbox "$@" ;;
         list)         _claude_acc_desktop_list ;;
         run)          _claude_acc_desktop_run "$@" ;;
         remove)       _claude_acc_desktop_remove "$@" ;;
@@ -1951,7 +2059,7 @@ _claude_acc_completion() {
                 ;;
             desktop)
                 local -a desktop_actions
-                desktop_actions=(add clone-config list run remove)
+                desktop_actions=(add clone-config clone-sandbox list run remove)
                 _describe 'action' desktop_actions
                 ;;
         esac
@@ -1961,7 +2069,7 @@ _claude_acc_completion() {
     elif (( CURRENT == 4 )) && [[ "${words[2]}" == "desktop" ]]; then
         # desktop add <name> is a new name; run/remove take an existing one.
         case "${words[3]}" in
-            run|remove|clone-config)
+            run|remove|clone-config|clone-sandbox)
                 local -a profiles
                 profiles=("$CLAUDE_SWITCH_DESKTOP_DIR"/*(N/:t))
                 _describe 'profile' profiles

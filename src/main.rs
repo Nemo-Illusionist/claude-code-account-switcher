@@ -2,6 +2,9 @@ mod commands;
 mod config;
 mod desktop;
 mod desktop_auth;
+// APFS clonefile and /bin/cp -c; the whole mechanism is macOS's.
+#[cfg(target_os = "macos")]
+mod desktop_vm;
 mod environment;
 mod i18n;
 mod ide;
@@ -180,6 +183,22 @@ enum DesktopCommands {
         #[arg(short, long)]
         force: bool,
     },
+    /// Clone another profile's Cowork sandbox images into this one (macOS)
+    ///
+    /// The images are ~10 GB and identical between profiles. On APFS they are
+    /// cloned copy-on-write, so the copy costs nothing until it diverges and
+    /// saves the new profile re-downloading them. Per-VM identity is not
+    /// copied — the app creates its own.
+    #[cfg(target_os = "macos")]
+    CloneSandbox {
+        name: String,
+        /// Clone from this profile instead of the app's own
+        #[arg(long)]
+        from: Option<String>,
+        /// Replace images the profile already has
+        #[arg(short, long)]
+        force: bool,
+    },
     /// List desktop profiles
     List,
     /// Show the account and rate-limit usage behind every profile (macOS)
@@ -317,6 +336,10 @@ fn main() {
             }
             DesktopCommands::CloneConfig { name, from, force } => {
                 commands::desktop::clone_config(&config, &i18n, &name, from.as_deref(), force)
+            }
+            #[cfg(target_os = "macos")]
+            DesktopCommands::CloneSandbox { name, from, force } => {
+                commands::desktop::clone_sandbox(&config, &i18n, &name, from.as_deref(), force)
             }
             DesktopCommands::List => commands::desktop::list(&config, &i18n),
             DesktopCommands::Usage => commands::desktop::usage(&config, &i18n),
