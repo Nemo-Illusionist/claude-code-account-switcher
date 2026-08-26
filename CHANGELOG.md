@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.15.0](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.14.0...v0.15.0) (2026-08-26)
+
+
+### Features
+
+* run Claude Desktop under separate account profiles ([#86](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/86)) ([a0b3c58](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/a0b3c5820335af8e87cf2d0b05392024092f6534))
+* run desktop profiles on Windows and Linux too ([#90](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/90)) ([607ef4a](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/607ef4ad664f2c441f20540676c5045568786e76))
+* seed a desktop profile's MCP servers from another profile ([#88](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/88)) ([16d61c1](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/16d61c175aaca2f2e23e94770fd725430a017455))
+* show the account and rate-limit usage behind each desktop profile ([#89](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/89)) ([0270b56](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/0270b569647114a6390dffea09af3c964eaf628f))
+
 ## [0.14.0](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.13.0...v0.14.0) (2026-08-26)
 
 
