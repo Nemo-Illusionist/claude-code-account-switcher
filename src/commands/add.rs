@@ -128,6 +128,22 @@ mod tests {
         let dir = Path::new("/tmp/some-account");
         let cmd = build_login_command(dir);
         let args: Vec<_> = cmd.get_args().collect();
-        assert_eq!(args, vec!["auth", "login"]);
+        // On Windows, claude_command wraps the real argv in a hardened
+        // cmd.exe invocation (see windows_invocation.rs) — the raw "auth
+        // login" args aren't visible as separate Command args any more.
+        if cfg!(windows) {
+            assert_eq!(
+                args,
+                vec![
+                    "/d",
+                    "/v:off",
+                    "/s",
+                    "/c",
+                    "\"\"claude\" \"auth\" \"login\"\""
+                ]
+            );
+        } else {
+            assert_eq!(args, vec!["auth", "login"]);
+        }
     }
 }
