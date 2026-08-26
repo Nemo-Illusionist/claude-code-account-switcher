@@ -169,6 +169,10 @@ enum DesktopCommands {
         /// own profile
         #[arg(short, long)]
         seed: bool,
+        /// Create it even with Claude already running — the sign-in may not
+        /// arrive
+        #[arg(long)]
+        force: bool,
     },
     /// Copy claude_desktop_config.json (MCP servers, preferences) into a profile
     ///
@@ -208,7 +212,13 @@ enum DesktopCommands {
     /// password once — `list` never does.
     Usage,
     /// Open Claude Desktop on a profile
-    Run { name: String },
+    Run {
+        name: String,
+        /// Open a profile that isn't signed in yet even with Claude already
+        /// running — the sign-in may not arrive
+        #[arg(long)]
+        force: bool,
+    },
     /// Delete a profile and everything in it
     Remove {
         /// Skip confirmation
@@ -332,8 +342,8 @@ fn main() {
             }
         },
         Some(Commands::Desktop { action }) => std::process::exit(match action {
-            DesktopCommands::Add { name, seed } => {
-                commands::desktop::add(&config, &i18n, &name, seed)
+            DesktopCommands::Add { name, seed, force } => {
+                commands::desktop::add(&config, &i18n, &name, seed, force)
             }
             DesktopCommands::CloneConfig { name, from, force } => {
                 commands::desktop::clone_config(&config, &i18n, &name, from.as_deref(), force)
@@ -344,7 +354,9 @@ fn main() {
             }
             DesktopCommands::List => commands::desktop::list(&config, &i18n),
             DesktopCommands::Usage => commands::desktop::usage(&config, &i18n),
-            DesktopCommands::Run { name } => commands::desktop::run(&config, &i18n, &name),
+            DesktopCommands::Run { name, force } => {
+                commands::desktop::run(&config, &i18n, &name, force)
+            }
             DesktopCommands::Remove { force, name } => {
                 commands::desktop::remove(&config, &i18n, &name, force)
             }

@@ -144,7 +144,10 @@ _claude_msg_en=(
     desktop_not_found   "Desktop profile '%s' not found. Create it: claude-acc desktop add %s"
     desktop_created     "Desktop profile '%s' created. Opening Claude on it..."
     desktop_signin_hint "It opens signed out — sign in there with the account for this profile."
-    desktop_signin_alone "Close your other Claude windows first: signing in finishes through a claude:// link, which the system hands to whichever window it likes — sign in with two open and both can end up on the same account."
+    desktop_quit_first  "Quit Claude before signing in. Signing in finishes through a claude:// link, and the system hands that to whichever instance is registered for it — with another one open, the new profile never receives it. Currently open:"
+    desktop_running_instance "  pid %s  —  %s"
+    desktop_quit_first_hint "Quit them, sign in, and after that profiles open side by side as usual. To go ahead anyway: --force"
+    desktop_signin_forced "Claude is already running; --force given, so the sign-in may not arrive."
     desktop_disk_note   "The profile is fully isolated, so the app would re-download its whole runtime into it — about 10.5 GB. To skip that, clone it instead (free, on APFS):"
     desktop_disk_hint   "  claude-acc desktop clone-runtime %s"
     desktop_runtime_no_source "%s has no downloaded runtime to clone."
@@ -271,7 +274,10 @@ _claude_msg_ru=(
     desktop_not_found   "Профиль десктопа '%s' не найден. Создать: claude-acc desktop add %s"
     desktop_created     "Профиль десктопа '%s' создан. Открываю Claude на нём..."
     desktop_signin_hint "Оно откроется без входа — войдите там под аккаунтом для этого профиля."
-    desktop_signin_alone "Сначала закройте остальные окна Claude: вход завершается переходом по ссылке claude://, а её система отдаёт любому из открытых окон — при двух открытых оба могут оказаться на одном аккаунте."
+    desktop_quit_first  "Закройте Claude перед входом. Вход завершается переходом по ссылке claude://, а её система отдаёт тому экземпляру, что зарегистрирован на неё, — при другом открытом окне новый профиль её просто не получит. Сейчас открыто:"
+    desktop_running_instance "  pid %s  —  %s"
+    desktop_quit_first_hint "Закройте их, войдите — после этого профили открываются одновременно как обычно. Всё равно продолжить: --force"
+    desktop_signin_forced "Claude уже запущен; передан --force, так что вход может не дойти."
     desktop_disk_note   "Профиль полностью изолирован, поэтому приложение заново скачало бы в него весь рантайм — около 10.5 ГБ. Чтобы этого избежать, склонируйте его (на APFS это бесплатно):"
     desktop_disk_hint   "  claude-acc desktop clone-runtime %s"
     desktop_runtime_no_source "В %s нет скачанного рантайма — клонировать нечего."
@@ -1009,6 +1015,47 @@ _claude_acc_desktop_uuid() {
     fi
 }
 
+# Signing in only works with no other Claude open: the claude:// callback
+# that finishes it goes to whichever instance is registered for the scheme.
+# Every Chromium child carries --type=, which is what separates the app from
+# its helpers — the executable paths don't.
+_claude_acc_desktop_signin_possible() {
+    local force="$1" line pid rest exe profile
+    local -a running lines
+    lines=(${(f)"$(ps -ax -o pid=,command=)"})
+    for line in "${lines[@]}"; do
+        # `read` does the leading-whitespace trimming, so nothing here needs
+        # extended glob — which is off in a bare shell and can't be relied on.
+        read -r pid rest <<< "$line"
+        # The first token must be the app's executable: matching the line
+        # anywhere would count any process that merely names the path. The
+        # helpers live at ".../Frameworks/Claude Helper.app/...", whose first
+        # token stops at that space, and every one of them carries --type=.
+        exe="${rest%% *}"
+        [[ "$exe" == */Contents/MacOS/Claude ]] || continue
+        [[ "$rest" == *--type=* ]] && continue
+        running+=("$pid $rest")
+    done
+    (( ${#running} == 0 )) && return 0
+    if [[ "$force" == true ]]; then
+        _msg desktop_signin_forced
+        return 0
+    fi
+    _msg desktop_quit_first
+    for line in "${running[@]}"; do
+        read -r pid rest <<< "$line"
+        if [[ "$rest" == *--user-data-dir=* ]]; then
+            profile="${rest##*--user-data-dir=}"
+            profile="${${profile%% *}:t}"
+        else
+            profile="$CLAUDE_DESKTOP_STANDARD_LABEL"
+        fi
+        _msg desktop_running_instance "$pid" "$profile"
+    done
+    _msg desktop_quit_first_hint
+    return 1
+}
+
 _claude_acc_desktop_name_ok() {
     local name="$1"
     if [[ -z "$name" ]]; then
@@ -1023,10 +1070,11 @@ _claude_acc_desktop_name_ok() {
 }
 
 _claude_acc_desktop_add() {
-    local seed_flag=0 name=""
+    local seed_flag=0 force=false name=""
     while (( $# > 0 )); do
         case "$1" in
             -s|--seed) seed_flag=1; shift ;;
+            --force)   force=true; shift ;;
             *)         name="$1"; shift ;;
         esac
     done
@@ -1037,6 +1085,10 @@ _claude_acc_desktop_add() {
         _msg desktop_exists "$name"
         return 1
     fi
+
+    # Checked before the directory is created, so a refusal leaves nothing
+    # half-made behind.
+    _claude_acc_desktop_signin_possible "$force" || return 1
 
     local app
     app=$(_claude_acc_desktop_app)
@@ -1051,7 +1103,6 @@ _claude_acc_desktop_add() {
     # failed seed is not a reason to withhold the profile itself.
     (( seed_flag )) && _claude_acc_desktop_seed "$profile" "" false
     _msg desktop_signin_hint
-    _msg desktop_signin_alone
     _msg desktop_disk_note
     _msg desktop_disk_hint "$name"
     _claude_acc_desktop_launch "$app" "$profile" || return 1
@@ -1085,13 +1136,26 @@ _claude_acc_desktop_list() {
 }
 
 _claude_acc_desktop_run() {
-    local name="$1"
+    local force=false name=""
+    while (( $# > 0 )); do
+        case "$1" in
+            --force) force=true; shift ;;
+            *)       name="$1"; shift ;;
+        esac
+    done
     _claude_acc_desktop_name_ok "$name" || return 1
 
     local profile="$CLAUDE_SWITCH_DESKTOP_DIR/$name"
     if [[ ! -d "$profile" ]]; then
         _msg desktop_not_found "$name" "$name"
         return 1
+    fi
+
+    # A profile with no credential is about to be signed in, whether or not
+    # the user thinks of it that way. One already signed in needs no clear
+    # field — instances coexist fine after that.
+    if ! _claude_acc_desktop_signed_in "$profile"; then
+        _claude_acc_desktop_signin_possible "$force" || return 1
     fi
 
     local app

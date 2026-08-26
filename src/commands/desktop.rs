@@ -38,6 +38,35 @@ fn require_name(i18n: &I18n, name: &str) -> bool {
     true
 }
 
+/// Signing in only works with no other Claude open, so this refuses instead
+/// of letting the login land in the wrong window. `true` means go ahead.
+///
+/// Not a warning: with another instance up, the `claude://` callback that
+/// finishes the login goes to whichever instance the system picked for the
+/// scheme, and the new profile never receives it.
+fn signin_is_possible(i18n: &I18n, force: bool) -> bool {
+    let running = desktop::running_instances();
+    if running.is_empty() {
+        return true;
+    }
+    if force {
+        i18n.print(Msg::DesktopSignInForced);
+        return true;
+    }
+    i18n.print(Msg::DesktopQuitFirst);
+    for instance in &running {
+        i18n.print(Msg::DesktopRunningInstance(
+            instance.pid.to_string(),
+            instance
+                .profile
+                .clone()
+                .unwrap_or_else(|| desktop::standard_label().to_string()),
+        ));
+    }
+    i18n.print(Msg::DesktopQuitFirstHint);
+    false
+}
+
 fn launch(i18n: &I18n, app: &std::path::Path, profile: &std::path::Path) -> i32 {
     let mut cmd = desktop::launch_command(app, profile);
     if !desktop::launch_detaches() {
@@ -231,12 +260,17 @@ pub fn clone_runtime(
     }
 }
 
-pub fn add(config: &AppConfig, i18n: &I18n, name: &str, seed: bool) -> i32 {
+pub fn add(config: &AppConfig, i18n: &I18n, name: &str, seed: bool, force: bool) -> i32 {
     if !require_name(i18n, name) {
         return 1;
     }
     if desktop::profile_exists(config, name) {
         i18n.print(Msg::DesktopExists(name.to_string()));
+        return 1;
+    }
+    // Checked before the directory is created, so a refusal leaves nothing
+    // half-made behind.
+    if !signin_is_possible(i18n, force) {
         return 1;
     }
     let Some(app) = require_app(i18n) else {
@@ -258,7 +292,6 @@ pub fn add(config: &AppConfig, i18n: &I18n, name: &str, seed: bool) -> i32 {
     }
 
     i18n.print(Msg::DesktopSignInHint);
-    i18n.print(Msg::DesktopSignInAloneWarning);
     i18n.print(Msg::DesktopDiskNote);
     i18n.print(Msg::DesktopDiskHint(name.to_string()));
     let code = launch(i18n, &app, &profile);
@@ -394,7 +427,7 @@ fn reason(result: crate::desktop_auth::TokenResult) -> Msg {
     }
 }
 
-pub fn run(config: &AppConfig, i18n: &I18n, name: &str) -> i32 {
+pub fn run(config: &AppConfig, i18n: &I18n, name: &str, force: bool) -> i32 {
     if !require_name(i18n, name) {
         return 1;
     }
@@ -402,12 +435,19 @@ pub fn run(config: &AppConfig, i18n: &I18n, name: &str) -> i32 {
         i18n.print(Msg::DesktopNotFound(name.to_string()));
         return 1;
     }
+    let profile = desktop::profile_path(config, name);
+    // A profile with no credential is about to be signed in, whether or not
+    // the user thinks of it that way — so it needs the same clear field. One
+    // that is already signed in doesn't: instances coexist fine after that.
+    if !desktop::is_signed_in(&profile) && !signin_is_possible(i18n, force) {
+        return 1;
+    }
     let Some(app) = require_app(i18n) else {
         return 1;
     };
 
     i18n.print(Msg::DesktopLaunching(name.to_string()));
-    launch(i18n, &app, &desktop::profile_path(config, name))
+    launch(i18n, &app, &profile)
 }
 
 pub fn remove(config: &AppConfig, i18n: &I18n, name: &str, force: bool) -> i32 {
