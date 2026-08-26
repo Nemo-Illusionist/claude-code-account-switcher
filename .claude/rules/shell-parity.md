@@ -42,7 +42,7 @@ a decision that gets written down, never a silent omission.
 
 ## Where the two already differ
 
-The script implements 19 commands. Absent for the reasons above:
+The script implements nearly every command. Absent for the reasons above:
 
 | Command | Why it's Rust-only |
 | --- | --- |
