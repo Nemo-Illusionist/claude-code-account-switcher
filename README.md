@@ -434,6 +434,36 @@ Prompts you'll see, and how to skip them:
 
 `--force` skips the confirmations for scripting.
 
+### `run --resume` checks for you
+
+You don't have to remember any of this up front. When `claude-acc run <account> --resume <id>` names a session that account doesn't have, it says so before starting claude — which would otherwise just report an unknown session, with no hint that the transcript is sitting one account over:
+
+```
+$ claude-acc run work --resume 0266a566-0336-4055-8f05-c553d368528e
+
+Session 0266a566-0336-4055-8f05-c553d368528e isn't in account 'work', but another account has it:
+  default       15h ago       60 KB
+
+Note: the prompt cache is per-account, so the first message after resuming
+under another account re-sends the whole transcript — slower and more expensive
+than a normal turn.
+Copy it from 'default' into 'work' and resume? [y/N]
+```
+
+Answer `n` and claude starts anyway, exactly as before. If several accounts hold the id you get the same numbered pick as `session copy`.
+
+It also speaks up in the reverse case — when the account you're resuming under **does** have the session, but another account's copy is newer:
+
+```
+Account 'default' holds a newer copy of this session than the one you're resuming:
+  default       just now      60 KB
+  work          15h ago       60 KB
+
+Replace this account's copy with the one from 'default'? [y/N]
+```
+
+An *older* copy elsewhere is just history, so that stays quiet. So does a bare `--resume` with no id — that opens claude's own session picker, and getting in front of it would only be in the way.
+
 ## Status line
 
 Claude Code can show a custom status bar at the bottom of the screen. `claude-acc statusline` renders one that leads with **the account this session is running under** — the one thing Claude Code itself can't show — followed by git branch, model, project, and a 5-hour rate-limit bar:
