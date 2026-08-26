@@ -1,6 +1,7 @@
 use crate::config::{AppConfig, validate_name};
 use crate::i18n::{I18n, Msg};
 use crate::ide;
+use crate::identity;
 use crate::seed;
 use std::fs;
 use std::process::Command;
@@ -44,11 +45,17 @@ pub fn run(config: &AppConfig, i18n: &I18n, name: &str, seed_from_default: bool)
 
     i18n.print(Msg::AddCreated(name.to_string()));
 
+    // `claude auth login` can write to the standard account's own Keychain
+    // entries as a side effect, even though this login is scoped to
+    // acc_dir's CLAUDE_CONFIG_DIR — snapshot/restore undoes that collateral.
+    // See identity::snapshot_side_effect_keychain for why.
+    let keychain_snapshot = identity::snapshot_side_effect_keychain();
     Command::new("claude")
         .args(["auth", "login"])
         .env("CLAUDE_CONFIG_DIR", &acc_dir)
         .status()
         .expect("Failed to run claude auth login");
+    identity::restore_side_effect_keychain(keychain_snapshot);
 
     println!();
     i18n.print(Msg::AddDone);

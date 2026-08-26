@@ -101,13 +101,21 @@ fn keychain_service(acc_dir: &Path) -> Option<String> {
 /// Raw credential blob (`{"claudeAiOauth":{...}}`) from the Keychain for a dir,
 /// or `None` if absent / not macOS.
 fn keychain_blob(acc_dir: &Path) -> Option<String> {
+    let service = keychain_service(acc_dir)?;
+    let user = whoami_short()?;
+    read_keychain_blob(&service, &user)
+}
+
+fn keychain_token(acc_dir: &Path) -> Option<String> {
+    extract_access_token(&keychain_blob(acc_dir)?)
+}
+
+fn read_keychain_blob(service: &str, user: &str) -> Option<String> {
     if !cfg!(target_os = "macos") {
         return None;
     }
-    let service = keychain_service(acc_dir)?;
-    let user = whoami_short()?;
     let out = Command::new("security")
-        .args(["find-generic-password", "-s", &service, "-a", &user, "-w"])
+        .args(["find-generic-password", "-s", service, "-a", user, "-w"])
         .output()
         .ok()?;
     if !out.status.success() {
@@ -117,8 +125,26 @@ fn keychain_blob(acc_dir: &Path) -> Option<String> {
     if raw.is_empty() { None } else { Some(raw) }
 }
 
-fn keychain_token(acc_dir: &Path) -> Option<String> {
-    extract_access_token(&keychain_blob(acc_dir)?)
+fn write_keychain_blob(service: &str, user: &str, blob: &str) -> std::io::Result<()> {
+    // `-U` updates the entry if one already exists for this service+account.
+    let status = Command::new("security")
+        .args(["add-generic-password", "-U"])
+        .args(["-s", service, "-a", user, "-w", blob])
+        .status()?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(std::io::Error::other(
+            "security add-generic-password failed",
+        ))
+    }
+}
+
+fn delete_keychain_blob(service: &str, user: &str) {
+    // Best-effort: nothing to delete is not an error.
+    let _ = Command::new("security")
+        .args(["delete-generic-password", "-s", service, "-a", user])
+        .output();
 }
 
 /// Re-key the Keychain OAuth entry from `from_dir`'s service name to
@@ -137,17 +163,62 @@ pub fn copy_keychain_entry(from_dir: &Path, to_dir: &Path) -> std::io::Result<bo
     let (Some(to_service), Some(user)) = (keychain_service(to_dir), whoami_short()) else {
         return Ok(false);
     };
-    // `-U` updates the entry if one already exists for this service+account.
-    let status = Command::new("security")
-        .args(["add-generic-password", "-U"])
-        .args(["-s", &to_service, "-a", &user, "-w", &blob])
-        .status()?;
-    if status.success() {
-        Ok(true)
-    } else {
-        Err(std::io::Error::other(
-            "security add-generic-password failed",
-        ))
+    write_keychain_blob(&to_service, &user, &blob)?;
+    Ok(true)
+}
+
+/// Keychain service names a `claude auth login` run can write to as a side
+/// effect regardless of the CLAUDE_CONFIG_DIR it was scoped to: the bare
+/// pre-2.1 unscoped service, and the standard `~/.claude` account's own
+/// scoped entry. Observed in practice: both can exist simultaneously holding
+/// *different* tokens, meaning some Claude Code login/refresh path writes to
+/// one without the other staying in sync. `snapshot_side_effect_keychain` /
+/// `restore_side_effect_keychain` bracket `add`/`login` for a *different*
+/// account so that collateral write can't clobber the standard account.
+fn side_effect_keychain_services() -> Vec<String> {
+    let mut services = vec!["Claude Code-credentials".to_string()];
+    if let Some(dir) = standard_token_dir()
+        && let Some(service) = keychain_service(&dir)
+        && !services.contains(&service)
+    {
+        services.push(service);
+    }
+    services
+}
+
+/// A point-in-time capture of the standard account's Keychain entries, taken
+/// before logging in to a different account. `None` per-service means the
+/// entry didn't exist and should be deleted (not just left alone) on restore.
+pub struct KeychainSnapshot(Vec<(String, Option<String>)>);
+
+pub fn snapshot_side_effect_keychain() -> KeychainSnapshot {
+    if !cfg!(target_os = "macos") {
+        return KeychainSnapshot(Vec::new());
+    }
+    let Some(user) = whoami_short() else {
+        return KeychainSnapshot(Vec::new());
+    };
+    let entries = side_effect_keychain_services()
+        .into_iter()
+        .map(|service| {
+            let blob = read_keychain_blob(&service, &user);
+            (service, blob)
+        })
+        .collect();
+    KeychainSnapshot(entries)
+}
+
+pub fn restore_side_effect_keychain(snapshot: KeychainSnapshot) {
+    let Some(user) = whoami_short() else {
+        return;
+    };
+    for (service, blob) in snapshot.0 {
+        match blob {
+            Some(b) => {
+                let _ = write_keychain_blob(&service, &user, &b);
+            }
+            None => delete_keychain_blob(&service, &user),
+        }
     }
 }
 
@@ -506,6 +577,90 @@ mod tests {
             h.chars().all(|c| c.is_ascii_hexdigit()),
             "non-hex char in {h:?}"
         );
+    }
+
+    #[test]
+    fn side_effect_keychain_services_include_bare_legacy_name() {
+        let services = side_effect_keychain_services();
+        assert!(services.contains(&"Claude Code-credentials".to_string()));
+    }
+
+    #[test]
+    fn side_effect_keychain_services_has_no_duplicates() {
+        let services = side_effect_keychain_services();
+        let mut deduped = services.clone();
+        deduped.sort();
+        deduped.dedup();
+        assert_eq!(services.len(), deduped.len(), "got {services:?}");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn keychain_blob_roundtrip_write_read_delete() {
+        // A service name distinctive enough that it can never collide with a
+        // real Claude Code Keychain entry.
+        let service = "claude-acc-test-keychain-roundtrip";
+        let user = whoami_short().expect("whoami should succeed in CI");
+        delete_keychain_blob(service, &user); // clean slate, in case a prior run left one
+
+        assert_eq!(read_keychain_blob(service, &user), None);
+
+        write_keychain_blob(service, &user, "hello-world").expect("write should succeed");
+        assert_eq!(
+            read_keychain_blob(service, &user),
+            Some("hello-world".to_string())
+        );
+
+        // `-U` semantics: writing again updates rather than erroring.
+        write_keychain_blob(service, &user, "updated").expect("update should succeed");
+        assert_eq!(
+            read_keychain_blob(service, &user),
+            Some("updated".to_string())
+        );
+
+        delete_keychain_blob(service, &user);
+        assert_eq!(read_keychain_blob(service, &user), None);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn keychain_snapshot_restore_roundtrips_absent_and_present_entries() {
+        // Exercises the snapshot/restore *shape* (present -> restore value,
+        // absent -> restore to absent) against fake services, without ever
+        // touching the real "Claude Code-credentials" entries this function
+        // is meant to protect in production.
+        let user = whoami_short().expect("whoami should succeed in CI");
+        let present_service = "claude-acc-test-keychain-snapshot-present";
+        let absent_service = "claude-acc-test-keychain-snapshot-absent";
+        delete_keychain_blob(present_service, &user);
+        delete_keychain_blob(absent_service, &user);
+        write_keychain_blob(present_service, &user, "original").expect("seed write");
+
+        let snapshot = KeychainSnapshot(vec![
+            (
+                present_service.to_string(),
+                read_keychain_blob(present_service, &user),
+            ),
+            (
+                absent_service.to_string(),
+                read_keychain_blob(absent_service, &user),
+            ),
+        ]);
+
+        // Simulate the collateral damage `claude auth login` can cause.
+        write_keychain_blob(present_service, &user, "clobbered").expect("clobber write");
+        write_keychain_blob(absent_service, &user, "clobbered").expect("clobber write");
+
+        restore_side_effect_keychain(snapshot);
+
+        assert_eq!(
+            read_keychain_blob(present_service, &user),
+            Some("original".to_string())
+        );
+        assert_eq!(read_keychain_blob(absent_service, &user), None);
+
+        delete_keychain_blob(present_service, &user);
+        delete_keychain_blob(absent_service, &user);
     }
 
     #[test]
