@@ -98,6 +98,11 @@ enum Commands {
         #[arg(long)]
         all: bool,
     },
+    /// Work with a single session transcript
+    Session {
+        #[command(subcommand)]
+        action: SessionCommands,
+    },
     /// Audit each account's actual OAuth identity (email, UUID)
     Doctor {
         /// Output as JSON (suitable for scripting)
@@ -130,6 +135,29 @@ enum Commands {
     /// Output completion data (used by shell completions)
     #[command(hide = true)]
     Completions { what: String },
+}
+
+#[derive(Subcommand)]
+enum SessionCommands {
+    /// Copy a session into another account so `claude --resume` can see it
+    ///
+    /// A session belongs to the account it was created under. Copying it
+    /// makes a second, independent copy — the two then drift apart as each
+    /// is used, which is why `claude-acc sessions` reports which copy was
+    /// touched last.
+    Copy {
+        /// Session id (see `claude-acc sessions`)
+        id: String,
+        /// Destination account, or "default" for ~/.claude
+        #[arg(long)]
+        to: String,
+        /// Source account; only needed when several accounts hold this id
+        #[arg(long)]
+        from: Option<String>,
+        /// Skip the confirmation prompts
+        #[arg(short, long)]
+        force: bool,
+    },
 }
 
 /// Whether `command` is safe to follow with the passive "update available"
@@ -196,6 +224,21 @@ fn main() {
         Some(Commands::Sessions { all }) => {
             std::process::exit(commands::sessions::run(&config, &i18n, all))
         }
+        Some(Commands::Session { action }) => match action {
+            SessionCommands::Copy {
+                id,
+                to,
+                from,
+                force,
+            } => std::process::exit(commands::session::copy(
+                &config,
+                &i18n,
+                &id,
+                &to,
+                from.as_deref(),
+                force,
+            )),
+        },
         Some(Commands::Doctor { json }) => {
             std::process::exit(commands::doctor::run(&config, &i18n, json))
         }

@@ -14,6 +14,7 @@ pub mod login;
 pub mod remove;
 pub mod reset;
 pub mod run;
+pub mod session;
 pub mod sessions;
 pub mod status;
 pub mod statusline;

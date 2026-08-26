@@ -38,6 +38,7 @@ _claude_acc_completion() {
         'status:Current account info'
         'usage:Show 5h / 7d usage for every account'
         'sessions:List Claude Code sessions across accounts'
+        'session:Copy a session into another account'
         'statusline:Render / install the Claude Code status line'
         'update:Update the binary to the latest release'
         'run:Run claude under a specific account'

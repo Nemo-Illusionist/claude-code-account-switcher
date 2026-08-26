@@ -130,6 +130,7 @@ Short version: **cswap** if you want one active account plus automatic rotation 
 | `claude-acc status` | Show active account |
 | `claude-acc usage` | Show 5h / 7d rate-limit usage for every account |
 | `claude-acc sessions [--all]` | List Claude Code sessions across accounts (current directory by default) |
+| `claude-acc session copy <id> --to <name>` | Copy a session into another account so `claude --resume` can see it |
 | `claude-acc statusline [--install]` | Render (or install) a Claude Code status line with the active account |
 | `claude-acc run <name>` | Run claude under a specific account |
 | `claude-acc whoami` | Print the email (or name) of the active account |
@@ -404,6 +405,34 @@ Resume one:  claude-acc run <account> --resume <id>
 The same id can exist in more than one account once a transcript has been copied around. Those copies then drift independently, so the listing flags **which one was updated most recently** — that is usually the one you actually want to continue.
 
 The transcript format itself carries no account identity — no email, no user id, no organization uuid (those live in `.claude.json`, which this command never reads or writes). That's why a transcript is portable between accounts at all.
+
+### Moving a session to another account (`session copy`)
+
+Hit a rate limit mid-task? Copy the conversation into a fresh account and carry on there:
+
+```
+$ claude-acc session copy 0266a566-0336-4055-8f05-c553d368528e --to personal
+
+Note: the prompt cache is per-account, so the first message after resuming
+under another account re-sends the whole transcript — slower and more expensive
+than a normal turn.
+Copy it from 'work' to 'personal'? [y/N] y
+Copied session 0266a566-0336-4055-8f05-c553d368528e from 'work' to 'personal' (60 KB).
+Also copied 3 subagent transcript(s).
+Continue it:  claude-acc run personal --resume 0266a566-0336-4055-8f05-c553d368528e
+```
+
+It copies the transcript and, when there is one, the sidecar directory of subagent transcripts. `--to default` targets the standard `~/.claude`.
+
+**This copies — it doesn't move.** The original stays where it is, so backing out costs nothing. From then on the two copies are independent: whichever account you actually continue the conversation under is the one whose copy grows.
+
+Prompts you'll see, and how to skip them:
+
+- **Which copy?** — if several accounts already hold this id, you get a numbered pick showing each copy's account, how long ago it was touched, and its size. `--from <account>` answers it up front. This is the one prompt `--force` can't skip: with copies that have drifted apart, guessing risks overwriting the version you wanted.
+- **Overwrite?** — if the destination already holds a copy, both are shown side by side (marked `← copying this one` / `← will be replaced`) before you confirm.
+- **The cost note** — the prompt cache is per-account, so the first turn after the move re-sends the whole transcript. On a large conversation that is slow and not cheap. Worth knowing before, not after.
+
+`--force` skips the confirmations for scripting.
 
 ## Status line
 
