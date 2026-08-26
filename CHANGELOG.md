@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.13.0](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.12.0...v0.13.0) (2026-08-26)
+
+
+### Features
+
+* check cross-account copies before `run --resume` ([#78](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/78)) ([03d4fab](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/03d4fab8be3d6e43b2135ac2a0b2fdb11359679d))
+* copy a session into another account ([#77](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/77)) ([3e554eb](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/3e554eb1e397c4b9215b656d0c497a2fe37c27a9))
+* list Claude Code sessions across accounts ([#76](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/76)) ([63995f9](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/63995f92d9c69a86aa2cd58eef3016cdc0c46ceb))
+
+
+### Documentation
+
+* document the session commands in the Russian README ([#80](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/80)) ([798da6a](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/798da6ac164a8c2f98f1e0a4d8525619ca3a5e31))
+
 ## [0.12.0](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.11.0...v0.12.0) (2026-08-26)
 
 
