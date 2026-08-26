@@ -1,5 +1,6 @@
 mod commands;
 mod config;
+mod desktop;
 mod environment;
 mod i18n;
 mod ide;
@@ -103,6 +104,15 @@ enum Commands {
         #[command(subcommand)]
         action: SessionCommands,
     },
+    /// Manage Claude Desktop profiles (macOS)
+    ///
+    /// Each profile is a separate app data directory, so profiles are signed
+    /// in to different accounts and — unlike CLI accounts — can run side by
+    /// side. Nothing here touches the app's own profile.
+    Desktop {
+        #[command(subcommand)]
+        action: DesktopCommands,
+    },
     /// Show or set whether the claude wrapper checks `--resume` ids
     ///
     /// With the hook on, a plain `claude --resume <id>` for a session that
@@ -144,6 +154,23 @@ enum Commands {
     /// Output completion data (used by shell completions)
     #[command(hide = true)]
     Completions { what: String },
+}
+
+#[derive(Subcommand)]
+enum DesktopCommands {
+    /// Create a profile and open Claude Desktop on it to sign in
+    Add { name: String },
+    /// List desktop profiles
+    List,
+    /// Open Claude Desktop on a profile
+    Run { name: String },
+    /// Delete a profile and everything in it
+    Remove {
+        /// Skip confirmation
+        #[arg(short, long)]
+        force: bool,
+        name: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -259,6 +286,14 @@ fn main() {
                 std::process::exit(commands::session::preflight_hook(&config, &i18n, &args))
             }
         },
+        Some(Commands::Desktop { action }) => std::process::exit(match action {
+            DesktopCommands::Add { name } => commands::desktop::add(&config, &i18n, &name),
+            DesktopCommands::List => commands::desktop::list(&config, &i18n),
+            DesktopCommands::Run { name } => commands::desktop::run(&config, &i18n, &name),
+            DesktopCommands::Remove { force, name } => {
+                commands::desktop::remove(&config, &i18n, &name, force)
+            }
+        }),
         Some(Commands::ResumeHook { state }) => {
             std::process::exit(commands::resume_hook::run(&config, &i18n, state.as_deref()))
         }

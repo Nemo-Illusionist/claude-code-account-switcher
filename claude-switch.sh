@@ -25,6 +25,7 @@ CLAUDE_SWITCH_ACCOUNTS_DIR="$CLAUDE_SWITCH_DIR/accounts"
 CLAUDE_SWITCH_CONFIG="$CLAUDE_SWITCH_DIR/config"
 CLAUDE_SWITCH_LINKS="$CLAUDE_SWITCH_DIR/links"
 CLAUDE_SWITCH_BIN="$CLAUDE_SWITCH_DIR/bin"
+CLAUDE_SWITCH_DESKTOP_DIR="$CLAUDE_SWITCH_DIR/desktop"
 CLAUDE_SWITCH_SCRIPT="${(%):-%x}"
 CLAUDE_SWITCH_SCRIPT="${CLAUDE_SWITCH_SCRIPT:A}"
 
@@ -134,6 +135,27 @@ _claude_msg_en=(
     links_empty         "No links. Use: claude-acc link <name>"
     links_header        "Links:"
     links_active        "← active"
+    help_desktop        "Manage Claude Desktop profiles"
+    desktop_usage       "Usage: claude-acc desktop add|list|run|remove [<name>]"
+    desktop_app_not_found "Claude.app not found in /Applications or ~/Applications. Set CLAUDE_ACC_DESKTOP_APP to its path."
+    desktop_no_default  "'default' isn't a desktop profile — that's the app's own, which you open as usual."
+    desktop_exists      "Desktop profile '%s' already exists."
+    desktop_not_found   "Desktop profile '%s' not found. Create it: claude-acc desktop add %s"
+    desktop_created     "Desktop profile '%s' created. Opening Claude on it..."
+    desktop_signin_hint "It opens signed out — sign in there with the account for this profile."
+    desktop_disk_note   "The profile is fully isolated, so the app re-downloads its sandbox images into it — expect several GB."
+    desktop_hint_run    "Open it again later:  claude-acc desktop run %s"
+    desktop_list_empty  "No desktop profiles. Add one: claude-acc desktop add <name>"
+    desktop_list_header "Claude Desktop profiles:"
+    desktop_signed_in   "(signed in)"
+    desktop_signed_out  "(signed out)"
+    desktop_standard    "(the app's own profile)"
+    desktop_launching   "Opening Claude on profile '%s'..."
+    desktop_launch_failed "Could not open Claude."
+    desktop_remove_warn "This deletes the whole profile '%s' — its sign-in, its settings and its MCP servers. Quit that window first."
+    desktop_remove_confirm "Delete profile '%s'? [y/N] "
+    desktop_remove_cancelled "Cancelled."
+    desktop_removed     "Desktop profile '%s' deleted."
 )
 
 _claude_msg_ru=(
@@ -226,6 +248,27 @@ _claude_msg_ru=(
     links_empty         "Нет привязок. Используйте: claude-acc link <name>"
     links_header        "Привязки:"
     links_active        "← активна"
+    help_desktop        "Профили Claude Desktop"
+    desktop_usage       "Использование: claude-acc desktop add|list|run|remove [<name>]"
+    desktop_app_not_found "Claude.app не найден в /Applications или ~/Applications. Укажите путь в CLAUDE_ACC_DESKTOP_APP."
+    desktop_no_default  "'default' — не профиль десктопа: это собственный профиль приложения, откройте его как обычно."
+    desktop_exists      "Профиль десктопа '%s' уже существует."
+    desktop_not_found   "Профиль десктопа '%s' не найден. Создать: claude-acc desktop add %s"
+    desktop_created     "Профиль десктопа '%s' создан. Открываю Claude на нём..."
+    desktop_signin_hint "Оно откроется без входа — войдите там под аккаунтом для этого профиля."
+    desktop_disk_note   "Профиль полностью изолирован, поэтому приложение заново скачает в него образы песочницы — это несколько ГБ."
+    desktop_hint_run    "Открыть его позже:  claude-acc desktop run %s"
+    desktop_list_empty  "Нет профилей десктопа. Добавьте: claude-acc desktop add <name>"
+    desktop_list_header "Профили Claude Desktop:"
+    desktop_signed_in   "(выполнен вход)"
+    desktop_signed_out  "(вход не выполнен)"
+    desktop_standard    "(собственный профиль приложения)"
+    desktop_launching   "Открываю Claude на профиле '%s'..."
+    desktop_launch_failed "Не удалось открыть Claude."
+    desktop_remove_warn "Профиль '%s' будет удалён целиком — вход, настройки и MCP-серверы. Сначала закройте его окно."
+    desktop_remove_confirm "Удалить профиль '%s'? [y/N] "
+    desktop_remove_cancelled "Отменено."
+    desktop_removed     "Профиль десктопа '%s' удалён."
 )
 
 _msg() {
@@ -465,6 +508,7 @@ _claude_acc_help() {
     echo "  claude-acc add -s <name>     $(_msg help_add) (seeded from ~/.claude/)"
     echo "  claude-acc clone-settings <name>  $(_msg help_clone_settings)"
     echo "  claude-acc import <name> <path>   $(_msg help_import)"
+    echo "  claude-acc desktop add|list|run|remove [<name>]  $(_msg help_desktop)"
 }
 
 _claude_acc_list() {
@@ -881,6 +925,177 @@ _claude_acc_run() {
             CLAUDE_CODE_OAUTH_TOKEN AWS_BEARER_TOKEN_BEDROCK
         CLAUDE_CONFIG_DIR="$acc_dir" command claude "$@"
     )
+}
+
+# =============================================================
+# Claude Desktop profiles
+# =============================================================
+# The desktop app is Electron, so it honours Chromium's --user-data-dir.
+# Pointing it at a directory of our own gives a fully isolated app profile —
+# the same move this tool makes for the CLI with CLAUDE_CONFIG_DIR. Unlike CLI
+# accounts these run side by side: the app takes no single-instance lock.
+
+_claude_acc_desktop_app() {
+    if [[ -n "$CLAUDE_ACC_DESKTOP_APP" ]]; then
+        # A set-but-wrong override resolves to nothing rather than falling
+        # back, so a typo is visible instead of silently opening the app the
+        # override meant to replace.
+        [[ -e "$CLAUDE_ACC_DESKTOP_APP" ]] && echo "$CLAUDE_ACC_DESKTOP_APP"
+        return
+    fi
+    local candidate
+    for candidate in "/Applications/Claude.app" "$HOME/Applications/Claude.app"; do
+        if [[ -e "$candidate" ]]; then
+            echo "$candidate"
+            return
+        fi
+    done
+}
+
+_claude_acc_desktop_launch() {
+    local app="$1" profile="$2"
+    # -n starts a new process instead of activating the running one;
+    # everything after --args is handed to the app itself.
+    open -n -a "$app" --args "--user-data-dir=$profile" || {
+        _msg desktop_launch_failed
+        return 1
+    }
+}
+
+# Only the presence of a credential is checked, not its validity. The pre-V2
+# key survives the migration as an empty string, hence the non-empty match.
+_claude_acc_desktop_signed_in() {
+    local profile="$1"
+    grep -q '"oauth:tokenCache\(V2\)\?":"[^"]' "$profile/config.json" 2>/dev/null
+}
+
+_claude_acc_desktop_name_ok() {
+    local name="$1"
+    if [[ -z "$name" ]]; then
+        _msg desktop_usage
+        return 1
+    fi
+    if [[ "$name" == "default" ]]; then
+        _msg desktop_no_default
+        return 1
+    fi
+    _claude_validate_name "$name"
+}
+
+_claude_acc_desktop_add() {
+    local name="$1"
+    _claude_acc_desktop_name_ok "$name" || return 1
+
+    local profile="$CLAUDE_SWITCH_DESKTOP_DIR/$name"
+    if [[ -d "$profile" ]]; then
+        _msg desktop_exists "$name"
+        return 1
+    fi
+
+    local app
+    app=$(_claude_acc_desktop_app)
+    if [[ -z "$app" ]]; then
+        _msg desktop_app_not_found
+        return 1
+    fi
+
+    mkdir -p "$profile" || return 1
+    _msg desktop_created "$name"
+    _msg desktop_signin_hint
+    _msg desktop_disk_note
+    _claude_acc_desktop_launch "$app" "$profile" || return 1
+    echo ""
+    _msg desktop_hint_run "$name"
+}
+
+_claude_acc_desktop_list() {
+    local profiles=("$CLAUDE_SWITCH_DESKTOP_DIR"/*(N/:t))
+    if [[ ${#profiles} -eq 0 ]]; then
+        _msg desktop_list_empty
+        return
+    fi
+
+    _msg desktop_list_header
+    local name state
+    for name in "${profiles[@]}"; do
+        if _claude_acc_desktop_signed_in "$CLAUDE_SWITCH_DESKTOP_DIR/$name"; then
+            state=$(_msg desktop_signed_in)
+        else
+            state=$(_msg desktop_signed_out)
+        fi
+        echo "    $name  $state"
+    done
+
+    # The app's own profile, so the list reads as the full picture rather
+    # than only the part this tool created.
+    if [[ -d "$HOME/Library/Application Support/Claude" ]]; then
+        echo "    ~/Library/…/Claude/  $(_msg desktop_standard)"
+    fi
+}
+
+_claude_acc_desktop_run() {
+    local name="$1"
+    _claude_acc_desktop_name_ok "$name" || return 1
+
+    local profile="$CLAUDE_SWITCH_DESKTOP_DIR/$name"
+    if [[ ! -d "$profile" ]]; then
+        _msg desktop_not_found "$name" "$name"
+        return 1
+    fi
+
+    local app
+    app=$(_claude_acc_desktop_app)
+    if [[ -z "$app" ]]; then
+        _msg desktop_app_not_found
+        return 1
+    fi
+
+    _msg desktop_launching "$name"
+    _claude_acc_desktop_launch "$app" "$profile"
+}
+
+_claude_acc_desktop_remove() {
+    local force=false
+    if [[ "$1" == "-f" || "$1" == "--force" ]]; then
+        force=true
+        shift
+    fi
+
+    local name="$1"
+    _claude_acc_desktop_name_ok "$name" || return 1
+
+    local profile="$CLAUDE_SWITCH_DESKTOP_DIR/$name"
+    if [[ ! -d "$profile" ]]; then
+        _msg desktop_not_found "$name" "$name"
+        return 1
+    fi
+
+    if [[ "$force" != true ]]; then
+        _msg desktop_remove_warn "$name"
+        printf "$(_msg desktop_remove_confirm "$name")"
+        local reply
+        read -r reply
+        if [[ "$reply" != [yYдД]* ]]; then
+            _msg desktop_remove_cancelled
+            return 1
+        fi
+    fi
+
+    rm -rf "$profile"
+    _msg desktop_removed "$name"
+}
+
+_claude_acc_desktop() {
+    local action="$1"
+    shift 2>/dev/null
+
+    case "$action" in
+        add)    _claude_acc_desktop_add "$@" ;;
+        list)   _claude_acc_desktop_list ;;
+        run)    _claude_acc_desktop_run "$@" ;;
+        remove) _claude_acc_desktop_remove "$@" ;;
+        *)      _msg desktop_usage; return 1 ;;
+    esac
 }
 
 # --- Identity audit (Phase 1: passive, read-only) ---
@@ -1580,6 +1795,7 @@ claude-acc() {
         whoami)  _claude_acc_whoami ;;
         clone-settings) _claude_acc_clone_settings "$@" ;;
         import)  _claude_acc_import "$@" ;;
+        desktop) _claude_acc_desktop "$@" ;;
         help)    _claude_acc_help ;;
         *)       _claude_acc_help ;;
     esac
@@ -1609,6 +1825,7 @@ _claude_acc_completion() {
         "whoami:$(_msg help_whoami)"
         "clone-settings:$(_msg help_clone_settings)"
         "import:$(_msg help_import)"
+        "desktop:$(_msg help_desktop)"
         "help:$(_msg help_help)"
     )
 
@@ -1624,10 +1841,24 @@ _claude_acc_completion() {
                 accounts=("default" "$CLAUDE_SWITCH_ACCOUNTS_DIR"/*(N:t))
                 _describe 'account' accounts
                 ;;
+            desktop)
+                local -a desktop_actions
+                desktop_actions=(add list run remove)
+                _describe 'action' desktop_actions
+                ;;
         esac
     elif (( CURRENT == 4 )) && [[ "${words[2]}" == "import" ]]; then
         # import <name> <path> — complete a directory for the source path.
         _path_files -/
+    elif (( CURRENT == 4 )) && [[ "${words[2]}" == "desktop" ]]; then
+        # desktop add <name> is a new name; run/remove take an existing one.
+        case "${words[3]}" in
+            run|remove)
+                local -a profiles
+                profiles=("$CLAUDE_SWITCH_DESKTOP_DIR"/*(N/:t))
+                _describe 'profile' profiles
+                ;;
+        esac
     fi
 }
 

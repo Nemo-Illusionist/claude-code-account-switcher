@@ -17,6 +17,11 @@ pub fn run(config: &AppConfig, what: &str) {
                 println!("{}", id);
             }
         }
+        "desktop" => {
+            for name in crate::desktop::list_profiles(config).unwrap_or_default() {
+                println!("{}", name);
+            }
+        }
         _ => {}
     }
 }

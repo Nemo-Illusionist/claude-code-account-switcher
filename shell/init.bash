@@ -32,7 +32,7 @@ _claude_acc_complete() {
     sub="${COMP_WORDS[2]}"
 
     if [[ $COMP_CWORD -eq 1 ]]; then
-        COMPREPLY=($(compgen -W "list add login remove default reset link unlink links status usage sessions session resume-hook statusline update install run doctor whoami clone-settings import help" -- "$cur"))
+        COMPREPLY=($(compgen -W "list add login remove default reset link unlink links status usage sessions session desktop resume-hook statusline update install run doctor whoami clone-settings import help" -- "$cur"))
         return
     fi
 
@@ -59,6 +59,7 @@ _claude_acc_complete() {
             doctor) COMPREPLY=($(compgen -W "--json" -- "$cur")) ;;
             update) COMPREPLY=($(compgen -W "--check --version" -- "$cur")) ;;
             session) COMPREPLY=($(compgen -W "--to --from --force -f" -- "$cur")) ;;
+            desktop) COMPREPLY=($(compgen -W "--force -f" -- "$cur")) ;;
         esac
         return
     fi
@@ -74,6 +75,9 @@ _claude_acc_complete() {
             session)
                 COMPREPLY=($(compgen -W "copy" -- "$cur"))
                 ;;
+            desktop)
+                COMPREPLY=($(compgen -W "add list run remove" -- "$cur"))
+                ;;
             resume-hook)
                 COMPREPLY=($(compgen -W "on off" -- "$cur"))
                 ;;
@@ -85,6 +89,11 @@ _claude_acc_complete() {
             session)
                 [[ "$sub" == copy ]] &&
                     COMPREPLY=($(compgen -W "$('__CLAUDE_ACC_BIN__' completions sessions)" -- "$cur"))
+                ;;
+            # `desktop add <name>` is a new name; run/remove take an existing one.
+            desktop)
+                [[ "$sub" == run || "$sub" == remove ]] &&
+                    COMPREPLY=($(compgen -W "$('__CLAUDE_ACC_BIN__' completions desktop)" -- "$cur"))
                 ;;
         esac
     fi
