@@ -129,6 +129,7 @@ Short version: **cswap** if you want one active account plus automatic rotation 
 | `claude-acc links` | Show all directory links |
 | `claude-acc status` | Show active account |
 | `claude-acc usage` | Show 5h / 7d rate-limit usage for every account |
+| `claude-acc sessions [--all]` | List Claude Code sessions across accounts (current directory by default) |
 | `claude-acc statusline [--install]` | Render (or install) a Claude Code status line with the active account |
 | `claude-acc run <name>` | Run claude under a specific account |
 | `claude-acc whoami` | Print the email (or name) of the active account |
@@ -372,6 +373,37 @@ Claude Code usage:
 ```
 
 Unlike `doctor`, the usage figures are always a live fetch — usage is volatile, so nothing is cached. The email/plan next to each account come from `doctor`'s cache, so run `claude-acc doctor` once to populate them. Accounts with no token show `no token (run: claude-acc login <name>)`; an unreachable API shows `token present, but API unreachable`. Same dependencies and platform caveat as `doctor` (`security`, `curl`, `jq`, `shasum`; macOS only for now).
+
+## Sessions across accounts (`sessions`)
+
+Claude Code stores a conversation as a transcript inside the config directory it was running under:
+
+```
+<CLAUDE_CONFIG_DIR>/projects/<slugified-cwd>/<session-id>.jsonl
+```
+
+Because every account here gets its own `CLAUDE_CONFIG_DIR`, every account also gets its own `projects/` tree. That has a consequence worth knowing: **`claude --resume <id>` only ever sees sessions that belong to the account it runs under.** Start a conversation on `work`, hit a limit, switch to `personal`, and `--resume` won't list it — the transcript is still there, just in the other account's directory.
+
+`claude-acc sessions` shows the whole picture. By default it lists the current directory's sessions across every account; `--all` covers every project:
+
+```
+$ claude-acc sessions
+Sessions for /Users/alice/Documents/my-repo:
+
+  363edaeb-e81c-4021-94f4-7fe7d91815f4  work      just now     9.9 MB
+  0266a566-0336-4055-8f05-c553d368528e  work      15h ago       60 KB  ← newest copy
+  0266a566-0336-4055-8f05-c553d368528e  personal  6d ago        58 KB
+
+The same session id appears in more than one account — those are separate
+copies that have drifted apart. 'claude --resume' only ever sees the copy in
+the account it runs under.
+
+Resume one:  claude-acc run <account> --resume <id>
+```
+
+The same id can exist in more than one account once a transcript has been copied around. Those copies then drift independently, so the listing flags **which one was updated most recently** — that is usually the one you actually want to continue.
+
+The transcript format itself carries no account identity — no email, no user id, no organization uuid (those live in `.claude.json`, which this command never reads or writes). That's why a transcript is portable between accounts at all.
 
 ## Status line
 

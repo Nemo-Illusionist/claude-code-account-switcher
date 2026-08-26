@@ -6,6 +6,7 @@ mod ide;
 mod identity;
 mod resolve;
 mod seed;
+mod sessions;
 
 use clap::{Parser, Subcommand};
 use commands::activate::ShellSyntax;
@@ -86,6 +87,16 @@ enum Commands {
         /// Extra arguments passed to claude
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
+    },
+    /// List Claude Code sessions across accounts
+    ///
+    /// Shows the current directory's sessions by default. A session lives in
+    /// the account it was created under, so the same id can exist as separate
+    /// copies in several accounts — the newest copy of each is flagged.
+    Sessions {
+        /// List sessions from every project, not just the current directory
+        #[arg(long)]
+        all: bool,
     },
     /// Audit each account's actual OAuth identity (email, UUID)
     Doctor {
@@ -182,6 +193,9 @@ fn main() {
             std::process::exit(commands::statusline::run(&config, &i18n, install))
         }
         Some(Commands::Run { name, args }) => commands::run::run(&config, &i18n, &name, &args),
+        Some(Commands::Sessions { all }) => {
+            std::process::exit(commands::sessions::run(&config, &i18n, all))
+        }
         Some(Commands::Doctor { json }) => {
             std::process::exit(commands::doctor::run(&config, &i18n, json))
         }

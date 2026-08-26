@@ -367,6 +367,36 @@ impl I18n {
             (Msg::UsageResetsIn(ref d), Lang::Ru) => format!("сброс через {}", d),
             (Msg::UsageAvailableNow, Lang::En) => s("available now"),
             (Msg::UsageAvailableNow, Lang::Ru) => s("доступно сейчас"),
+
+            // sessions
+            (Msg::SessionsHeader(ref dir), Lang::En) => format!("Sessions for {}:", dir),
+            (Msg::SessionsHeader(ref dir), Lang::Ru) => format!("Сессии для {}:", dir),
+            (Msg::SessionsHeaderAll, Lang::En) => s("Sessions across all projects:"),
+            (Msg::SessionsHeaderAll, Lang::Ru) => s("Сессии по всем проектам:"),
+            (Msg::SessionsEmpty, Lang::En) => s("No sessions found."),
+            (Msg::SessionsEmpty, Lang::Ru) => s("Сессии не найдены."),
+            (Msg::SessionsEmptyHere(ref dir), Lang::En) => format!(
+                "No sessions for {}.\nUse 'claude-acc sessions --all' to list every project.",
+                dir
+            ),
+            (Msg::SessionsEmptyHere(ref dir), Lang::Ru) => format!(
+                "Нет сессий для {}.\nПосмотреть все проекты: 'claude-acc sessions --all'.",
+                dir
+            ),
+            (Msg::SessionsNewestCopy, Lang::En) => s("← newest copy"),
+            (Msg::SessionsNewestCopy, Lang::Ru) => s("← свежая копия"),
+            (Msg::SessionsDuplicateNote, Lang::En) => s(
+                "The same session id appears in more than one account — those are separate\ncopies that have drifted apart. 'claude --resume' only ever sees the copy in\nthe account it runs under.",
+            ),
+            (Msg::SessionsDuplicateNote, Lang::Ru) => s(
+                "Один и тот же id сессии есть в нескольких аккаунтах — это отдельные копии,\nкоторые разошлись. 'claude --resume' видит только копию того аккаунта, под\nкоторым запущен.",
+            ),
+            (Msg::SessionsHintResume, Lang::En) => {
+                s("Resume one:  claude-acc run <account> --resume <id>")
+            }
+            (Msg::SessionsHintResume, Lang::Ru) => {
+                s("Продолжить:  claude-acc run <account> --resume <id>")
+            }
         }
     }
 
@@ -461,6 +491,13 @@ pub enum Msg {
     ImportDone(String, String),
     ImportRekeyed,
     ImportVerified(String),
+    SessionsHeader(String),
+    SessionsHeaderAll,
+    SessionsEmpty,
+    SessionsEmptyHere(String),
+    SessionsNewestCopy,
+    SessionsDuplicateNote,
+    SessionsHintResume,
 }
 
 fn relative_time(secs: u64, lang: Lang) -> String {
