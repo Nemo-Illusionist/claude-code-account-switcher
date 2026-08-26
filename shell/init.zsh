@@ -49,11 +49,11 @@ _claude_acc_completion() {
         _describe 'command' subcmds
     elif (( CURRENT == 3 )); then
         case "${words[2]}" in
-            login|remove|run|clone-settings)
+            remove|clone-settings)
                 accounts=(${(f)"$('__CLAUDE_ACC_BIN__' completions accounts)"})
                 _describe 'account' accounts
                 ;;
-            default|link)
+            default|link|login|run)
                 accounts=('default' ${(f)"$('__CLAUDE_ACC_BIN__' completions accounts)"})
                 _describe 'account' accounts
                 ;;

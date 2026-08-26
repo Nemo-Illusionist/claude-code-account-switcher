@@ -32,10 +32,10 @@ _claude_acc_complete() {
         COMPREPLY=($(compgen -W "list add login remove default reset link unlink links status usage statusline update run doctor whoami clone-settings import help" -- "$cur"))
     elif [[ $COMP_CWORD -eq 2 ]]; then
         case "$prev" in
-            login|remove|run|clone-settings)
+            remove|clone-settings)
                 COMPREPLY=($(compgen -W "$('__CLAUDE_ACC_BIN__' completions accounts)" -- "$cur"))
                 ;;
-            default|link)
+            default|link|login|run)
                 COMPREPLY=($(compgen -W "default $('__CLAUDE_ACC_BIN__' completions accounts)" -- "$cur"))
                 ;;
         esac

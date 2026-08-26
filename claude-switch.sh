@@ -552,6 +552,22 @@ _claude_acc_login() {
         return 1
     fi
 
+    if [[ "$name" == "default" ]]; then
+        _msg login_start "$name"
+        # Clear any inherited CLAUDE_CONFIG_DIR and tell claude-acc's IDE
+        # wrapper not to re-derive one from $PWD — same reasoning as `run
+        # default`. No keychain snapshot/restore: unlike logging into a
+        # *different* account, this login is meant to change the standard
+        # account's own credentials.
+        (
+            unset CLAUDE_CONFIG_DIR ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN \
+                CLAUDE_CODE_OAUTH_TOKEN AWS_BEARER_TOKEN_BEDROCK
+            CLAUDE_ACC_RUN_DEFAULT=1 claude auth login
+        )
+        _msg login_done
+        return
+    fi
+
     _claude_validate_name "$name" || return 1
 
     local acc_dir="$CLAUDE_SWITCH_ACCOUNTS_DIR/$name"
@@ -1596,11 +1612,11 @@ _claude_acc_completion() {
         _describe 'command' subcmds
     elif (( CURRENT == 3 )); then
         case "${words[2]}" in
-            login|remove|run|clone-settings)
+            remove|clone-settings)
                 accounts=("$CLAUDE_SWITCH_ACCOUNTS_DIR"/*(N:t))
                 _describe 'account' accounts
                 ;;
-            default|link)
+            default|link|login|run)
                 accounts=("default" "$CLAUDE_SWITCH_ACCOUNTS_DIR"/*(N:t))
                 _describe 'account' accounts
                 ;;
