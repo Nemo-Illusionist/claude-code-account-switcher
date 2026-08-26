@@ -114,11 +114,39 @@ pub fn run(config: &AppConfig, i18n: &I18n, check_only: bool, version: Option<&s
         return 1;
     }
 
+    refresh_wrapper(config, &target, i18n);
+
     i18n.print(Msg::UpdateDone(
         target_version,
         target.display().to_string(),
     ));
     0
+}
+
+/// The generated `claude` wrapper embeds the path to this binary *and*
+/// carries behaviour of its own — the `--resume` preflight, for one. A
+/// binary-only update would leave a stale script sitting in front of every
+/// `claude` launch, silently missing whatever the new version added, with
+/// nothing to hint at why.
+///
+/// Only refreshes a wrapper that is already there: an update is not the
+/// moment to start installing shell integration behind someone's back, and
+/// on Windows there is no wrapper to install at all.
+fn refresh_wrapper(config: &AppConfig, binary: &Path, i18n: &I18n) {
+    if !wrapper_path(config).exists() {
+        return;
+    }
+    match crate::ide::install_wrapper(config, binary) {
+        Ok(_) => i18n.print(Msg::UpdateWrapperRefreshed),
+        // Non-fatal: the new binary is already in place and works. Say so
+        // rather than failing an otherwise successful update.
+        Err(e) => i18n.print(Msg::UpdateWrapperFailed(e.to_string())),
+    }
+}
+
+/// Where `install` puts the generated `claude` wrapper.
+fn wrapper_path(config: &AppConfig) -> PathBuf {
+    config.base_dir.join("bin").join("claude")
 }
 
 /// Replace `target` with the freshly-downloaded `tmp` (same directory, so the
@@ -457,6 +485,62 @@ mod tests {
         let _ = std::fs::remove_file(&path);
         assert_eq!(read.checked_at, 999);
         assert_eq!(read.latest, None);
+    }
+
+    fn temp_config(tag: &str) -> AppConfig {
+        let base = std::env::temp_dir().join(format!("cc-update-{}-{}", tag, std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let config = AppConfig { base_dir: base };
+        config.init().unwrap();
+        config
+    }
+
+    #[test]
+    fn wrapper_path_matches_where_install_writes_it() {
+        let config = temp_config("wrapper-path");
+        assert_eq!(wrapper_path(&config), config.base_dir.join("bin/claude"));
+        let _ = std::fs::remove_dir_all(&config.base_dir);
+    }
+
+    #[test]
+    fn refresh_does_not_create_a_wrapper_that_was_never_installed() {
+        // An update must not start adding shell integration on its own —
+        // and on Windows there is no wrapper to write in the first place.
+        let config = temp_config("no-wrapper");
+        let i18n = I18n {
+            lang: crate::i18n::Lang::En,
+        };
+        refresh_wrapper(&config, &config.base_dir.join("claude-acc"), &i18n);
+        assert!(!wrapper_path(&config).exists());
+        let _ = std::fs::remove_dir_all(&config.base_dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn refresh_rewrites_an_existing_wrapper_with_the_new_binary_path() {
+        let config = temp_config("stale-wrapper");
+        let i18n = I18n {
+            lang: crate::i18n::Lang::En,
+        };
+        let wrapper = wrapper_path(&config);
+        std::fs::create_dir_all(wrapper.parent().unwrap()).unwrap();
+        std::fs::write(
+            &wrapper,
+            "#!/bin/sh\n# stale wrapper from an older version\n",
+        )
+        .unwrap();
+
+        let binary = config.base_dir.join("claude-acc");
+        refresh_wrapper(&config, &binary, &i18n);
+
+        let content = std::fs::read_to_string(&wrapper).unwrap();
+        assert!(!content.contains("stale wrapper"), "{}", content);
+        assert!(
+            content.contains(&binary.display().to_string()),
+            "wrapper does not point at the new binary: {}",
+            content
+        );
+        let _ = std::fs::remove_dir_all(&config.base_dir);
     }
 
     #[test]

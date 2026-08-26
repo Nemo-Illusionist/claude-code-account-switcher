@@ -343,6 +343,16 @@ impl I18n {
             (Msg::UpdateReplaceFailed(ref e), Lang::Ru) => {
                 format!("Не удалось заменить установленный бинарник: {}", e)
             }
+            (Msg::UpdateWrapperRefreshed, Lang::En) => s("Refreshed the claude wrapper."),
+            (Msg::UpdateWrapperRefreshed, Lang::Ru) => s("Враппер claude обновлён."),
+            (Msg::UpdateWrapperFailed(ref e), Lang::En) => format!(
+                "The binary was updated, but the claude wrapper could not be refreshed: {}\nRun 'claude-acc install' to fix it.",
+                e
+            ),
+            (Msg::UpdateWrapperFailed(ref e), Lang::Ru) => format!(
+                "Бинарник обновлён, но враппер claude обновить не удалось: {}\nВыполните 'claude-acc install', чтобы починить.",
+                e
+            ),
 
             // statusline
             (Msg::StatuslineInstalled(ref acc, ref path), Lang::En) => format!(
@@ -683,6 +693,8 @@ pub enum Msg {
     UpdateUnsupportedPlatform,
     UpdateRepoUnknown,
     UpdateReplaceFailed(String),
+    UpdateWrapperRefreshed,
+    UpdateWrapperFailed(String),
     ImportSourceNotDir(String),
     ImportSourceManaged,
     ImportFailed(String),
