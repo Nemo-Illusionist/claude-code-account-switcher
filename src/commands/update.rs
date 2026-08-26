@@ -1,5 +1,6 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::commands::install::binary_name;
 use crate::config::AppConfig;
@@ -12,6 +13,11 @@ use crate::i18n::{I18n, Msg};
 
 const REPO_URL: &str = env!("CARGO_PKG_REPOSITORY");
 const CURRENT: &str = env!("CARGO_PKG_VERSION");
+
+/// How often `maybe_print_hint` is willing to hit the network — once a day,
+/// so the passive hint printed after ordinary commands never adds real
+/// latency to the common case.
+const HINT_CHECK_INTERVAL_SECS: u64 = 24 * 60 * 60;
 
 pub fn run(config: &AppConfig, i18n: &I18n, check_only: bool, version: Option<&str>) -> i32 {
     let Some(slug) = repo_slug(REPO_URL) else {
@@ -190,6 +196,80 @@ fn normalize_version(v: &str) -> Option<String> {
     Some(trimmed.to_string())
 }
 
+fn hint_cache_path(config: &AppConfig) -> PathBuf {
+    config.base_dir.join("update-check.json")
+}
+
+/// `latest: None` means the last attempt failed (network down, API error) —
+/// still recorded, so a persistent outage doesn't turn into a GitHub API
+/// call on every single command for as long as it lasts.
+struct HintCache {
+    checked_at: u64,
+    latest: Option<String>,
+}
+
+fn read_hint_cache(path: &Path) -> Option<HintCache> {
+    let content = std::fs::read_to_string(path).ok()?;
+    let v: serde_json::Value = serde_json::from_str(&content).ok()?;
+    Some(HintCache {
+        checked_at: v.get("checked_at").and_then(|x| x.as_u64())?,
+        latest: v.get("latest").and_then(|x| x.as_str()).map(String::from),
+    })
+}
+
+fn write_hint_cache(path: &Path, cache: &HintCache) {
+    let body = serde_json::json!({
+        "checked_at": cache.checked_at,
+        "latest": cache.latest,
+    });
+    if let Ok(serialized) = serde_json::to_string(&body) {
+        let _ = std::fs::write(path, serialized);
+    }
+}
+
+fn now_secs() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// Passive "a new version is out" hint, printed after most commands finish.
+/// Checks GitHub Releases at most once every 24h (cached in
+/// `~/.claude-switch/update-check.json`); every other invocation reuses the
+/// cached answer with no network call at all. Silent on any failure — this
+/// is a courtesy nudge, not something that should ever block, slow down, or
+/// error out a command a user is actually trying to run.
+pub fn maybe_print_hint(config: &AppConfig, i18n: &I18n) {
+    let path = hint_cache_path(config);
+    let cached = read_hint_cache(&path);
+    let now = now_secs();
+
+    let latest = match &cached {
+        Some(c) if now.saturating_sub(c.checked_at) < HINT_CHECK_INTERVAL_SECS => c.latest.clone(),
+        _ => {
+            let Some(slug) = repo_slug(REPO_URL) else {
+                return;
+            };
+            let latest = latest_release_tag(&slug).map(|t| t.trim_start_matches('v').to_string());
+            write_hint_cache(
+                &path,
+                &HintCache {
+                    checked_at: now,
+                    latest: latest.clone(),
+                },
+            );
+            latest
+        }
+    };
+
+    if let Some(latest) = latest
+        && is_newer(&latest, CURRENT)
+    {
+        i18n.print(Msg::UpdateHintAvailable(CURRENT.to_string(), latest));
+    }
+}
+
 /// "owner/repo" from a GitHub URL (https or scp-style git@), else `None`.
 fn repo_slug(url: &str) -> Option<String> {
     let s = url.trim().trim_end_matches('/');
@@ -333,5 +413,55 @@ mod tests {
         assert_eq!(normalize_version("not-a-version"), None);
         assert_eq!(normalize_version("1.2"), None);
         assert_eq!(normalize_version(""), None);
+    }
+
+    #[test]
+    fn hint_cache_roundtrips_with_a_version() {
+        let path = std::env::temp_dir().join(format!(
+            "claude-acc-test-hint-cache-with-version-{}.json",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&path);
+
+        write_hint_cache(
+            &path,
+            &HintCache {
+                checked_at: 12345,
+                latest: Some("0.11.5".to_string()),
+            },
+        );
+        let read = read_hint_cache(&path).expect("should read back what was written");
+
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(read.checked_at, 12345);
+        assert_eq!(read.latest, Some("0.11.5".to_string()));
+    }
+
+    #[test]
+    fn hint_cache_roundtrips_a_failed_check() {
+        let path = std::env::temp_dir().join(format!(
+            "claude-acc-test-hint-cache-failed-{}.json",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&path);
+
+        write_hint_cache(
+            &path,
+            &HintCache {
+                checked_at: 999,
+                latest: None,
+            },
+        );
+        let read = read_hint_cache(&path).expect("should read back what was written");
+
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(read.checked_at, 999);
+        assert_eq!(read.latest, None);
+    }
+
+    #[test]
+    fn read_hint_cache_missing_file_returns_none() {
+        let path = std::path::PathBuf::from("/definitely/does/not/exist/update-check.json");
+        assert!(read_hint_cache(&path).is_none());
     }
 }
