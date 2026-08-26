@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.11.0](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.10.5...v0.11.0) (2026-08-26)
+
+
+### Features
+
+* warn (non-blocking) when add/login duplicates an existing account ([#70](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/70)) ([f42f1ac](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/f42f1ac42161afff74f7264b06ee8cb2cd1f94e4))
+
+
+### Bug Fixes
+
+* doctor/usage fall back to the legacy Keychain entry for ~/.claude ([#68](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/68)) ([2fc3144](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/2fc3144d0abab7197f30c8a1faceb62e0988c0f3))
+
 ## [0.10.5](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.10.4...v0.10.5) (2026-08-26)
 
 
