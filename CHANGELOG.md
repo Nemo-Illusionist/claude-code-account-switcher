@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.16.0](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.15.0...v0.16.0) (2026-08-26)
+
+
+### Features
+
+* clone a profile's downloaded runtime instead of re-fetching it ([#95](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/95)) ([83289a5](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/83289a5d171d86800663f8a2d2c1279c9e2b02db))
+
+
+### Bug Fixes
+
+* refuse to sign a profile in while Claude is running ([#96](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/96)) ([2a0185d](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/2a0185d78171bfb8f61d45732d31caabc856439a))
+
 ## [0.15.0](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.14.0...v0.15.0) (2026-08-26)
 
 
