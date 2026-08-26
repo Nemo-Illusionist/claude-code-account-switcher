@@ -20,6 +20,13 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use sha2::{Digest, Sha256};
 
+/// The pre-2.1 unscoped Keychain service name. Claude Code 2.1+ scopes
+/// credentials per config dir (see `keychain_service`), but has been
+/// observed to keep this bare entry in sync for the standard `~/.claude`
+/// account too — `read_token` falls back to it when the scoped lookup for
+/// the standard account misses. See its call site for why.
+const LEGACY_KEYCHAIN_SERVICE: &str = "Claude Code-credentials";
+
 pub struct Profile {
     pub email: Option<String>,
     pub uuid: Option<String>,
@@ -80,7 +87,30 @@ fn read_token(acc_dir: &Path) -> Option<String> {
     if let Some(t) = keychain_token(acc_dir) {
         return Some(t);
     }
+    // Fall back to the bare legacy service, but only for the standard
+    // account: its scoped hash has been observed to drift from our own
+    // sha256(CLAUDE_CONFIG_DIR)[0:8] computation (e.g. right after a fresh
+    // `claude auth login`), silently breaking the lookup above even though
+    // the account is genuinely logged in. The legacy entry stays in sync
+    // for the standard account regardless. Not applied to managed accounts:
+    // if a managed account's own scoped entry ever goes missing, falling
+    // back to this shared/legacy entry could silently attribute a
+    // *different* account's identity to it — worse than reporting no token.
+    if should_try_legacy_keychain_fallback(acc_dir)
+        && let Some(user) = whoami_short()
+        && let Some(t) = read_keychain_blob(LEGACY_KEYCHAIN_SERVICE, &user)
+            .and_then(|blob| extract_access_token(&blob))
+    {
+        return Some(t);
+    }
     plaintext_token(acc_dir)
+}
+
+/// Whether a missed scoped Keychain lookup for `acc_dir` should retry
+/// against the bare legacy service. Only the standard account — see
+/// `read_token` for why a managed account must not fall back this way.
+fn should_try_legacy_keychain_fallback(acc_dir: &Path) -> bool {
+    standard_token_dir().as_deref() == Some(acc_dir)
 }
 
 /// macOS Keychain service name Claude Code stores the OAuth token under for a
@@ -176,7 +206,7 @@ pub fn copy_keychain_entry(from_dir: &Path, to_dir: &Path) -> std::io::Result<bo
 /// `restore_side_effect_keychain` bracket `add`/`login` for a *different*
 /// account so that collateral write can't clobber the standard account.
 fn side_effect_keychain_services() -> Vec<String> {
-    let mut services = vec!["Claude Code-credentials".to_string()];
+    let mut services = vec![LEGACY_KEYCHAIN_SERVICE.to_string()];
     if let Some(dir) = standard_token_dir()
         && let Some(service) = keychain_service(&dir)
         && !services.contains(&service)
@@ -583,6 +613,19 @@ mod tests {
     fn side_effect_keychain_services_include_bare_legacy_name() {
         let services = side_effect_keychain_services();
         assert!(services.contains(&"Claude Code-credentials".to_string()));
+    }
+
+    #[test]
+    fn legacy_keychain_fallback_applies_only_to_the_standard_account() {
+        let standard_dir = standard_token_dir().expect("home dir should resolve in CI");
+        assert!(should_try_legacy_keychain_fallback(&standard_dir));
+
+        assert!(!should_try_legacy_keychain_fallback(Path::new(
+            "/tmp/some-managed-account"
+        )));
+        assert!(!should_try_legacy_keychain_fallback(
+            standard_dir.parent().expect("home dir has a parent")
+        ));
     }
 
     #[test]
