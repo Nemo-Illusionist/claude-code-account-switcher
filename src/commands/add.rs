@@ -15,12 +15,12 @@ use std::process::Command;
 /// the OAuth flow entirely, or auth a different identity than acc_dir intends.
 /// On Windows, spawned through the hardened invocation in
 /// windows_invocation.rs — see its module doc for why.
-fn build_login_command(acc_dir: &Path) -> Command {
+fn build_login_command(acc_dir: &Path) -> Result<Command, String> {
     let args = ["auth".to_string(), "login".to_string()];
-    let mut cmd = claude_command(&args);
+    let mut cmd = claude_command(&args)?;
     cmd.env("CLAUDE_CONFIG_DIR", acc_dir);
     strip_claude_auth_env(&mut cmd);
-    cmd
+    Ok(cmd)
 }
 
 pub fn run(config: &AppConfig, i18n: &I18n, name: &str, seed_from_default: bool) {
@@ -67,9 +67,7 @@ pub fn run(config: &AppConfig, i18n: &I18n, name: &str, seed_from_default: bool)
     // acc_dir's CLAUDE_CONFIG_DIR — snapshot/restore undoes that collateral.
     // See identity::snapshot_side_effect_keychain for why.
     let keychain_snapshot = identity::snapshot_side_effect_keychain();
-    build_login_command(&acc_dir)
-        .status()
-        .expect("Failed to run claude auth login");
+    super::spawn_claude(build_login_command(&acc_dir), i18n);
     identity::restore_side_effect_keychain(keychain_snapshot);
 
     // Best-effort: hint if this login turned out to be the same identity as
@@ -93,7 +91,7 @@ mod tests {
     #[test]
     fn login_command_sets_config_dir() {
         let dir = Path::new("/tmp/some-account");
-        let cmd = build_login_command(dir);
+        let cmd = build_login_command(dir).unwrap();
         let set = cmd
             .get_envs()
             .find(|(k, _)| *k == std::ffi::OsStr::new("CLAUDE_CONFIG_DIR"));
@@ -110,7 +108,7 @@ mod tests {
     #[test]
     fn login_command_strips_auth_env_vars() {
         let dir = Path::new("/tmp/some-account");
-        let cmd = build_login_command(dir);
+        let cmd = build_login_command(dir).unwrap();
         for var in crate::environment::CLAUDE_AUTH_ENV_VARS {
             let removed = cmd
                 .get_envs()
@@ -126,7 +124,7 @@ mod tests {
     #[test]
     fn login_command_uses_claude_auth_login_args() {
         let dir = Path::new("/tmp/some-account");
-        let cmd = build_login_command(dir);
+        let cmd = build_login_command(dir).unwrap();
         let args: Vec<_> = cmd.get_args().collect();
         // On Windows, claude_command wraps the real argv in a hardened
         // cmd.exe invocation (see windows_invocation.rs) — the raw "auth

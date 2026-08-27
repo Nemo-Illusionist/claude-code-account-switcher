@@ -79,6 +79,26 @@ impl I18n {
             (Msg::LoginNotFound(ref n), Lang::Ru) => format!("Аккаунт '{}' не найден.", n),
             (Msg::LoginStart(ref n), Lang::En) => format!("Logging in to '{}'...", n),
             (Msg::LoginStart(ref n), Lang::Ru) => format!("Вхожу в '{}'...", n),
+            (Msg::ClaudeNotFound, Lang::En) => s(
+                "Couldn't find `claude` on PATH. Install Claude Code, or open \
+                 a new shell if you just did.",
+            ),
+            (Msg::ClaudeNotFound, Lang::Ru) => {
+                s("Не нашёл `claude` в PATH. Установите Claude Code — или \
+                 откройте новую оболочку, если только что установили.")
+            }
+            (Msg::ClaudeLaunchFailed(ref e), Lang::En) => format!("Could not run claude: {}", e),
+            (Msg::ClaudeLaunchFailed(ref e), Lang::Ru) => {
+                format!("Не удалось запустить claude: {}", e)
+            }
+            (Msg::ClaudeArgUnsupported(ref reason), Lang::En) => format!(
+                "This argument can't be passed to claude on Windows: {}",
+                reason
+            ),
+            (Msg::ClaudeArgUnsupported(ref reason), Lang::Ru) => format!(
+                "Этот аргумент нельзя передать claude на Windows: {}",
+                reason
+            ),
             (Msg::LoginDone, Lang::En) => s("Done."),
             (Msg::LoginDone, Lang::Ru) => s("Готово."),
 
@@ -938,6 +958,9 @@ fn s(v: &str) -> String {
 #[derive(Clone)]
 #[allow(dead_code)]
 pub enum Msg {
+    ClaudeNotFound,
+    ClaudeLaunchFailed(String),
+    ClaudeArgUnsupported(String),
     HelpTitle,
     HelpCommands,
     ListEmpty,

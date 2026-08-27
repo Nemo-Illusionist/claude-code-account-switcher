@@ -84,38 +84,32 @@ pub fn build_windows_command_invocation(
 /// Windows .cmd-shim quoting footgun on Windows and a plain
 /// `Command::new("claude").args(args)` everywhere else. Callers still set
 /// env vars on the returned `Command` as usual.
+///
+/// `Err` carries a message fit to show a user: a token that cannot be
+/// represented on a `cmd.exe` command line at all. Falling back to
+/// `Command::new("claude")` there was the first design, and it is wrong for
+/// the case this whole module exists for — that call finds no `.cmd` shim,
+/// so the user got `program not found` instead of the reason.
 #[cfg(windows)]
-pub fn claude_command(args: &[String]) -> Command {
+pub fn claude_command(args: &[String]) -> Result<Command, String> {
     use std::os::windows::process::CommandExt;
-    match build_windows_command_invocation("claude", args) {
-        Ok(invocation) => {
-            let mut cmd = Command::new(&invocation.command);
-            for a in &invocation.args {
-                // `raw_arg` appends the token exactly as given — no further
-                // quoting from Rust — matching Node's `windowsVerbatimArguments:
-                // true`. We already fully quoted each piece above; a second
-                // layer of quoting would corrupt it.
-                cmd.raw_arg(a);
-            }
-            cmd
-        }
-        Err(_) => {
-            // A token had a quote/newline we can't safely embed in a cmd.exe
-            // command line at all. Fall back to Rust's own argv-based
-            // invocation rather than crash — still correct for a real .exe,
-            // just not hardened against the .cmd-shim quirk for this call.
-            let mut cmd = Command::new("claude");
-            cmd.args(args);
-            cmd
-        }
+    let invocation = build_windows_command_invocation("claude", args)?;
+    let mut cmd = Command::new(&invocation.command);
+    for a in &invocation.args {
+        // `raw_arg` appends the token exactly as given — no further quoting
+        // from Rust — matching Node's `windowsVerbatimArguments: true`. We
+        // already fully quoted each piece above; a second layer of quoting
+        // would corrupt it.
+        cmd.raw_arg(a);
     }
+    Ok(cmd)
 }
 
 #[cfg(not(windows))]
-pub fn claude_command(args: &[String]) -> Command {
+pub fn claude_command(args: &[String]) -> Result<Command, String> {
     let mut cmd = Command::new("claude");
     cmd.args(args);
-    cmd
+    Ok(cmd)
 }
 
 #[cfg(test)]
