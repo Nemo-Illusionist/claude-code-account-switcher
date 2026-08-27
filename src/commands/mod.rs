@@ -46,11 +46,19 @@ fn spawn_claude(built: Result<Command, InvocationError>, i18n: &I18n) -> i32 {
             i18n.print(Msg::ClaudeArgUnsupported(token));
             return 1;
         }
-        Err(InvocationError::NotFound) => {
-            i18n.print(Msg::ClaudeNotFound);
-            return 1;
-        }
     };
+
+    // Windows spawns cmd.exe, which starts fine whether or not `claude`
+    // exists — so the check belongs here, before the shell swallows the
+    // distinction. Deliberately not done while *building* the command: that
+    // would make the builders depend on the environment, and they are pure so
+    // their env-var wiring can be tested on any platform.
+    #[cfg(windows)]
+    if !crate::windows_invocation::claude_is_findable() {
+        i18n.print(Msg::ClaudeNotFound);
+        return 1;
+    }
+
     match cmd.status() {
         Ok(status) => status.code().unwrap_or(1),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
@@ -117,11 +125,6 @@ mod tests {
             ),
             1
         );
-    }
-
-    #[test]
-    fn a_claude_that_is_nowhere_is_reported_not_panicked_on() {
-        assert_eq!(spawn_claude(Err(InvocationError::NotFound), &i18n()), 1);
     }
 
     #[test]

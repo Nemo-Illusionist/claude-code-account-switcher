@@ -32,15 +32,13 @@ pub struct WindowsCommandInvocation {
     pub args: Vec<String>,
 }
 
-/// Why an invocation couldn't be built. The variants exist so the message
-/// can be written in the user's language: the earlier `String` reason was
+/// Why an invocation couldn't be built. A type rather than a `String` so the
+/// message can be written in the user's language: the earlier reason was
 /// English no matter what, and showed up embedded in a Russian sentence.
 #[derive(Debug, PartialEq)]
 pub enum InvocationError {
     /// A token cmd.exe cannot carry at all. Holds the offending token.
     UnsupportedArg(String),
-    /// `claude` is nowhere on PATH.
-    NotFound,
 }
 
 /// Quotes a single command-line token for safe embedding inside the
@@ -104,19 +102,7 @@ pub fn build_windows_command_invocation(
 #[cfg(windows)]
 pub fn claude_command(args: &[String]) -> Result<Command, InvocationError> {
     use std::os::windows::process::CommandExt;
-    // Resolved here rather than left to cmd.exe. Two reasons: a missing
-    // `claude` becomes something we can say plainly, instead of cmd.exe
-    // printing `'"claude"' is not recognized` and exiting 1 — indistinguishable
-    // from claude itself failing; and handing cmd.exe an absolute path means
-    // its search and ours can't pick different files.
-    let claude = find_executable(
-        "claude",
-        std::env::current_dir().ok().as_deref(),
-        std::env::var_os("PATH").as_deref(),
-        std::env::var_os("PATHEXT").as_deref(),
-    )
-    .ok_or(InvocationError::NotFound)?;
-    let invocation = build_windows_command_invocation(&claude.to_string_lossy(), args)?;
+    let invocation = build_windows_command_invocation("claude", args)?;
     let mut cmd = Command::new(&invocation.command);
     for a in &invocation.args {
         // `raw_arg` appends the token exactly as given — no further quoting
@@ -133,6 +119,23 @@ pub fn claude_command(args: &[String]) -> Result<Command, InvocationError> {
     let mut cmd = Command::new("claude");
     cmd.args(args);
     Ok(cmd)
+}
+
+/// Whether `claude` is anywhere `cmd.exe` would look for it.
+///
+/// Only used to say so plainly. cmd.exe still does the real resolution — this
+/// does not override its choice — but a missing `claude` there surfaces as
+/// `'"claude"' is not recognized` on stderr and exit 1, indistinguishable
+/// from claude itself failing.
+#[cfg(windows)]
+pub fn claude_is_findable() -> bool {
+    find_executable(
+        "claude",
+        std::env::current_dir().ok().as_deref(),
+        std::env::var_os("PATH").as_deref(),
+        std::env::var_os("PATHEXT").as_deref(),
+    )
+    .is_some()
 }
 
 /// Where `cmd.exe` would find `name`: the current directory first, then each
