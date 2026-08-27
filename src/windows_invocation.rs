@@ -197,22 +197,13 @@ mod tests {
         OsString::from(v)
     }
 
-    /// PATHEXT is conventionally uppercase (`.COM;.EXE;.BAT;.CMD`) while the
-    /// file on disk is usually lowercase, so what comes back carries the
-    /// candidate's spelling rather than the directory entry's. Both open the
-    /// same file on the case-insensitive filesystems this runs on, which is
-    /// why the search doesn't pay for a directory scan to correct it.
-    fn same_file(found: Option<PathBuf>, expected: PathBuf) {
-        let found = found.expect("nothing found");
-        assert!(
-            found
-                .to_string_lossy()
-                .eq_ignore_ascii_case(&expected.to_string_lossy()),
-            "{:?} != {:?}",
-            found,
-            expected
-        );
-    }
+    // These tests pass PATHEXT in the same case as the files they create, so
+    // they assert search *order* on any filesystem rather than accidentally
+    // testing case sensitivity — Linux is case-sensitive and would fail on a
+    // `.CMD` candidate for a `claude.cmd` file, while Windows and macOS would
+    // not. Real Windows PATHEXT is uppercase, and matching a lowercase file
+    // there works because the filesystem is case-insensitive; that is why the
+    // search doesn't pay for a directory scan to normalise it.
 
     #[test]
     fn a_cmd_shim_is_found_where_rusts_own_lookup_finds_nothing() {
@@ -225,9 +216,9 @@ mod tests {
             "claude",
             None,
             Some(&os(dir.to_str().unwrap())),
-            Some(&os(".COM;.EXE;.BAT;.CMD")),
+            Some(&os(".com;.exe;.bat;.cmd")),
         );
-        same_file(found, dir.join("claude.cmd"));
+        assert_eq!(found, Some(dir.join("claude.cmd")));
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -237,13 +228,13 @@ mod tests {
         fs::write(dir.join("claude.cmd"), "").unwrap();
         fs::write(dir.join("claude.exe"), "").unwrap();
         let path = os(dir.to_str().unwrap());
-        same_file(
-            find_executable("claude", None, Some(&path), Some(&os(".EXE;.CMD"))),
-            dir.join("claude.exe"),
+        assert_eq!(
+            find_executable("claude", None, Some(&path), Some(&os(".exe;.cmd"))),
+            Some(dir.join("claude.exe"))
         );
-        same_file(
-            find_executable("claude", None, Some(&path), Some(&os(".CMD;.EXE"))),
-            dir.join("claude.cmd"),
+        assert_eq!(
+            find_executable("claude", None, Some(&path), Some(&os(".cmd;.exe"))),
+            Some(dir.join("claude.cmd"))
         );
         let _ = fs::remove_dir_all(&dir);
     }
@@ -259,14 +250,14 @@ mod tests {
         fs::create_dir_all(&elsewhere).unwrap();
         fs::write(here.join("claude.cmd"), "").unwrap();
         fs::write(elsewhere.join("claude.cmd"), "").unwrap();
-        same_file(
+        assert_eq!(
             find_executable(
                 "claude",
                 Some(&here),
                 Some(&os(elsewhere.to_str().unwrap())),
-                Some(&os(".CMD")),
+                Some(&os(".cmd"))
             ),
-            here.join("claude.cmd"),
+            Some(here.join("claude.cmd"))
         );
         let _ = fs::remove_dir_all(&base);
     }
@@ -280,9 +271,10 @@ mod tests {
         fs::create_dir_all(&second).unwrap();
         fs::write(second.join("claude.cmd"), "").unwrap();
         let path = std::env::join_paths([&first, &second]).unwrap();
-        same_file(
-            find_executable("claude", None, Some(&path), Some(&os(".CMD"))),
-            second.join("claude.cmd"),
+        assert_eq!(
+            find_executable("claude", None, Some(&path), Some(&os(".cmd"))),
+            Some(second.join("claude.cmd")),
+            "an empty earlier entry must not stop the search"
         );
         let _ = fs::remove_dir_all(&base);
     }
@@ -311,7 +303,7 @@ mod tests {
                 "claude",
                 None,
                 Some(&os(dir.to_str().unwrap())),
-                Some(&os(".CMD"))
+                Some(&os(".cmd"))
             ),
             None
         );
@@ -328,7 +320,7 @@ mod tests {
                 "claude",
                 None,
                 Some(&os(dir.to_str().unwrap())),
-                Some(&os(".CMD"))
+                Some(&os(".cmd"))
             ),
             None
         );
