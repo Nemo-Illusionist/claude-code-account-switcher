@@ -58,6 +58,16 @@ impl I18n {
             (Msg::AddCreated(ref n), Lang::Ru) => {
                 format!("Аккаунт '{}' создан. Запускаю логин...", n)
             }
+            (Msg::AddLoginFailed(ref n), Lang::En) => format!(
+                "Login didn't complete, so account '{}' exists but isn't \
+                 signed in. Retry with:  claude-acc login {}",
+                n, n
+            ),
+            (Msg::AddLoginFailed(ref n), Lang::Ru) => format!(
+                "Вход не завершился, поэтому аккаунт '{}' создан, но не \
+                 залогинен. Повторить:  claude-acc login {}",
+                n, n
+            ),
             (Msg::AddDone, Lang::En) => s("Done. Use:"),
             (Msg::AddDone, Lang::Ru) => s("Готово. Используйте:"),
             (Msg::AddHintDefault(ref n), Lang::En) => {
@@ -91,14 +101,28 @@ impl I18n {
             (Msg::ClaudeLaunchFailed(ref e), Lang::Ru) => {
                 format!("Не удалось запустить claude: {}", e)
             }
-            (Msg::ClaudeArgUnsupported(ref reason), Lang::En) => format!(
-                "This argument can't be passed to claude on Windows: {}",
-                reason
+            (Msg::ClaudeArgUnsupported(ref token), Lang::En) => format!(
+                "This argument can't be passed to claude on Windows — a \
+                 command line there cannot carry a quote or a line break: {:?}",
+                token
             ),
-            (Msg::ClaudeArgUnsupported(ref reason), Lang::Ru) => format!(
-                "Этот аргумент нельзя передать claude на Windows: {}",
-                reason
+            (Msg::ClaudeArgUnsupported(ref token), Lang::Ru) => format!(
+                "Этот аргумент нельзя передать claude на Windows — в командной \
+                 строке там не может быть кавычки или перевода строки: {:?}",
+                token
             ),
+            (Msg::SpawnProgramNotFound(ref program), Lang::En) => {
+                format!(
+                    "Couldn't start `{}` — it isn't where it was expected.",
+                    program
+                )
+            }
+            (Msg::SpawnProgramNotFound(ref program), Lang::Ru) => {
+                format!(
+                    "Не удалось запустить `{}` — его нет там, где ожидалось.",
+                    program
+                )
+            }
             (Msg::LoginDone, Lang::En) => s("Done."),
             (Msg::LoginDone, Lang::Ru) => s("Готово."),
 
@@ -961,6 +985,7 @@ pub enum Msg {
     ClaudeNotFound,
     ClaudeLaunchFailed(String),
     ClaudeArgUnsupported(String),
+    SpawnProgramNotFound(String),
     HelpTitle,
     HelpCommands,
     ListEmpty,
@@ -970,6 +995,7 @@ pub enum Msg {
     AddExists(String),
     AddCreated(String),
     AddDone,
+    AddLoginFailed(String),
     AddHintDefault(String),
     AddHintLink(String),
     LoginNotFound(String),

@@ -23,6 +23,8 @@
 // unused in that build's production path, not actually dead.
 #![cfg_attr(not(windows), allow(dead_code))]
 
+use std::ffi::OsStr;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 pub struct WindowsCommandInvocation {
@@ -30,15 +32,24 @@ pub struct WindowsCommandInvocation {
     pub args: Vec<String>,
 }
 
+/// Why an invocation couldn't be built. The variants exist so the message
+/// can be written in the user's language: the earlier `String` reason was
+/// English no matter what, and showed up embedded in a Russian sentence.
+#[derive(Debug, PartialEq)]
+pub enum InvocationError {
+    /// A token cmd.exe cannot carry at all. Holds the offending token.
+    UnsupportedArg(String),
+    /// `claude` is nowhere on PATH.
+    NotFound,
+}
+
 /// Quotes a single command-line token for safe embedding inside the
 /// double-quoted string cmd.exe receives after `/c`. Rejects tokens
 /// containing `"` or a line break outright — there's no way to embed those
 /// safely in a `cmd.exe /c "..."` command line at all.
-fn quote_cmd_token(value: &str) -> Result<String, String> {
+fn quote_cmd_token(value: &str) -> Result<String, InvocationError> {
     if value.contains('\r') || value.contains('\n') || value.contains('"') {
-        return Err(format!(
-            "Windows command tokens cannot contain quotes or line breaks: {value:?}"
-        ));
+        return Err(InvocationError::UnsupportedArg(value.to_string()));
     }
     // MSVCRT/CommandLineToArgvW rule: backslashes immediately before a
     // closing quote must be doubled, or they'd escape the quote instead of
@@ -60,7 +71,7 @@ fn quote_cmd_token(value: &str) -> Result<String, String> {
 pub fn build_windows_command_invocation(
     command: &str,
     args: &[String],
-) -> Result<WindowsCommandInvocation, String> {
+) -> Result<WindowsCommandInvocation, InvocationError> {
     let comspec = std::env::var("ComSpec").unwrap_or_else(|_| "cmd.exe".to_string());
     let mut tokens = Vec::with_capacity(args.len() + 1);
     tokens.push(quote_cmd_token(command)?);
@@ -91,9 +102,21 @@ pub fn build_windows_command_invocation(
 /// the case this whole module exists for — that call finds no `.cmd` shim,
 /// so the user got `program not found` instead of the reason.
 #[cfg(windows)]
-pub fn claude_command(args: &[String]) -> Result<Command, String> {
+pub fn claude_command(args: &[String]) -> Result<Command, InvocationError> {
     use std::os::windows::process::CommandExt;
-    let invocation = build_windows_command_invocation("claude", args)?;
+    // Resolved here rather than left to cmd.exe. Two reasons: a missing
+    // `claude` becomes something we can say plainly, instead of cmd.exe
+    // printing `'"claude"' is not recognized` and exiting 1 — indistinguishable
+    // from claude itself failing; and handing cmd.exe an absolute path means
+    // its search and ours can't pick different files.
+    let claude = find_executable(
+        "claude",
+        std::env::current_dir().ok().as_deref(),
+        std::env::var_os("PATH").as_deref(),
+        std::env::var_os("PATHEXT").as_deref(),
+    )
+    .ok_or(InvocationError::NotFound)?;
+    let invocation = build_windows_command_invocation(&claude.to_string_lossy(), args)?;
     let mut cmd = Command::new(&invocation.command);
     for a in &invocation.args {
         // `raw_arg` appends the token exactly as given — no further quoting
@@ -106,15 +129,211 @@ pub fn claude_command(args: &[String]) -> Result<Command, String> {
 }
 
 #[cfg(not(windows))]
-pub fn claude_command(args: &[String]) -> Result<Command, String> {
+pub fn claude_command(args: &[String]) -> Result<Command, InvocationError> {
     let mut cmd = Command::new("claude");
     cmd.args(args);
     Ok(cmd)
 }
 
+/// Where `cmd.exe` would find `name`: the current directory first, then each
+/// PATH entry, trying the bare name and then each PATHEXT extension.
+///
+/// Rust's own `Command::new` does none of this — it looks for a literal
+/// `claude`/`claude.exe` and so never finds the `claude.cmd` an npm install
+/// leaves, which is why `run`/`add`/`login` used to die with
+/// `program not found` on the commonest Windows setup.
+///
+/// Pure, so the search order is testable on any platform.
+pub fn find_executable(
+    name: &str,
+    cwd: Option<&Path>,
+    path: Option<&OsStr>,
+    pathext: Option<&OsStr>,
+) -> Option<PathBuf> {
+    let extensions: Vec<String> = pathext
+        .map(|v| v.to_string_lossy().into_owned())
+        .unwrap_or_else(|| ".COM;.EXE;.BAT;.CMD".to_string())
+        .split(';')
+        .filter(|e| !e.is_empty())
+        .map(|e| e.to_string())
+        .collect();
+
+    let dirs = cwd
+        .map(|d| d.to_path_buf())
+        .into_iter()
+        .chain(path.map(std::env::split_paths).into_iter().flatten());
+
+    for dir in dirs {
+        let base = dir.join(name);
+        // A name that already carries its own extension is used as given —
+        // that is what `cmd.exe` does too.
+        if base.is_file() {
+            return Some(base);
+        }
+        for ext in &extensions {
+            let candidate = dir.join(format!("{}{}", name, ext));
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ffi::OsString;
+    use std::fs;
+
+    fn scratch(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("cc-winpath-{}-{}", tag, std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn os(v: &str) -> OsString {
+        OsString::from(v)
+    }
+
+    /// PATHEXT is conventionally uppercase (`.COM;.EXE;.BAT;.CMD`) while the
+    /// file on disk is usually lowercase, so what comes back carries the
+    /// candidate's spelling rather than the directory entry's. Both open the
+    /// same file on the case-insensitive filesystems this runs on, which is
+    /// why the search doesn't pay for a directory scan to correct it.
+    fn same_file(found: Option<PathBuf>, expected: PathBuf) {
+        let found = found.expect("nothing found");
+        assert!(
+            found
+                .to_string_lossy()
+                .eq_ignore_ascii_case(&expected.to_string_lossy()),
+            "{:?} != {:?}",
+            found,
+            expected
+        );
+    }
+
+    #[test]
+    fn a_cmd_shim_is_found_where_rusts_own_lookup_finds_nothing() {
+        // The whole bug: `Command::new("claude")` looks for a literal
+        // `claude`/`claude.exe`, so an npm install's `claude.cmd` was
+        // invisible and every run/add/login died with `program not found`.
+        let dir = scratch("shim");
+        fs::write(dir.join("claude.cmd"), "@echo off").unwrap();
+        let found = find_executable(
+            "claude",
+            None,
+            Some(&os(dir.to_str().unwrap())),
+            Some(&os(".COM;.EXE;.BAT;.CMD")),
+        );
+        same_file(found, dir.join("claude.cmd"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn pathext_order_decides_between_two_candidates() {
+        let dir = scratch("order");
+        fs::write(dir.join("claude.cmd"), "").unwrap();
+        fs::write(dir.join("claude.exe"), "").unwrap();
+        let path = os(dir.to_str().unwrap());
+        same_file(
+            find_executable("claude", None, Some(&path), Some(&os(".EXE;.CMD"))),
+            dir.join("claude.exe"),
+        );
+        same_file(
+            find_executable("claude", None, Some(&path), Some(&os(".CMD;.EXE"))),
+            dir.join("claude.cmd"),
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_current_directory_is_searched_before_path() {
+        // cmd.exe looks there first, so a lookup that didn't would pick a
+        // different file than the shell would have.
+        let base = scratch("cwd");
+        let here = base.join("here");
+        let elsewhere = base.join("elsewhere");
+        fs::create_dir_all(&here).unwrap();
+        fs::create_dir_all(&elsewhere).unwrap();
+        fs::write(here.join("claude.cmd"), "").unwrap();
+        fs::write(elsewhere.join("claude.cmd"), "").unwrap();
+        same_file(
+            find_executable(
+                "claude",
+                Some(&here),
+                Some(&os(elsewhere.to_str().unwrap())),
+                Some(&os(".CMD")),
+            ),
+            here.join("claude.cmd"),
+        );
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn path_entries_are_tried_in_order() {
+        let base = scratch("path-order");
+        let first = base.join("first");
+        let second = base.join("second");
+        fs::create_dir_all(&first).unwrap();
+        fs::create_dir_all(&second).unwrap();
+        fs::write(second.join("claude.cmd"), "").unwrap();
+        let path = std::env::join_paths([&first, &second]).unwrap();
+        same_file(
+            find_executable("claude", None, Some(&path), Some(&os(".CMD"))),
+            second.join("claude.cmd"),
+        );
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn a_name_that_carries_its_own_extension_is_used_as_given() {
+        let dir = scratch("explicit");
+        fs::write(dir.join("claude.cmd"), "").unwrap();
+        assert_eq!(
+            find_executable(
+                "claude.cmd",
+                None,
+                Some(&os(dir.to_str().unwrap())),
+                Some(&os(".EXE"))
+            ),
+            Some(dir.join("claude.cmd"))
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn nothing_anywhere_is_none_rather_than_a_guess() {
+        let dir = scratch("absent");
+        assert_eq!(
+            find_executable(
+                "claude",
+                None,
+                Some(&os(dir.to_str().unwrap())),
+                Some(&os(".CMD"))
+            ),
+            None
+        );
+        assert_eq!(find_executable("claude", None, None, None), None);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_directory_named_like_the_binary_is_not_mistaken_for_it() {
+        let dir = scratch("dir-trap");
+        fs::create_dir_all(dir.join("claude.cmd")).unwrap();
+        assert_eq!(
+            find_executable(
+                "claude",
+                None,
+                Some(&os(dir.to_str().unwrap())),
+                Some(&os(".CMD"))
+            ),
+            None
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn quote_cmd_token_wraps_plain_value_in_quotes() {

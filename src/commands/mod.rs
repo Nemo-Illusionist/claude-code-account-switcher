@@ -28,6 +28,7 @@ pub mod whoami;
 use crate::config::AppConfig;
 use crate::i18n::{I18n, Msg};
 use crate::identity;
+use crate::windows_invocation::InvocationError;
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -38,18 +39,27 @@ use std::process::Command;
 /// command line can carry. Both used to surface as a Rust panic — including
 /// the `program not found` a `.cmd` shim produces, which said nothing about
 /// the argument that actually caused it.
-fn spawn_claude(built: Result<Command, String>, i18n: &I18n) -> i32 {
+fn spawn_claude(built: Result<Command, InvocationError>, i18n: &I18n) -> i32 {
     let mut cmd = match built {
         Ok(cmd) => cmd,
-        Err(reason) => {
-            i18n.print(Msg::ClaudeArgUnsupported(reason));
+        Err(InvocationError::UnsupportedArg(token)) => {
+            i18n.print(Msg::ClaudeArgUnsupported(token));
+            return 1;
+        }
+        Err(InvocationError::NotFound) => {
+            i18n.print(Msg::ClaudeNotFound);
             return 1;
         }
     };
     match cmd.status() {
         Ok(status) => status.code().unwrap_or(1),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            i18n.print(Msg::ClaudeNotFound);
+            // Names what actually failed to start. On Windows that is the
+            // shell, not claude — telling someone to reinstall Claude Code
+            // because their ComSpec is broken sends them the wrong way.
+            i18n.print(Msg::SpawnProgramNotFound(
+                cmd.get_program().to_string_lossy().into_owned(),
+            ));
             1
         }
         Err(e) => {
@@ -101,13 +111,21 @@ mod tests {
         // a .cmd shim died with `program not found` — saying nothing about
         // the argument that was actually the problem.
         assert_eq!(
-            spawn_claude(Err("argument contains a quote".to_string()), &i18n()),
+            spawn_claude(
+                Err(InvocationError::UnsupportedArg("a\"b".to_string())),
+                &i18n()
+            ),
             1
         );
     }
 
     #[test]
-    fn a_missing_claude_is_reported_not_panicked_on() {
+    fn a_claude_that_is_nowhere_is_reported_not_panicked_on() {
+        assert_eq!(spawn_claude(Err(InvocationError::NotFound), &i18n()), 1);
+    }
+
+    #[test]
+    fn a_program_that_will_not_start_is_reported_not_panicked_on() {
         let cmd = Command::new("no-such-binary-cc-test");
         assert_eq!(spawn_claude(Ok(cmd), &i18n()), 1);
     }

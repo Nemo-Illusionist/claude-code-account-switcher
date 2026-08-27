@@ -2,7 +2,7 @@ use crate::config::{AppConfig, validate_name};
 use crate::environment::strip_claude_auth_env;
 use crate::i18n::{I18n, Msg};
 use crate::sessions;
-use crate::windows_invocation::claude_command;
+use crate::windows_invocation::{InvocationError, claude_command};
 use std::path::Path;
 use std::process::Command;
 
@@ -24,7 +24,7 @@ use std::process::Command;
 /// On Windows, `claude` is spawned through the hardened invocation in
 /// windows_invocation.rs — see its module doc for why a plain
 /// `Command::new("claude").args(args)` isn't safe there.
-fn build_command(args: &[String], acc_dir: Option<&Path>) -> Result<Command, String> {
+fn build_command(args: &[String], acc_dir: Option<&Path>) -> Result<Command, InvocationError> {
     let mut cmd = claude_command(args)?;
     match acc_dir {
         Some(dir) => {

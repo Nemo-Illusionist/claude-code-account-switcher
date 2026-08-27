@@ -2,7 +2,7 @@ use crate::config::{AppConfig, validate_name};
 use crate::environment::strip_claude_auth_env;
 use crate::i18n::{I18n, Msg};
 use crate::identity;
-use crate::windows_invocation::claude_command;
+use crate::windows_invocation::{InvocationError, claude_command};
 use std::path::Path;
 use std::process::Command;
 
@@ -15,7 +15,7 @@ use std::process::Command;
 /// can make the login skip the OAuth flow entirely, or auth a different
 /// identity than intended. On Windows, spawned through the hardened
 /// invocation in windows_invocation.rs — see its module doc for why.
-fn build_login_command(acc_dir: Option<&Path>) -> Result<Command, String> {
+fn build_login_command(acc_dir: Option<&Path>) -> Result<Command, InvocationError> {
     let args = ["auth".to_string(), "login".to_string()];
     let mut cmd = claude_command(&args)?;
     match acc_dir {
@@ -54,8 +54,11 @@ pub fn run(config: &AppConfig, i18n: &I18n, name: &str) {
     // clobber the standard account's own Keychain entries as a side effect
     // even when scoped to acc_dir's CLAUDE_CONFIG_DIR.
     let keychain_snapshot = identity::snapshot_side_effect_keychain();
-    super::spawn_claude(build_login_command(Some(&acc_dir)), i18n);
+    let code = super::spawn_claude(build_login_command(Some(&acc_dir)), i18n);
     identity::restore_side_effect_keychain(keychain_snapshot);
+    if code != 0 {
+        std::process::exit(code);
+    }
 
     warn_if_duplicate(config, i18n, name, &acc_dir);
 
@@ -67,7 +70,10 @@ pub fn run(config: &AppConfig, i18n: &I18n, name: &str) {
 /// change the standard account's own credentials.
 fn login_default(config: &AppConfig, i18n: &I18n) {
     i18n.print(Msg::LoginStart("default".to_string()));
-    super::spawn_claude(build_login_command(None), i18n);
+    let code = super::spawn_claude(build_login_command(None), i18n);
+    if code != 0 {
+        std::process::exit(code);
+    }
 
     if let Some(dir) = identity::standard_token_dir() {
         warn_if_duplicate(config, i18n, "~/.claude/", &dir);

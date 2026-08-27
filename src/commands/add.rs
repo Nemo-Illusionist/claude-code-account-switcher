@@ -4,7 +4,7 @@ use crate::i18n::{I18n, Msg};
 use crate::ide;
 use crate::identity;
 use crate::seed;
-use crate::windows_invocation::claude_command;
+use crate::windows_invocation::{InvocationError, claude_command};
 use std::fs;
 use std::path::Path;
 use std::process::Command;
@@ -15,7 +15,7 @@ use std::process::Command;
 /// the OAuth flow entirely, or auth a different identity than acc_dir intends.
 /// On Windows, spawned through the hardened invocation in
 /// windows_invocation.rs — see its module doc for why.
-fn build_login_command(acc_dir: &Path) -> Result<Command, String> {
+fn build_login_command(acc_dir: &Path) -> Result<Command, InvocationError> {
     let args = ["auth".to_string(), "login".to_string()];
     let mut cmd = claude_command(&args)?;
     cmd.env("CLAUDE_CONFIG_DIR", acc_dir);
@@ -67,8 +67,17 @@ pub fn run(config: &AppConfig, i18n: &I18n, name: &str, seed_from_default: bool)
     // acc_dir's CLAUDE_CONFIG_DIR — snapshot/restore undoes that collateral.
     // See identity::snapshot_side_effect_keychain for why.
     let keychain_snapshot = identity::snapshot_side_effect_keychain();
-    super::spawn_claude(build_login_command(&acc_dir), i18n);
+    let code = super::spawn_claude(build_login_command(&acc_dir), i18n);
     identity::restore_side_effect_keychain(keychain_snapshot);
+
+    // The account directory stays — it may already be seeded, and `login` is
+    // the natural retry. What must not stay is the success banner: printing
+    // "Done. Use:" over a login that never happened told a human the wrong
+    // thing and told a script nothing at all, since the exit code was 0.
+    if code != 0 {
+        i18n.print(Msg::AddLoginFailed(name.to_string()));
+        std::process::exit(code);
+    }
 
     // Best-effort: hint if this login turned out to be the same identity as
     // an already-known account (a leftover from a prior doctor run's cache —
