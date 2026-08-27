@@ -4,6 +4,7 @@ use crate::i18n::{I18n, Msg};
 use crate::ide;
 use crate::identity;
 use crate::seed;
+use crate::windows_invocation::{InvocationError, claude_command};
 use std::fs;
 use std::path::Path;
 use std::process::Command;
@@ -12,12 +13,14 @@ use std::process::Command;
 /// strips ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN / CLAUDE_CODE_OAUTH_TOKEN /
 /// AWS_BEARER_TOKEN_BEDROCK — a leaked one of these can make the login skip
 /// the OAuth flow entirely, or auth a different identity than acc_dir intends.
-fn build_login_command(acc_dir: &Path) -> Command {
-    let mut cmd = Command::new("claude");
-    cmd.args(["auth", "login"])
-        .env("CLAUDE_CONFIG_DIR", acc_dir);
+/// On Windows, spawned through the hardened invocation in
+/// windows_invocation.rs — see its module doc for why.
+fn build_login_command(acc_dir: &Path) -> Result<Command, InvocationError> {
+    let args = ["auth".to_string(), "login".to_string()];
+    let mut cmd = claude_command(&args)?;
+    cmd.env("CLAUDE_CONFIG_DIR", acc_dir);
     strip_claude_auth_env(&mut cmd);
-    cmd
+    Ok(cmd)
 }
 
 pub fn run(config: &AppConfig, i18n: &I18n, name: &str, seed_from_default: bool) {
@@ -64,10 +67,17 @@ pub fn run(config: &AppConfig, i18n: &I18n, name: &str, seed_from_default: bool)
     // acc_dir's CLAUDE_CONFIG_DIR — snapshot/restore undoes that collateral.
     // See identity::snapshot_side_effect_keychain for why.
     let keychain_snapshot = identity::snapshot_side_effect_keychain();
-    build_login_command(&acc_dir)
-        .status()
-        .expect("Failed to run claude auth login");
+    let code = super::spawn_claude(build_login_command(&acc_dir), i18n);
     identity::restore_side_effect_keychain(keychain_snapshot);
+
+    // The account directory stays — it may already be seeded, and `login` is
+    // the natural retry. What must not stay is the success banner: printing
+    // "Done. Use:" over a login that never happened told a human the wrong
+    // thing and told a script nothing at all, since the exit code was 0.
+    if code != 0 {
+        i18n.print(Msg::AddLoginFailed(name.to_string()));
+        std::process::exit(code);
+    }
 
     // Best-effort: hint if this login turned out to be the same identity as
     // an already-known account (a leftover from a prior doctor run's cache —
@@ -90,7 +100,7 @@ mod tests {
     #[test]
     fn login_command_sets_config_dir() {
         let dir = Path::new("/tmp/some-account");
-        let cmd = build_login_command(dir);
+        let cmd = build_login_command(dir).unwrap();
         let set = cmd
             .get_envs()
             .find(|(k, _)| *k == std::ffi::OsStr::new("CLAUDE_CONFIG_DIR"));
@@ -107,7 +117,7 @@ mod tests {
     #[test]
     fn login_command_strips_auth_env_vars() {
         let dir = Path::new("/tmp/some-account");
-        let cmd = build_login_command(dir);
+        let cmd = build_login_command(dir).unwrap();
         for var in crate::environment::CLAUDE_AUTH_ENV_VARS {
             let removed = cmd
                 .get_envs()
@@ -123,8 +133,24 @@ mod tests {
     #[test]
     fn login_command_uses_claude_auth_login_args() {
         let dir = Path::new("/tmp/some-account");
-        let cmd = build_login_command(dir);
+        let cmd = build_login_command(dir).unwrap();
         let args: Vec<_> = cmd.get_args().collect();
-        assert_eq!(args, vec!["auth", "login"]);
+        // On Windows, claude_command wraps the real argv in a hardened
+        // cmd.exe invocation (see windows_invocation.rs) — the raw "auth
+        // login" args aren't visible as separate Command args any more.
+        if cfg!(windows) {
+            assert_eq!(
+                args,
+                vec![
+                    "/d",
+                    "/v:off",
+                    "/s",
+                    "/c",
+                    "\"\"claude\" \"auth\" \"login\"\""
+                ]
+            );
+        } else {
+            assert_eq!(args, vec!["auth", "login"]);
+        }
     }
 }

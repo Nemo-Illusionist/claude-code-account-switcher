@@ -2,6 +2,7 @@ use crate::config::{AppConfig, validate_name};
 use crate::environment::strip_claude_auth_env;
 use crate::i18n::{I18n, Msg};
 use crate::sessions;
+use crate::windows_invocation::{InvocationError, claude_command};
 use std::path::Path;
 use std::process::Command;
 
@@ -19,9 +20,12 @@ use std::process::Command;
 /// Also strips ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN / CLAUDE_CODE_OAUTH_TOKEN /
 /// AWS_BEARER_TOKEN_BEDROCK — any of these leaking in from the parent shell can
 /// override which identity claude actually uses, regardless of CLAUDE_CONFIG_DIR.
-fn build_command(args: &[String], acc_dir: Option<&Path>) -> Command {
-    let mut cmd = Command::new("claude");
-    cmd.args(args);
+///
+/// On Windows, `claude` is spawned through the hardened invocation in
+/// windows_invocation.rs — see its module doc for why a plain
+/// `Command::new("claude").args(args)` isn't safe there.
+fn build_command(args: &[String], acc_dir: Option<&Path>) -> Result<Command, InvocationError> {
+    let mut cmd = claude_command(args)?;
     match acc_dir {
         Some(dir) => {
             cmd.env("CLAUDE_CONFIG_DIR", dir);
@@ -33,7 +37,7 @@ fn build_command(args: &[String], acc_dir: Option<&Path>) -> Command {
         }
     }
     strip_claude_auth_env(&mut cmd);
-    cmd
+    Ok(cmd)
 }
 
 pub fn run(config: &AppConfig, i18n: &I18n, name: &str, args: &[String]) {
@@ -42,10 +46,7 @@ pub fn run(config: &AppConfig, i18n: &I18n, name: &str, args: &[String]) {
         if let Some(dir) = dir.as_deref() {
             super::session::preflight_resume(config, i18n, args, sessions::DEFAULT_LABEL, dir);
         }
-        let status = build_command(args, None)
-            .status()
-            .expect("Failed to run claude");
-        std::process::exit(status.code().unwrap_or(1));
+        std::process::exit(super::spawn_claude(build_command(args, None), i18n));
     }
 
     if !validate_name(name) {
@@ -60,10 +61,10 @@ pub fn run(config: &AppConfig, i18n: &I18n, name: &str, args: &[String]) {
 
     let acc_dir = config.account_path(name);
     super::session::preflight_resume(config, i18n, args, name, &acc_dir);
-    let status = build_command(args, Some(&acc_dir))
-        .status()
-        .expect("Failed to run claude");
-    std::process::exit(status.code().unwrap_or(1));
+    std::process::exit(super::spawn_claude(
+        build_command(args, Some(&acc_dir)),
+        i18n,
+    ));
 }
 
 #[cfg(test)]
@@ -78,7 +79,7 @@ mod tests {
             std::env::set_var("CLAUDE_CONFIG_DIR", "/tmp/some-linked-account");
         }
 
-        let cmd = build_command(&[], None);
+        let cmd = build_command(&[], None).unwrap();
         let removed = cmd
             .get_envs()
             .find(|(k, _)| *k == std::ffi::OsStr::new("CLAUDE_CONFIG_DIR"));
@@ -100,7 +101,7 @@ mod tests {
         // The `claude` on PATH is usually claude-acc's own IDE wrapper,
         // which re-derives CLAUDE_CONFIG_DIR from $PWD when it sees the var
         // unset. This marker tells it to skip that for an explicit default run.
-        let cmd = build_command(&[], None);
+        let cmd = build_command(&[], None).unwrap();
         let marker = cmd
             .get_envs()
             .find(|(k, _)| *k == std::ffi::OsStr::new("CLAUDE_ACC_RUN_DEFAULT"));
@@ -117,7 +118,7 @@ mod tests {
     #[test]
     fn named_account_sets_config_dir() {
         let dir = Path::new("/tmp/some-account");
-        let cmd = build_command(&[], Some(dir));
+        let cmd = build_command(&[], Some(dir)).unwrap();
         let set = cmd
             .get_envs()
             .find(|(k, _)| *k == std::ffi::OsStr::new("CLAUDE_CONFIG_DIR"));
@@ -134,7 +135,7 @@ mod tests {
     #[test]
     fn named_account_clears_run_default_marker() {
         let dir = Path::new("/tmp/some-account");
-        let cmd = build_command(&[], Some(dir));
+        let cmd = build_command(&[], Some(dir)).unwrap();
         let marker = cmd
             .get_envs()
             .find(|(k, _)| *k == std::ffi::OsStr::new("CLAUDE_ACC_RUN_DEFAULT"));
@@ -148,7 +149,7 @@ mod tests {
     #[test]
     fn strips_auth_env_vars_that_could_override_the_selected_account() {
         for acc_dir in [None, Some(Path::new("/tmp/some-account"))] {
-            let cmd = build_command(&[], acc_dir);
+            let cmd = build_command(&[], acc_dir).unwrap();
             for var in crate::environment::CLAUDE_AUTH_ENV_VARS {
                 let removed = cmd
                     .get_envs()

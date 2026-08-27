@@ -26,8 +26,56 @@ pub mod usage;
 pub mod whoami;
 
 use crate::config::AppConfig;
+use crate::i18n::{I18n, Msg};
 use crate::identity;
+use crate::windows_invocation::InvocationError;
 use std::path::PathBuf;
+use std::process::Command;
+
+/// Run a prepared `claude` invocation and return its exit code.
+///
+/// Neither failure here is a bug in this program: `claude` may simply not be
+/// installed, and on Windows an argument may contain something no `cmd.exe`
+/// command line can carry. Both used to surface as a Rust panic — including
+/// the `program not found` a `.cmd` shim produces, which said nothing about
+/// the argument that actually caused it.
+fn spawn_claude(built: Result<Command, InvocationError>, i18n: &I18n) -> i32 {
+    let mut cmd = match built {
+        Ok(cmd) => cmd,
+        Err(InvocationError::UnsupportedArg(token)) => {
+            i18n.print(Msg::ClaudeArgUnsupported(token));
+            return 1;
+        }
+    };
+
+    // Windows spawns cmd.exe, which starts fine whether or not `claude`
+    // exists — so the check belongs here, before the shell swallows the
+    // distinction. Deliberately not done while *building* the command: that
+    // would make the builders depend on the environment, and they are pure so
+    // their env-var wiring can be tested on any platform.
+    #[cfg(windows)]
+    if !crate::windows_invocation::claude_is_findable() {
+        i18n.print(Msg::ClaudeNotFound);
+        return 1;
+    }
+
+    match cmd.status() {
+        Ok(status) => status.code().unwrap_or(1),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            // Names what actually failed to start. On Windows that is the
+            // shell, not claude — telling someone to reinstall Claude Code
+            // because their ComSpec is broken sends them the wrong way.
+            i18n.print(Msg::SpawnProgramNotFound(
+                cmd.get_program().to_string_lossy().into_owned(),
+            ));
+            1
+        }
+        Err(e) => {
+            i18n.print(Msg::ClaudeLaunchFailed(e.to_string()));
+            1
+        }
+    }
+}
 
 /// `(label, cache_path)` pairs for every already-known account except the
 /// one at `exclude_label` — every managed account plus the standard
@@ -53,4 +101,48 @@ fn known_account_cache_paths(config: &AppConfig, exclude_label: &str) -> Vec<(St
         ));
     }
     known
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn i18n() -> I18n {
+        I18n {
+            lang: crate::i18n::Lang::En,
+        }
+    }
+
+    #[test]
+    fn an_unrepresentable_argument_is_reported_not_panicked_on() {
+        // The Windows fallback used to be `Command::new("claude")`, which on
+        // a .cmd shim died with `program not found` — saying nothing about
+        // the argument that was actually the problem.
+        assert_eq!(
+            spawn_claude(
+                Err(InvocationError::UnsupportedArg("a\"b".to_string())),
+                &i18n()
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn a_program_that_will_not_start_is_reported_not_panicked_on() {
+        let cmd = Command::new("no-such-binary-cc-test");
+        assert_eq!(spawn_claude(Ok(cmd), &i18n()), 1);
+    }
+
+    // Not on Windows: `spawn_claude` checks there that `claude` is findable
+    // before running anything, and a unit test can't satisfy that without
+    // mutating the process's PATH, which isn't safe with tests in parallel.
+    // Exit-code passthrough on Windows was confirmed by hand instead —
+    // exact for 0, 1, 3 and 42 — in the #71 verification.
+    #[cfg(not(windows))]
+    #[test]
+    fn the_exit_code_of_claude_is_passed_through() {
+        let mut cmd = Command::new("sh");
+        cmd.args(["-c", "exit 3"]);
+        assert_eq!(spawn_claude(Ok(cmd), &i18n()), 3);
+    }
 }

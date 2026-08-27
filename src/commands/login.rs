@@ -2,6 +2,7 @@ use crate::config::{AppConfig, validate_name};
 use crate::environment::strip_claude_auth_env;
 use crate::i18n::{I18n, Msg};
 use crate::identity;
+use crate::windows_invocation::{InvocationError, claude_command};
 use std::path::Path;
 use std::process::Command;
 
@@ -12,10 +13,11 @@ use std::process::Command;
 /// Also strips ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN /
 /// CLAUDE_CODE_OAUTH_TOKEN / AWS_BEARER_TOKEN_BEDROCK — a leaked one of these
 /// can make the login skip the OAuth flow entirely, or auth a different
-/// identity than intended.
-fn build_login_command(acc_dir: Option<&Path>) -> Command {
-    let mut cmd = Command::new("claude");
-    cmd.args(["auth", "login"]);
+/// identity than intended. On Windows, spawned through the hardened
+/// invocation in windows_invocation.rs — see its module doc for why.
+fn build_login_command(acc_dir: Option<&Path>) -> Result<Command, InvocationError> {
+    let args = ["auth".to_string(), "login".to_string()];
+    let mut cmd = claude_command(&args)?;
     match acc_dir {
         Some(dir) => {
             cmd.env("CLAUDE_CONFIG_DIR", dir);
@@ -27,7 +29,7 @@ fn build_login_command(acc_dir: Option<&Path>) -> Command {
         }
     }
     strip_claude_auth_env(&mut cmd);
-    cmd
+    Ok(cmd)
 }
 
 pub fn run(config: &AppConfig, i18n: &I18n, name: &str) {
@@ -52,10 +54,11 @@ pub fn run(config: &AppConfig, i18n: &I18n, name: &str) {
     // clobber the standard account's own Keychain entries as a side effect
     // even when scoped to acc_dir's CLAUDE_CONFIG_DIR.
     let keychain_snapshot = identity::snapshot_side_effect_keychain();
-    build_login_command(Some(&acc_dir))
-        .status()
-        .expect("Failed to run claude auth login");
+    let code = super::spawn_claude(build_login_command(Some(&acc_dir)), i18n);
     identity::restore_side_effect_keychain(keychain_snapshot);
+    if code != 0 {
+        std::process::exit(code);
+    }
 
     warn_if_duplicate(config, i18n, name, &acc_dir);
 
@@ -67,9 +70,10 @@ pub fn run(config: &AppConfig, i18n: &I18n, name: &str) {
 /// change the standard account's own credentials.
 fn login_default(config: &AppConfig, i18n: &I18n) {
     i18n.print(Msg::LoginStart("default".to_string()));
-    build_login_command(None)
-        .status()
-        .expect("Failed to run claude auth login");
+    let code = super::spawn_claude(build_login_command(None), i18n);
+    if code != 0 {
+        std::process::exit(code);
+    }
 
     if let Some(dir) = identity::standard_token_dir() {
         warn_if_duplicate(config, i18n, "~/.claude/", &dir);
@@ -96,7 +100,7 @@ mod tests {
     #[test]
     fn named_account_sets_config_dir_and_clears_run_default_marker() {
         let dir = Path::new("/tmp/some-account");
-        let cmd = build_login_command(Some(dir));
+        let cmd = build_login_command(Some(dir)).unwrap();
 
         let config_dir = cmd
             .get_envs()
@@ -120,7 +124,7 @@ mod tests {
 
     #[test]
     fn default_account_clears_config_dir_and_sets_run_default_marker() {
-        let cmd = build_login_command(None);
+        let cmd = build_login_command(None).unwrap();
 
         let config_dir = cmd
             .get_envs()
@@ -145,7 +149,7 @@ mod tests {
     #[test]
     fn strips_auth_env_vars_for_both_default_and_named_account() {
         for acc_dir in [None, Some(Path::new("/tmp/some-account"))] {
-            let cmd = build_login_command(acc_dir);
+            let cmd = build_login_command(acc_dir).unwrap();
             for var in crate::environment::CLAUDE_AUTH_ENV_VARS {
                 let removed = cmd
                     .get_envs()
@@ -161,8 +165,24 @@ mod tests {
 
     #[test]
     fn login_command_uses_claude_auth_login_args() {
-        let cmd = build_login_command(None);
+        let cmd = build_login_command(None).unwrap();
         let args: Vec<_> = cmd.get_args().collect();
-        assert_eq!(args, vec!["auth", "login"]);
+        // On Windows, claude_command wraps the real argv in a hardened
+        // cmd.exe invocation (see windows_invocation.rs) — the raw "auth
+        // login" args aren't visible as separate Command args any more.
+        if cfg!(windows) {
+            assert_eq!(
+                args,
+                vec![
+                    "/d",
+                    "/v:off",
+                    "/s",
+                    "/c",
+                    "\"\"claude\" \"auth\" \"login\"\""
+                ]
+            );
+        } else {
+            assert_eq!(args, vec!["auth", "login"]);
+        }
     }
 }
