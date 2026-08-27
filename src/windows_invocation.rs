@@ -129,17 +129,35 @@ pub fn claude_command(args: &[String]) -> Result<Command, InvocationError> {
 /// from claude itself failing.
 #[cfg(windows)]
 pub fn claude_is_findable() -> bool {
+    let cwd = cwd_is_searched(std::env::var_os("NoDefaultCurrentDirectoryInExePath").as_deref())
+        .then(|| std::env::current_dir().ok())
+        .flatten();
     find_executable(
         "claude",
-        std::env::current_dir().ok().as_deref(),
+        cwd.as_deref(),
         std::env::var_os("PATH").as_deref(),
         std::env::var_os("PATHEXT").as_deref(),
     )
     .is_some()
 }
 
-/// Where `cmd.exe` would find `name`: the current directory first, then each
-/// PATH entry, trying the bare name and then each PATHEXT extension.
+/// Whether `cmd.exe` will look in the current directory at all.
+///
+/// It normally does, and first — but `NoDefaultCurrentDirectoryInExePath`
+/// turns that off, and its mere presence is what counts, not its value.
+/// Ignoring it made this predict "findable" for a `claude` that only exists
+/// in the current directory, and then `cmd.exe` wouldn't run it — leaving the
+/// user with exactly the raw `'"claude"' is not recognized` this is meant to
+/// replace. Found on a machine where the variable was set without anyone
+/// setting it deliberately.
+fn cwd_is_searched(no_default_current_directory: Option<&OsStr>) -> bool {
+    no_default_current_directory.is_none()
+}
+
+/// Where `cmd.exe` would find `name`: `cwd` first when the caller passes one,
+/// then each PATH entry, trying the bare name and then each PATHEXT
+/// extension. Whether the current directory belongs in that search is the
+/// caller's call — see `cwd_is_searched`.
 ///
 /// Rust's own `Command::new` does none of this — it looks for a literal
 /// `claude`/`claude.exe` and so never finds the `claude.cmd` an npm install
@@ -207,6 +225,15 @@ mod tests {
     // not. Real Windows PATHEXT is uppercase, and matching a lowercase file
     // there works because the filesystem is case-insensitive; that is why the
     // search doesn't pay for a directory scan to normalise it.
+
+    #[test]
+    fn the_current_directory_is_dropped_when_windows_says_to_skip_it() {
+        // Its presence is the switch, whatever it holds — including empty.
+        assert!(cwd_is_searched(None));
+        assert!(!cwd_is_searched(Some(&os("1"))));
+        assert!(!cwd_is_searched(Some(&os(""))));
+        assert!(!cwd_is_searched(Some(&os("anything at all"))));
+    }
 
     #[test]
     fn a_cmd_shim_is_found_where_rusts_own_lookup_finds_nothing() {
