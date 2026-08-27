@@ -133,17 +133,16 @@ mod tests {
         assert_eq!(spawn_claude(Ok(cmd), &i18n()), 1);
     }
 
+    // Not on Windows: `spawn_claude` checks there that `claude` is findable
+    // before running anything, and a unit test can't satisfy that without
+    // mutating the process's PATH, which isn't safe with tests in parallel.
+    // Exit-code passthrough on Windows was confirmed by hand instead —
+    // exact for 0, 1, 3 and 42 — in the #71 verification.
+    #[cfg(not(windows))]
     #[test]
     fn the_exit_code_of_claude_is_passed_through() {
-        let cmd = if cfg!(windows) {
-            let mut c = Command::new("cmd");
-            c.args(["/c", "exit 3"]);
-            c
-        } else {
-            let mut c = Command::new("sh");
-            c.args(["-c", "exit 3"]);
-            c
-        };
+        let mut cmd = Command::new("sh");
+        cmd.args(["-c", "exit 3"]);
         assert_eq!(spawn_claude(Ok(cmd), &i18n()), 3);
     }
 }
