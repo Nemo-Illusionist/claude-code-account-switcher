@@ -26,24 +26,56 @@ Register-ArgumentCompleter -CommandName claude-acc -ScriptBlock {
     $words = $commandAst.ToString() -split '\s+'
     $count = $words.Count
 
+    $cmd = if ($count -ge 2) { $words[1] } else { '' }
+    $sub = if ($count -ge 3) { $words[2] } else { '' }
+    $prev = if ($count -ge 2) { $words[$count - 2] } else { '' }
+    # `default` is not a managed account directory, but every command taking
+    # an account name accepts it as "the standard ~/.claude one".
+    $accountsWithDefault = { @('default') + ((& '__CLAUDE_ACC_BIN__' completions accounts) -split "`n") }
+    $candidates = @()
+
     if ($count -le 2) {
-        $cmds = @('list','add','login','remove','default','reset','link','unlink','links','status','usage','statusline','update','run','doctor','whoami','clone-settings','import','help')
-        $cmds | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
-            [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
+        $candidates = @('list','add','login','remove','default','reset','link','unlink','links','status','usage','sessions','session','desktop','resume-hook','statusline','update','install','run','doctor','whoami','clone-settings','import','help')
+    } elseif ($prev -eq '--from' -and $cmd -eq 'desktop') {
+        # `session copy --from` takes an account; `desktop` takes a profile.
+        $candidates = (& '__CLAUDE_ACC_BIN__' completions desktop) -split "`n"
+    } elseif ($prev -in '--to','--from') {
+        # The value of a flag that takes one, whatever word number it is on.
+        $candidates = & $accountsWithDefault
+    } elseif ($prev -eq '--version') {
+        $candidates = @()
+    } elseif ($wordToComplete -like '-*') {
+        switch ($cmd) {
+            'add'        { $candidates = @('--seed','-s') }
+            'remove'     { $candidates = @('--force','-f') }
+            'import'     { $candidates = @('--move') }
+            'statusline' { $candidates = @('--install') }
+            'sessions'   { $candidates = @('--all') }
+            'doctor'     { $candidates = @('--json') }
+            'update'     { $candidates = @('--check','--version') }
+            'session'    { $candidates = @('--to','--from','--force','-f') }
+            'desktop'    { $candidates = @('--seed','-s','--from','--force','-f') }
         }
     } elseif ($count -eq 3) {
-        $sub = $words[1]
-        $accounts = @()
-        switch ($sub) {
+        switch ($cmd) {
             { $_ -in 'remove','clone-settings' } {
-                $accounts = (& '__CLAUDE_ACC_BIN__' completions accounts) -split "`n"
+                $candidates = (& '__CLAUDE_ACC_BIN__' completions accounts) -split "`n"
             }
             { $_ -in 'default','link','login','run' } {
-                $accounts = @('default') + ((& '__CLAUDE_ACC_BIN__' completions accounts) -split "`n")
+                $candidates = & $accountsWithDefault
             }
+            'session'     { $candidates = @('copy') }
+            'desktop'     { $candidates = @('add','clone-config','clone-runtime','list','usage','run','remove') }
+            'resume-hook' { $candidates = @('on','off') }
         }
-        $accounts | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
-            [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
-        }
+    } elseif ($count -eq 4 -and $cmd -eq 'session' -and $sub -eq 'copy') {
+        $candidates = (& '__CLAUDE_ACC_BIN__' completions sessions) -split "`n"
+    } elseif ($count -eq 4 -and $cmd -eq 'desktop' -and $sub -in 'run','remove','clone-config','clone-runtime') {
+        # `desktop add <name>` is a new name; run/remove take an existing one.
+        $candidates = (& '__CLAUDE_ACC_BIN__' completions desktop) -split "`n"
+    }
+
+    $candidates | Where-Object { $_ -and $_ -like "$wordToComplete*" } | ForEach-Object {
+        [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
     }
 }

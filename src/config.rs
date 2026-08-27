@@ -92,25 +92,60 @@ impl AppConfig {
 
     // --- config file ---
 
-    pub fn get_default(&self) -> io::Result<Option<String>> {
-        let content = fs::read_to_string(self.config_path())?;
-        for line in content.lines() {
-            if let Some(val) = line.strip_prefix("default=") {
-                let val = val.trim();
-                if !val.is_empty() {
-                    return Ok(Some(val.to_string()));
-                }
-            }
+    /// The `key=value` lines of the config file, in file order. Unparseable
+    /// lines are dropped rather than preserved — the file is ours, and a
+    /// stray line is more likely damage than something worth keeping.
+    fn read_settings(&self) -> Vec<(String, String)> {
+        let Ok(content) = fs::read_to_string(self.config_path()) else {
+            return Vec::new();
+        };
+        content
+            .lines()
+            .filter_map(|line| line.split_once('='))
+            .map(|(k, v)| (k.trim().to_string(), v.trim().to_string()))
+            .filter(|(k, _)| !k.is_empty())
+            .collect()
+    }
+
+    fn write_settings(&self, settings: &[(String, String)]) -> io::Result<()> {
+        let content: String = settings
+            .iter()
+            .map(|(k, v)| format!("{}={}\n", k, v))
+            .collect();
+        fs::write(self.config_path(), content)
+    }
+
+    /// The value of `key`, or `None` when it is absent or empty. Empty is
+    /// treated as absent so `default=` keeps meaning "no default set".
+    pub fn get_setting(&self, key: &str) -> Option<String> {
+        self.read_settings()
+            .into_iter()
+            .find(|(k, _)| k == key)
+            .map(|(_, v)| v)
+            .filter(|v| !v.is_empty())
+    }
+
+    /// Set `key`, leaving every other setting in the file untouched. New keys
+    /// are appended; existing ones are updated in place.
+    pub fn set_setting(&self, key: &str, value: &str) -> io::Result<()> {
+        let mut settings = self.read_settings();
+        match settings.iter_mut().find(|(k, _)| k == key) {
+            Some(entry) => entry.1 = value.to_string(),
+            None => settings.push((key.to_string(), value.to_string())),
         }
-        Ok(None)
+        self.write_settings(&settings)
+    }
+
+    pub fn get_default(&self) -> io::Result<Option<String>> {
+        Ok(self.get_setting("default"))
     }
 
     pub fn set_default(&self, name: &str) -> io::Result<()> {
-        fs::write(self.config_path(), format!("default={}\n", name))
+        self.set_setting("default", name)
     }
 
     pub fn clear_default(&self) -> io::Result<()> {
-        fs::write(self.config_path(), "default=\n")
+        self.set_setting("default", "")
     }
 
     // --- links file ---
@@ -231,6 +266,60 @@ mod tests {
     fn validate_name_rejects_unicode() {
         assert!(!validate_name("работа"));
         assert!(!validate_name("café"));
+    }
+
+    fn temp_config(tag: &str) -> AppConfig {
+        let base = std::env::temp_dir().join(format!("cc-config-{}-{}", tag, std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let config = AppConfig { base_dir: base };
+        config.init().unwrap();
+        config
+    }
+
+    #[test]
+    fn setting_round_trips() {
+        let c = temp_config("round-trip");
+        assert_eq!(c.get_setting("resume_hook"), None);
+        c.set_setting("resume_hook", "off").unwrap();
+        assert_eq!(c.get_setting("resume_hook").as_deref(), Some("off"));
+        let _ = fs::remove_dir_all(&c.base_dir);
+    }
+
+    #[test]
+    fn setting_an_empty_value_reads_back_as_absent() {
+        // `default=` is how "no default account" is stored, so an empty
+        // value has to be indistinguishable from a missing key.
+        let c = temp_config("empty");
+        c.set_setting("default", "").unwrap();
+        assert_eq!(c.get_setting("default"), None);
+        let _ = fs::remove_dir_all(&c.base_dir);
+    }
+
+    #[test]
+    fn setting_one_key_leaves_the_others_alone() {
+        // Regression: set_default used to rewrite the whole file, which would
+        // silently drop every other setting.
+        let c = temp_config("preserve");
+        c.set_setting("resume_hook", "off").unwrap();
+        c.set_default("work").unwrap();
+        assert_eq!(c.get_setting("resume_hook").as_deref(), Some("off"));
+        assert_eq!(c.get_default().unwrap().as_deref(), Some("work"));
+
+        c.clear_default().unwrap();
+        assert_eq!(c.get_setting("resume_hook").as_deref(), Some("off"));
+        assert_eq!(c.get_default().unwrap(), None);
+        let _ = fs::remove_dir_all(&c.base_dir);
+    }
+
+    #[test]
+    fn updating_a_key_does_not_append_a_duplicate() {
+        let c = temp_config("no-dup");
+        c.set_setting("resume_hook", "off").unwrap();
+        c.set_setting("resume_hook", "on").unwrap();
+        let raw = fs::read_to_string(c.config_path()).unwrap();
+        assert_eq!(raw.matches("resume_hook=").count(), 1, "{}", raw);
+        assert_eq!(c.get_setting("resume_hook").as_deref(), Some("on"));
+        let _ = fs::remove_dir_all(&c.base_dir);
     }
 
     #[test]

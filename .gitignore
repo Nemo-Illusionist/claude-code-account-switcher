@@ -1,1 +1,4 @@
 /target
+
+# Personal, per-machine Claude Code settings — .claude/rules/ IS committed
+.claude/settings.local.json

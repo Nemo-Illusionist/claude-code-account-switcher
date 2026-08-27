@@ -25,6 +25,7 @@ CLAUDE_SWITCH_ACCOUNTS_DIR="$CLAUDE_SWITCH_DIR/accounts"
 CLAUDE_SWITCH_CONFIG="$CLAUDE_SWITCH_DIR/config"
 CLAUDE_SWITCH_LINKS="$CLAUDE_SWITCH_DIR/links"
 CLAUDE_SWITCH_BIN="$CLAUDE_SWITCH_DIR/bin"
+CLAUDE_SWITCH_DESKTOP_DIR="$CLAUDE_SWITCH_DIR/desktop"
 CLAUDE_SWITCH_SCRIPT="${(%):-%x}"
 CLAUDE_SWITCH_SCRIPT="${CLAUDE_SWITCH_SCRIPT:A}"
 
@@ -134,6 +135,44 @@ _claude_msg_en=(
     links_empty         "No links. Use: claude-acc link <name>"
     links_header        "Links:"
     links_active        "← active"
+    help_desktop        "Manage Claude Desktop profiles"
+    desktop_usage       "Usage: claude-acc desktop add|clone-config|clone-runtime|list|run|remove [<name>]"
+    desktop_usage_rust  "claude-acc desktop usage needs the Rust CLI — decrypting a profile token needs PBKDF2-SHA1 + AES, which stock macOS openssl can't do."
+    desktop_app_not_found "Claude.app not found in /Applications or ~/Applications. Set CLAUDE_ACC_DESKTOP_APP to its path."
+    desktop_no_default  "'default' isn't a desktop profile — that's the app's own, which you open as usual."
+    desktop_exists      "Desktop profile '%s' already exists."
+    desktop_not_found   "Desktop profile '%s' not found. Create it: claude-acc desktop add %s"
+    desktop_created     "Desktop profile '%s' created. Opening Claude on it..."
+    desktop_signin_hint "It opens signed out — sign in there with the account for this profile."
+    desktop_quit_first  "Quit Claude before signing in. Signing in finishes through a claude:// link, and the system hands that to whichever instance is registered for it — with another one open, the new profile never receives it. Currently open:"
+    desktop_running_instance "  pid %s  —  %s"
+    desktop_quit_first_hint "Quit them, sign in, and after that profiles open side by side as usual. To go ahead anyway: --force"
+    desktop_signin_forced "Claude is already running; --force given, so the sign-in may not arrive."
+    desktop_disk_note   "The profile is fully isolated, so the app would re-download its whole runtime into it — about 10.5 GB. To skip that, clone it instead (free, on APFS):"
+    desktop_disk_hint   "  claude-acc desktop clone-runtime %s"
+    desktop_runtime_no_source "%s has no downloaded runtime to clone."
+    desktop_runtime_keep "This profile already has a downloaded runtime. Replace it with --force."
+    desktop_runtime_would_copy "The profile is on a different filesystem from the source, so this would copy every byte instead of cloning it — the opposite of the point. Not done."
+    desktop_runtime_cloned "Cloned %s runtime component(s) from %s."
+    desktop_runtime_unverified "Whether the app accepts a pre-seeded runtime is untested — if this profile misbehaves, delete its vm_bundles/, claude-code/ and claude-code-vm/, and it will fetch its own."
+    desktop_runtime_failed "Could not clone the runtime."
+    desktop_hint_run    "Open it again later:  claude-acc desktop run %s"
+    desktop_list_empty  "No desktop profiles. Add one: claude-acc desktop add <name>"
+    desktop_list_header "Claude Desktop profiles:"
+    desktop_signed_in   "(signed in)"
+    desktop_signed_out  "(signed out)"
+    desktop_standard    "(the app's own profile)"
+    desktop_launching   "Opening Claude on profile '%s'..."
+    desktop_launch_failed "Could not open Claude."
+    desktop_remove_warn "This deletes the whole profile '%s' — its sign-in, its settings and its MCP servers. Quit that window first."
+    desktop_remove_confirm "Delete profile '%s'? [y/N] "
+    desktop_remove_cancelled "Cancelled."
+    desktop_removed     "Desktop profile '%s' deleted."
+    desktop_clone_no_source "%s has no claude_desktop_config.json to copy."
+    desktop_clone_keep  "This profile already has a claude_desktop_config.json. Replace it with --force."
+    desktop_clone_done  "MCP servers and preferences copied from %s."
+    desktop_clone_auth_note "Server definitions only — any that sign in separately will ask for that again in the new profile."
+    desktop_clone_failed "Could not copy the config."
 )
 
 _claude_msg_ru=(
@@ -226,6 +265,44 @@ _claude_msg_ru=(
     links_empty         "Нет привязок. Используйте: claude-acc link <name>"
     links_header        "Привязки:"
     links_active        "← активна"
+    help_desktop        "Профили Claude Desktop"
+    desktop_usage       "Использование: claude-acc desktop add|clone-config|clone-runtime|list|run|remove [<name>]"
+    desktop_usage_rust  "claude-acc desktop usage есть только в Rust CLI — расшифровка токена профиля требует PBKDF2-SHA1 + AES, чего стоковый openssl macOS не умеет."
+    desktop_app_not_found "Claude.app не найден в /Applications или ~/Applications. Укажите путь в CLAUDE_ACC_DESKTOP_APP."
+    desktop_no_default  "'default' — не профиль десктопа: это собственный профиль приложения, откройте его как обычно."
+    desktop_exists      "Профиль десктопа '%s' уже существует."
+    desktop_not_found   "Профиль десктопа '%s' не найден. Создать: claude-acc desktop add %s"
+    desktop_created     "Профиль десктопа '%s' создан. Открываю Claude на нём..."
+    desktop_signin_hint "Оно откроется без входа — войдите там под аккаунтом для этого профиля."
+    desktop_quit_first  "Закройте Claude перед входом. Вход завершается переходом по ссылке claude://, а её система отдаёт тому экземпляру, что зарегистрирован на неё, — при другом открытом окне новый профиль её просто не получит. Сейчас открыто:"
+    desktop_running_instance "  pid %s  —  %s"
+    desktop_quit_first_hint "Закройте их, войдите — после этого профили открываются одновременно как обычно. Всё равно продолжить: --force"
+    desktop_signin_forced "Claude уже запущен; передан --force, так что вход может не дойти."
+    desktop_disk_note   "Профиль полностью изолирован, поэтому приложение заново скачало бы в него весь рантайм — около 10.5 ГБ. Чтобы этого избежать, склонируйте его (на APFS это бесплатно):"
+    desktop_disk_hint   "  claude-acc desktop clone-runtime %s"
+    desktop_runtime_no_source "В %s нет скачанного рантайма — клонировать нечего."
+    desktop_runtime_keep "У этого профиля уже есть скачанный рантайм. Заменить — с --force."
+    desktop_runtime_would_copy "Профиль лежит на другой файловой системе, чем источник, поэтому вместо клонирования скопировался бы каждый байт — ровно наоборот от смысла. Не выполнено."
+    desktop_runtime_cloned "Склонировано компонентов рантайма: %s, из %s."
+    desktop_runtime_unverified "Примет ли приложение подложенный рантайм — не проверено: если профиль поведёт себя странно, удалите его vm_bundles/, claude-code/ и claude-code-vm/, и он скачает свои."
+    desktop_runtime_failed "Не удалось склонировать рантайм."
+    desktop_hint_run    "Открыть его позже:  claude-acc desktop run %s"
+    desktop_list_empty  "Нет профилей десктопа. Добавьте: claude-acc desktop add <name>"
+    desktop_list_header "Профили Claude Desktop:"
+    desktop_signed_in   "(выполнен вход)"
+    desktop_signed_out  "(вход не выполнен)"
+    desktop_standard    "(собственный профиль приложения)"
+    desktop_launching   "Открываю Claude на профиле '%s'..."
+    desktop_launch_failed "Не удалось открыть Claude."
+    desktop_remove_warn "Профиль '%s' будет удалён целиком — вход, настройки и MCP-серверы. Сначала закройте его окно."
+    desktop_remove_confirm "Удалить профиль '%s'? [y/N] "
+    desktop_remove_cancelled "Отменено."
+    desktop_removed     "Профиль десктопа '%s' удалён."
+    desktop_clone_no_source "В %s нет claude_desktop_config.json — копировать нечего."
+    desktop_clone_keep  "У этого профиля уже есть claude_desktop_config.json. Заменить — с --force."
+    desktop_clone_done  "MCP-серверы и настройки скопированы из %s."
+    desktop_clone_auth_note "Скопированы только описания серверов — те, что логинятся отдельно, попросят вход и в новом профиле."
+    desktop_clone_failed "Не удалось скопировать конфиг."
 )
 
 _msg() {
@@ -465,6 +542,7 @@ _claude_acc_help() {
     echo "  claude-acc add -s <name>     $(_msg help_add) (seeded from ~/.claude/)"
     echo "  claude-acc clone-settings <name>  $(_msg help_clone_settings)"
     echo "  claude-acc import <name> <path>   $(_msg help_import)"
+    echo "  claude-acc desktop add|clone-config|clone-runtime|list|run|remove [<name>]  $(_msg help_desktop)"
 }
 
 _claude_acc_list() {
@@ -881,6 +959,436 @@ _claude_acc_run() {
             CLAUDE_CODE_OAUTH_TOKEN AWS_BEARER_TOKEN_BEDROCK
         CLAUDE_CONFIG_DIR="$acc_dir" command claude "$@"
     )
+}
+
+# =============================================================
+# Claude Desktop profiles
+# =============================================================
+# The desktop app is Electron, so it honours Chromium's --user-data-dir.
+# Pointing it at a directory of our own gives a fully isolated app profile —
+# the same move this tool makes for the CLI with CLAUDE_CONFIG_DIR. Unlike CLI
+# accounts these run side by side: the app takes no single-instance lock.
+
+_claude_acc_desktop_app() {
+    if [[ -n "$CLAUDE_ACC_DESKTOP_APP" ]]; then
+        # A set-but-wrong override resolves to nothing rather than falling
+        # back, so a typo is visible instead of silently opening the app the
+        # override meant to replace.
+        [[ -e "$CLAUDE_ACC_DESKTOP_APP" ]] && echo "$CLAUDE_ACC_DESKTOP_APP"
+        return
+    fi
+    local candidate
+    for candidate in "/Applications/Claude.app" "$HOME/Applications/Claude.app"; do
+        if [[ -e "$candidate" ]]; then
+            echo "$candidate"
+            return
+        fi
+    done
+}
+
+_claude_acc_desktop_launch() {
+    local app="$1" profile="$2"
+    # -n starts a new process instead of activating the running one;
+    # everything after --args is handed to the app itself.
+    open -n -a "$app" --args "--user-data-dir=$profile" || {
+        _msg desktop_launch_failed
+        return 1
+    }
+}
+
+# Only the presence of a credential is checked, not its validity. The pre-V2
+# key survives the migration as an empty string, hence the non-empty match.
+_claude_acc_desktop_signed_in() {
+    local profile="$1"
+    grep -q '"oauth:tokenCache\(V2\)\?":"[^"]' "$profile/config.json" 2>/dev/null
+}
+
+# The account uuid sits in plaintext in config.json — enough to tell two
+# profiles apart without touching the keychain. The email needs the token
+# decrypted, which is Rust-only; see desktop_usage_rust.
+_claude_acc_desktop_uuid() {
+    local profile="$1" uuid
+    [[ -f "$profile/config.json" ]] || return
+    if command -v jq >/dev/null 2>&1; then
+        uuid=$(jq -r '.lastKnownAccountUuid // empty' "$profile/config.json" 2>/dev/null)
+        [[ -n "$uuid" ]] && echo "  ${uuid:0:8}…"
+    fi
+}
+
+# Signing in only works with no other Claude open: the claude:// callback
+# that finishes it goes to whichever instance is registered for the scheme.
+# Every Chromium child carries --type=, which is what separates the app from
+# its helpers — the executable paths don't.
+_claude_acc_desktop_signin_possible() {
+    local force="$1" line pid rest exe profile
+    local -a running lines
+    lines=(${(f)"$(ps -ax -o pid=,command=)"})
+    for line in "${lines[@]}"; do
+        # `read` does the leading-whitespace trimming, so nothing here needs
+        # extended glob — which is off in a bare shell and can't be relied on.
+        read -r pid rest <<< "$line"
+        # The first token must be the app's executable: matching the line
+        # anywhere would count any process that merely names the path. The
+        # helpers live at ".../Frameworks/Claude Helper.app/...", whose first
+        # token stops at that space, and every one of them carries --type=.
+        exe="${rest%% *}"
+        [[ "$exe" == */Contents/MacOS/Claude ]] || continue
+        [[ "$rest" == *--type=* ]] && continue
+        running+=("$pid $rest")
+    done
+    (( ${#running} == 0 )) && return 0
+    if [[ "$force" == true ]]; then
+        _msg desktop_signin_forced
+        return 0
+    fi
+    _msg desktop_quit_first
+    for line in "${running[@]}"; do
+        read -r pid rest <<< "$line"
+        if [[ "$rest" == *--user-data-dir=* ]]; then
+            profile="${rest##*--user-data-dir=}"
+            profile="${${profile%% *}:t}"
+        else
+            profile="$CLAUDE_DESKTOP_STANDARD_LABEL"
+        fi
+        _msg desktop_running_instance "$pid" "$profile"
+    done
+    _msg desktop_quit_first_hint
+    return 1
+}
+
+_claude_acc_desktop_name_ok() {
+    local name="$1"
+    if [[ -z "$name" ]]; then
+        _msg desktop_usage
+        return 1
+    fi
+    if [[ "$name" == "default" ]]; then
+        _msg desktop_no_default
+        return 1
+    fi
+    _claude_validate_name "$name"
+}
+
+_claude_acc_desktop_add() {
+    local seed_flag=0 force=false name=""
+    while (( $# > 0 )); do
+        case "$1" in
+            -s|--seed) seed_flag=1; shift ;;
+            --force)   force=true; shift ;;
+            *)         name="$1"; shift ;;
+        esac
+    done
+    _claude_acc_desktop_name_ok "$name" || return 1
+
+    local profile="$CLAUDE_SWITCH_DESKTOP_DIR/$name"
+    if [[ -d "$profile" ]]; then
+        _msg desktop_exists "$name"
+        return 1
+    fi
+
+    # Checked before the directory is created, so a refusal leaves nothing
+    # half-made behind.
+    _claude_acc_desktop_signin_possible "$force" || return 1
+
+    local app
+    app=$(_claude_acc_desktop_app)
+    if [[ -z "$app" ]]; then
+        _msg desktop_app_not_found
+        return 1
+    fi
+
+    mkdir -p "$profile" || return 1
+    _msg desktop_created "$name"
+    # A fresh profile has no config, so nothing can be overwritten — and a
+    # failed seed is not a reason to withhold the profile itself.
+    (( seed_flag )) && _claude_acc_desktop_seed "$profile" "" false
+    _msg desktop_signin_hint
+    _msg desktop_disk_note
+    _msg desktop_disk_hint "$name"
+    _claude_acc_desktop_launch "$app" "$profile" || return 1
+    echo ""
+    _msg desktop_hint_run "$name"
+}
+
+_claude_acc_desktop_list() {
+    local profiles=("$CLAUDE_SWITCH_DESKTOP_DIR"/*(N/:t))
+    if [[ ${#profiles} -eq 0 ]]; then
+        _msg desktop_list_empty
+        return
+    fi
+
+    _msg desktop_list_header
+    local name state
+    for name in "${profiles[@]}"; do
+        if _claude_acc_desktop_signed_in "$CLAUDE_SWITCH_DESKTOP_DIR/$name"; then
+            state=$(_msg desktop_signed_in)
+        else
+            state=$(_msg desktop_signed_out)
+        fi
+        echo "    $name$(_claude_acc_desktop_uuid "$CLAUDE_SWITCH_DESKTOP_DIR/$name")  $state"
+    done
+
+    # The app's own profile, so the list reads as the full picture rather
+    # than only the part this tool created.
+    if [[ -d "$HOME/Library/Application Support/Claude" ]]; then
+        echo "    ~/Library/…/Claude/  $(_msg desktop_standard)"
+    fi
+}
+
+_claude_acc_desktop_run() {
+    local force=false name=""
+    while (( $# > 0 )); do
+        case "$1" in
+            --force) force=true; shift ;;
+            *)       name="$1"; shift ;;
+        esac
+    done
+    _claude_acc_desktop_name_ok "$name" || return 1
+
+    local profile="$CLAUDE_SWITCH_DESKTOP_DIR/$name"
+    if [[ ! -d "$profile" ]]; then
+        _msg desktop_not_found "$name" "$name"
+        return 1
+    fi
+
+    # A profile with no credential is about to be signed in, whether or not
+    # the user thinks of it that way. One already signed in needs no clear
+    # field — instances coexist fine after that.
+    if ! _claude_acc_desktop_signed_in "$profile"; then
+        _claude_acc_desktop_signin_possible "$force" || return 1
+    fi
+
+    local app
+    app=$(_claude_acc_desktop_app)
+    if [[ -z "$app" ]]; then
+        _msg desktop_app_not_found
+        return 1
+    fi
+
+    _msg desktop_launching "$name"
+    _claude_acc_desktop_launch "$app" "$profile"
+}
+
+_claude_acc_desktop_remove() {
+    local force=false
+    if [[ "$1" == "-f" || "$1" == "--force" ]]; then
+        force=true
+        shift
+    fi
+
+    local name="$1"
+    _claude_acc_desktop_name_ok "$name" || return 1
+
+    local profile="$CLAUDE_SWITCH_DESKTOP_DIR/$name"
+    if [[ ! -d "$profile" ]]; then
+        _msg desktop_not_found "$name" "$name"
+        return 1
+    fi
+
+    if [[ "$force" != true ]]; then
+        _msg desktop_remove_warn "$name"
+        printf "$(_msg desktop_remove_confirm "$name")"
+        local reply
+        read -r reply
+        if [[ "$reply" != [yYдД]* ]]; then
+            _msg desktop_remove_cancelled
+            return 1
+        fi
+    fi
+
+    rm -rf "$profile"
+    _msg desktop_removed "$name"
+}
+
+# --- Seed a profile's MCP servers / preferences ---
+# The file lives inside the user-data dir, so a new profile starts without
+# one. Copying is via a staging file so an interrupted copy can't leave the
+# destination holding half a config; cp preserves the source mode, which
+# matters because the file can hold MCP credentials and is 0600.
+CLAUDE_DESKTOP_CONFIG_FILE="claude_desktop_config.json"
+CLAUDE_DESKTOP_STANDARD_LABEL="~/Library/…/Claude/"
+
+_claude_acc_desktop_seed() {
+    local profile="$1" from="$2" force="$3"
+    local source label
+
+    if [[ -n "$from" ]]; then
+        _claude_acc_desktop_name_ok "$from" || return 1
+        source="$CLAUDE_SWITCH_DESKTOP_DIR/$from"
+        if [[ ! -d "$source" ]]; then
+            _msg desktop_not_found "$from" "$from"
+            return 1
+        fi
+        label="$from"
+    else
+        source="$HOME/Library/Application Support/Claude"
+        label="$CLAUDE_DESKTOP_STANDARD_LABEL"
+    fi
+
+    if [[ ! -f "$source/$CLAUDE_DESKTOP_CONFIG_FILE" ]]; then
+        _msg desktop_clone_no_source "$label"
+        return 1
+    fi
+    if [[ -f "$profile/$CLAUDE_DESKTOP_CONFIG_FILE" && "$force" != true ]]; then
+        _msg desktop_clone_keep
+        return 1
+    fi
+
+    local staged="$profile/$CLAUDE_DESKTOP_CONFIG_FILE.part"
+    rm -f "$staged"
+    if ! cp -p "$source/$CLAUDE_DESKTOP_CONFIG_FILE" "$staged"; then
+        _msg desktop_clone_failed
+        return 1
+    fi
+    mv -f "$staged" "$profile/$CLAUDE_DESKTOP_CONFIG_FILE" || {
+        _msg desktop_clone_failed
+        return 1
+    }
+    _msg desktop_clone_done "$label"
+    _msg desktop_clone_auth_note
+}
+
+_claude_acc_desktop_clone_config() {
+    local from="" force=false
+    local -a rest
+    while (( $# > 0 )); do
+        case "$1" in
+            --from)        from="$2"; shift 2 ;;
+            -f|--force)    force=true; shift ;;
+            *)             rest+=("$1"); shift ;;
+        esac
+    done
+
+    local name="${rest[1]}"
+    _claude_acc_desktop_name_ok "$name" || return 1
+
+    local profile="$CLAUDE_SWITCH_DESKTOP_DIR/$name"
+    if [[ ! -d "$profile" ]]; then
+        _msg desktop_not_found "$name" "$name"
+        return 1
+    fi
+    _claude_acc_desktop_seed "$profile" "$from" "$force"
+}
+
+# --- Share the downloaded runtime between profiles ---
+# Most of a profile's weight is components the app downloads and then only
+# reads: ~10 GB of Cowork sandbox images plus the embedded Claude Code and its
+# VM. APFS clones them copy-on-write, so a second profile's copy costs nothing
+# until it diverges — safer than sharing one file between two live VMs.
+# Per-VM identity (macAddress, machineIdentifier, sessiondata) is deliberately
+# left behind; the app makes its own. Live caches are never cloned.
+CLAUDE_DESKTOP_BUNDLE="vm_bundles/claudevm.bundle"
+typeset -ga CLAUDE_DESKTOP_BUNDLE_FILES CLAUDE_DESKTOP_VERSIONED_ROOTS
+CLAUDE_DESKTOP_BUNDLE_FILES=(
+    rootfs.img vmlinuz initrd initrd-micro initrd-micro.zst
+    .rootfs.img.origin .vmlinuz.origin .initrd.origin
+    .initrd-micro.origin .initrd-micro.zst.origin
+)
+CLAUDE_DESKTOP_VERSIONED_ROOTS=(claude-code claude-code-vm)
+
+# Paths, relative to a profile, that are worth cloning.
+_claude_acc_desktop_runtime_items() {
+    local profile="$1" f root entry
+    for f in "${CLAUDE_DESKTOP_BUNDLE_FILES[@]}"; do
+        [[ -f "$profile/$CLAUDE_DESKTOP_BUNDLE/$f" ]] && echo "$CLAUDE_DESKTOP_BUNDLE/$f"
+    done
+    for root in "${CLAUDE_DESKTOP_VERSIONED_ROOTS[@]}"; do
+        [[ -d "$profile/$root" ]] || continue
+        for entry in "$profile/$root"/*(ND); do
+            [[ "${entry:t}" == ".DS_Store" ]] && continue
+            echo "$root/${entry:t}"
+        done
+    done
+}
+
+_claude_acc_desktop_clone_runtime() {
+    local from="" force=false
+    local -a rest
+    while (( $# > 0 )); do
+        case "$1" in
+            --from)     from="$2"; shift 2 ;;
+            -f|--force) force=true; shift ;;
+            *)          rest+=("$1"); shift ;;
+        esac
+    done
+
+    local name="${rest[1]}"
+    _claude_acc_desktop_name_ok "$name" || return 1
+
+    local profile="$CLAUDE_SWITCH_DESKTOP_DIR/$name"
+    if [[ ! -d "$profile" ]]; then
+        _msg desktop_not_found "$name" "$name"
+        return 1
+    fi
+
+    local source label
+    if [[ -n "$from" ]]; then
+        _claude_acc_desktop_name_ok "$from" || return 1
+        source="$CLAUDE_SWITCH_DESKTOP_DIR/$from"
+        if [[ ! -d "$source" ]]; then
+            _msg desktop_not_found "$from" "$from"
+            return 1
+        fi
+        label="$from"
+    else
+        source="$HOME/Library/Application Support/Claude"
+        label="$CLAUDE_DESKTOP_STANDARD_LABEL"
+    fi
+
+    local -a items dest_items
+    items=(${(f)"$(_claude_acc_desktop_runtime_items "$source")"})
+    dest_items=(${(f)"$(_claude_acc_desktop_runtime_items "$profile")"})
+    if (( ${#items} == 0 )); then
+        _msg desktop_runtime_no_source "$label"
+        return 1
+    fi
+    if (( ${#dest_items} > 0 )) && [[ "$force" != true ]]; then
+        _msg desktop_runtime_keep
+        return 1
+    fi
+    # clonefile can't cross filesystems, and cp -c silently falls back to a
+    # real copy there — 10 GB spent to save 10 GB.
+    local src_dev dst_dev probe="$profile"
+    while [[ ! -e "$probe" && -n "$probe" ]]; do probe="${probe:h}"; done
+    src_dev=$(stat -f '%d' "$source" 2>/dev/null)
+    dst_dev=$(stat -f '%d' "$probe" 2>/dev/null)
+    if [[ -z "$src_dev" || -z "$dst_dev" || "$src_dev" != "$dst_dev" ]]; then
+        _msg desktop_runtime_would_copy
+        return 1
+    fi
+
+    local rel dest n=0
+    for rel in "${items[@]}"; do
+        dest="$profile/$rel"
+        mkdir -p "${dest:h}" || return 1
+        # cp -R copies *into* an existing directory, which on a re-clone
+        # would nest one version inside another.
+        [[ -d "$dest" ]] && rm -rf "$dest"
+        if ! /bin/cp -cR "$source/$rel" "$dest" 2>/dev/null; then
+            rm -rf "$dest"
+            _msg desktop_runtime_failed
+            return 1
+        fi
+        (( n++ ))
+    done
+    _msg desktop_runtime_cloned "$n" "$label"
+    _msg desktop_runtime_unverified
+}
+
+_claude_acc_desktop() {
+    local action="$1"
+    shift 2>/dev/null
+
+    case "$action" in
+        add)          _claude_acc_desktop_add "$@" ;;
+        usage)        _msg desktop_usage_rust; return 1 ;;
+        clone-config) _claude_acc_desktop_clone_config "$@" ;;
+        clone-runtime) _claude_acc_desktop_clone_runtime "$@" ;;
+        list)         _claude_acc_desktop_list ;;
+        run)          _claude_acc_desktop_run "$@" ;;
+        remove)       _claude_acc_desktop_remove "$@" ;;
+        *)            _msg desktop_usage; return 1 ;;
+    esac
 }
 
 # --- Identity audit (Phase 1: passive, read-only) ---
@@ -1580,6 +2088,7 @@ claude-acc() {
         whoami)  _claude_acc_whoami ;;
         clone-settings) _claude_acc_clone_settings "$@" ;;
         import)  _claude_acc_import "$@" ;;
+        desktop) _claude_acc_desktop "$@" ;;
         help)    _claude_acc_help ;;
         *)       _claude_acc_help ;;
     esac
@@ -1609,6 +2118,7 @@ _claude_acc_completion() {
         "whoami:$(_msg help_whoami)"
         "clone-settings:$(_msg help_clone_settings)"
         "import:$(_msg help_import)"
+        "desktop:$(_msg help_desktop)"
         "help:$(_msg help_help)"
     )
 
@@ -1624,10 +2134,24 @@ _claude_acc_completion() {
                 accounts=("default" "$CLAUDE_SWITCH_ACCOUNTS_DIR"/*(N:t))
                 _describe 'account' accounts
                 ;;
+            desktop)
+                local -a desktop_actions
+                desktop_actions=(add clone-config clone-runtime list run remove)
+                _describe 'action' desktop_actions
+                ;;
         esac
     elif (( CURRENT == 4 )) && [[ "${words[2]}" == "import" ]]; then
         # import <name> <path> — complete a directory for the source path.
         _path_files -/
+    elif (( CURRENT == 4 )) && [[ "${words[2]}" == "desktop" ]]; then
+        # desktop add <name> is a new name; run/remove take an existing one.
+        case "${words[3]}" in
+            run|remove|clone-config|clone-runtime)
+                local -a profiles
+                profiles=("$CLAUDE_SWITCH_DESKTOP_DIR"/*(N/:t))
+                _describe 'profile' profiles
+                ;;
+        esac
     fi
 }
 

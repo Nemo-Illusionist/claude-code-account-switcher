@@ -281,6 +281,36 @@ impl I18n {
             (Msg::UpdateAvailable(ref cur, ref new), Lang::Ru) => {
                 format!("Доступно обновление: v{} → v{}", cur, new)
             }
+            (Msg::UpdateDowngrading(ref cur, ref target), Lang::En) => {
+                format!("Rolling back: v{} → v{}", cur, target)
+            }
+            (Msg::UpdateDowngrading(ref cur, ref target), Lang::Ru) => {
+                format!("Откатываю: v{} → v{}", cur, target)
+            }
+            (Msg::UpdateInvalidVersion(ref v), Lang::En) => {
+                format!(
+                    "'{}' is not a valid version (expected X.Y.Z, e.g. 0.10.5).",
+                    v
+                )
+            }
+            (Msg::UpdateInvalidVersion(ref v), Lang::Ru) => format!(
+                "'{}' — некорректная версия (ожидается X.Y.Z, например 0.10.5).",
+                v
+            ),
+            (Msg::UpdateVersionNotFound(ref v), Lang::En) => {
+                format!("No release v{} found on GitHub.", v)
+            }
+            (Msg::UpdateVersionNotFound(ref v), Lang::Ru) => {
+                format!("Релиз v{} не найден на GitHub.", v)
+            }
+            (Msg::UpdateHintAvailable(ref cur, ref new), Lang::En) => format!(
+                "\nA new version of claude-acc is available: v{} → v{}. Run 'claude-acc update' to update.",
+                cur, new
+            ),
+            (Msg::UpdateHintAvailable(ref cur, ref new), Lang::Ru) => format!(
+                "\nДоступна новая версия claude-acc: v{} → v{}. Обновитесь: claude-acc update.",
+                cur, new
+            ),
             (Msg::UpdateDownloading(ref v), Lang::En) => format!("Downloading v{}...", v),
             (Msg::UpdateDownloading(ref v), Lang::Ru) => format!("Скачиваю v{}...", v),
             (Msg::UpdateDone(ref v, ref p), Lang::En) => {
@@ -313,6 +343,16 @@ impl I18n {
             (Msg::UpdateReplaceFailed(ref e), Lang::Ru) => {
                 format!("Не удалось заменить установленный бинарник: {}", e)
             }
+            (Msg::UpdateWrapperRefreshed, Lang::En) => s("Refreshed the claude wrapper."),
+            (Msg::UpdateWrapperRefreshed, Lang::Ru) => s("Враппер claude обновлён."),
+            (Msg::UpdateWrapperFailed(ref e), Lang::En) => format!(
+                "The binary was updated, but the claude wrapper could not be refreshed: {}\nRun 'claude-acc install' to fix it.",
+                e
+            ),
+            (Msg::UpdateWrapperFailed(ref e), Lang::Ru) => format!(
+                "Бинарник обновлён, но враппер claude обновить не удалось: {}\nВыполните 'claude-acc install', чтобы починить.",
+                e
+            ),
 
             // statusline
             (Msg::StatuslineInstalled(ref acc, ref path), Lang::En) => format!(
@@ -337,6 +377,552 @@ impl I18n {
             (Msg::UsageResetsIn(ref d), Lang::Ru) => format!("сброс через {}", d),
             (Msg::UsageAvailableNow, Lang::En) => s("available now"),
             (Msg::UsageAvailableNow, Lang::Ru) => s("доступно сейчас"),
+
+            // sessions
+            (Msg::SessionsHeader(ref dir), Lang::En) => format!("Sessions for {}:", dir),
+            (Msg::SessionsHeader(ref dir), Lang::Ru) => format!("Сессии для {}:", dir),
+            (Msg::SessionsHeaderAll, Lang::En) => s("Sessions across all projects:"),
+            (Msg::SessionsHeaderAll, Lang::Ru) => s("Сессии по всем проектам:"),
+            (Msg::SessionsEmpty, Lang::En) => s("No sessions found."),
+            (Msg::SessionsEmpty, Lang::Ru) => s("Сессии не найдены."),
+            (Msg::SessionsEmptyHere(ref dir), Lang::En) => format!(
+                "No sessions for {}.\nUse 'claude-acc sessions --all' to list every project.",
+                dir
+            ),
+            (Msg::SessionsEmptyHere(ref dir), Lang::Ru) => format!(
+                "Нет сессий для {}.\nПосмотреть все проекты: 'claude-acc sessions --all'.",
+                dir
+            ),
+            (Msg::SessionsNewestCopy, Lang::En) => s("← newest copy"),
+            (Msg::SessionsNewestCopy, Lang::Ru) => s("← свежая копия"),
+            (Msg::SessionsDuplicateNote, Lang::En) => s(
+                "The same session id appears in more than one account — those are separate\ncopies that have drifted apart. 'claude --resume' only ever sees the copy in\nthe account it runs under.",
+            ),
+            (Msg::SessionsDuplicateNote, Lang::Ru) => s(
+                "Один и тот же id сессии есть в нескольких аккаунтах — это отдельные копии,\nкоторые разошлись. 'claude --resume' видит только копию того аккаунта, под\nкоторым запущен.",
+            ),
+            (Msg::SessionsHintResume, Lang::En) => {
+                s("Resume one:  claude-acc run <account> --resume <id>")
+            }
+            (Msg::SessionsHintResume, Lang::Ru) => {
+                s("Продолжить:  claude-acc run <account> --resume <id>")
+            }
+
+            // session copy
+            (Msg::SessionNotFound(ref id), Lang::En) => format!(
+                "No session '{}' in any account.\nList them: claude-acc sessions --all",
+                id
+            ),
+            (Msg::SessionNotFound(ref id), Lang::Ru) => format!(
+                "Сессии '{}' нет ни в одном аккаунте.\nСписок: claude-acc sessions --all",
+                id
+            ),
+            (Msg::SessionSourceUnknown(ref acc, ref id), Lang::En) => {
+                format!("Account '{}' holds no copy of session '{}'.", acc, id)
+            }
+            (Msg::SessionSourceUnknown(ref acc, ref id), Lang::Ru) => {
+                format!("В аккаунте '{}' нет копии сессии '{}'.", acc, id)
+            }
+            (Msg::SessionAlreadyThere(ref id, ref acc), Lang::En) => format!(
+                "Session '{}' already lives in '{}' — nothing to copy.",
+                id, acc
+            ),
+            (Msg::SessionAlreadyThere(ref id, ref acc), Lang::Ru) => {
+                format!("Сессия '{}' и так в '{}' — копировать нечего.", id, acc)
+            }
+            (Msg::SessionAmbiguousNeedsFrom(ref id), Lang::En) => format!(
+                "Several accounts hold session '{}'. Say which one with --from <account>\n(--force can't guess: the copies have drifted apart).",
+                id
+            ),
+            (Msg::SessionAmbiguousNeedsFrom(ref id), Lang::Ru) => format!(
+                "Сессия '{}' есть в нескольких аккаунтах. Укажите источник: --from <account>\n(--force не может выбрать сам: копии разошлись).",
+                id
+            ),
+            (Msg::SessionPickSource, Lang::En) => {
+                s("Several accounts hold this session. Which copy do you want to copy from?")
+            }
+            (Msg::SessionPickSource, Lang::Ru) => {
+                s("Эта сессия есть в нескольких аккаунтах. Из какой копии копировать?")
+            }
+            (Msg::SessionPickPrompt, Lang::En) => s("Number (Enter to cancel): "),
+            (Msg::SessionPickPrompt, Lang::Ru) => s("Номер (Enter — отмена): "),
+            (Msg::SessionOverwriteWarn(ref acc), Lang::En) => format!(
+                "'{}' already has a copy of this session — it will be overwritten:",
+                acc
+            ),
+            (Msg::SessionOverwriteWarn(ref acc), Lang::Ru) => format!(
+                "В '{}' уже есть копия этой сессии — она будет перезаписана:",
+                acc
+            ),
+            (Msg::SessionLabelSource, Lang::En) => s("← copying this one"),
+            (Msg::SessionLabelSource, Lang::Ru) => s("← копируем эту"),
+            (Msg::SessionLabelReplaced, Lang::En) => s("← will be replaced"),
+            (Msg::SessionLabelReplaced, Lang::Ru) => s("← будет заменена"),
+            (Msg::SessionCostNote, Lang::En) => s(
+                "Note: the prompt cache is per-account, so the first message after resuming\nunder another account re-sends the whole transcript — slower and more expensive\nthan a normal turn.",
+            ),
+            (Msg::SessionCostNote, Lang::Ru) => s(
+                "Замечание: кэш промпта привязан к аккаунту, поэтому первое сообщение после\nпродолжения под другим аккаунтом отправит весь транскрипт заново — дольше и\nдороже обычного хода.",
+            ),
+            (Msg::SessionConfirmCopy(ref from, ref to), Lang::En) => {
+                format!("Copy it from '{}' to '{}'? [y/N] ", from, to)
+            }
+            (Msg::SessionConfirmCopy(ref from, ref to), Lang::Ru) => {
+                format!("Скопировать из '{}' в '{}'? [y/N] ", from, to)
+            }
+            (Msg::SessionConfirmOverwrite(ref from, ref to), Lang::En) => {
+                format!(
+                    "Overwrite the copy in '{}' with the one from '{}'? [y/N] ",
+                    to, from
+                )
+            }
+            (Msg::SessionConfirmOverwrite(ref from, ref to), Lang::Ru) => {
+                format!("Перезаписать копию в '{}' копией из '{}'? [y/N] ", to, from)
+            }
+            (Msg::SessionCancelled, Lang::En) => s("Cancelled. Nothing was copied."),
+            (Msg::SessionCancelled, Lang::Ru) => s("Отменено. Ничего не скопировано."),
+            (Msg::SessionCopied(ref id, ref from, ref to, ref size), Lang::En) => format!(
+                "Copied session {} from '{}' to '{}' ({}).",
+                id, from, to, size
+            ),
+            (Msg::SessionCopied(ref id, ref from, ref to, ref size), Lang::Ru) => format!(
+                "Сессия {} скопирована из '{}' в '{}' ({}).",
+                id, from, to, size
+            ),
+            (Msg::SessionCopiedSubagents(n), Lang::En) => {
+                format!("Also copied {} subagent transcript(s).", n)
+            }
+            (Msg::SessionCopiedSubagents(n), Lang::Ru) => {
+                format!("Также скопировано транскриптов сабагентов: {}.", n)
+            }
+            (Msg::SessionResumeHint(ref acc, ref id), Lang::En) => {
+                format!("Continue it:  claude-acc run {} --resume {}", acc, id)
+            }
+            (Msg::SessionResumeHint(ref acc, ref id), Lang::Ru) => {
+                format!("Продолжить:  claude-acc run {} --resume {}", acc, id)
+            }
+            (Msg::SessionCopyFailed(ref e), Lang::En) => {
+                format!("Could not copy the session: {}", e)
+            }
+            (Msg::SessionCopyFailed(ref e), Lang::Ru) => {
+                format!("Не удалось скопировать сессию: {}", e)
+            }
+
+            // run --resume across accounts
+            (Msg::ResumeNotHere(ref id, ref acc), Lang::En) => format!(
+                "Session {} isn't in account '{}', but another account has it:",
+                id, acc
+            ),
+            (Msg::ResumeNotHere(ref id, ref acc), Lang::Ru) => format!(
+                "Сессии {} нет в аккаунте '{}', но она есть в другом:",
+                id, acc
+            ),
+            (Msg::ResumeCopyConfirm(ref from, ref to), Lang::En) => {
+                format!("Copy it from '{}' into '{}' and resume? [y/N] ", from, to)
+            }
+            (Msg::ResumeCopyConfirm(ref from, ref to), Lang::Ru) => {
+                format!("Скопировать из '{}' в '{}' и продолжить? [y/N] ", from, to)
+            }
+            (Msg::ResumeContinuingWithout, Lang::En) => {
+                s("Starting claude anyway — it won't find that session here.")
+            }
+            (Msg::ResumeContinuingWithout, Lang::Ru) => {
+                s("Запускаю claude — эту сессию он здесь не найдёт.")
+            }
+            (Msg::ResumeContinuingLocal(ref acc), Lang::En) => {
+                format!("Keeping the copy already in '{}'.", acc)
+            }
+            (Msg::ResumeContinuingLocal(ref acc), Lang::Ru) => {
+                format!("Оставляю копию, которая уже есть в '{}'.", acc)
+            }
+            (Msg::ResumeCopied(ref from, ref to), Lang::En) => {
+                format!("Copied from '{}' into '{}'. Starting claude...", from, to)
+            }
+            (Msg::ResumeCopied(ref from, ref to), Lang::Ru) => {
+                format!("Скопировано из '{}' в '{}'. Запускаю claude...", from, to)
+            }
+            (Msg::ResumeSeveralCopies(ref id), Lang::En) => format!(
+                "Session {} exists in more than one account. Which copy do you want to resume?",
+                id
+            ),
+            (Msg::ResumeSeveralCopies(ref id), Lang::Ru) => format!(
+                "Сессия {} есть в нескольких аккаунтах. Какую копию продолжить?",
+                id
+            ),
+            (Msg::ResumePickThisAccount, Lang::En) => s("this account"),
+            (Msg::ResumePickThisAccount, Lang::Ru) => s("этот аккаунт"),
+            (Msg::ResumePickNoChoice(ref acc), Lang::En) => {
+                format!("No choice made — keeping the copy in '{}'.", acc)
+            }
+            (Msg::ResumePickNoChoice(ref acc), Lang::Ru) => {
+                format!("Выбор не сделан — оставляю копию в '{}'.", acc)
+            }
+            (Msg::ResumePickNewest, Lang::En) => s("newest"),
+            (Msg::ResumePickNewest, Lang::Ru) => s("самая свежая"),
+
+            // resume hook toggle
+            (Msg::ResumeHookState(ref v), Lang::En) => {
+                format!("Resume check in the claude wrapper: {}", v)
+            }
+            (Msg::ResumeHookState(ref v), Lang::Ru) => {
+                format!("Проверка --resume во враппере claude: {}", v)
+            }
+            (Msg::ResumeHookSet(ref v), Lang::En) => {
+                format!("Resume check in the claude wrapper: {}", v)
+            }
+            (Msg::ResumeHookSet(ref v), Lang::Ru) => {
+                format!("Проверка --resume во враппере claude: {}", v)
+            }
+            (Msg::ResumeHookExplainOn, Lang::En) => {
+                s("Plain 'claude --resume <id>' will now offer a session another account holds.")
+            }
+            (Msg::ResumeHookExplainOff, Lang::En) => s(
+                "Plain 'claude --resume <id>' now goes straight through.\n'claude-acc run <account> --resume <id>' still checks.",
+            ),
+            (Msg::ResumeHookExplainOn, Lang::Ru) => s(
+                "Обычный 'claude --resume <id>' теперь предложит сессию, лежащую в другом аккаунте.",
+            ),
+            (Msg::ResumeHookExplainOff, Lang::Ru) => s(
+                "Обычный 'claude --resume <id>' теперь проходит без вопросов.\n'claude-acc run <account> --resume <id>' по-прежнему проверяет.",
+            ),
+            (Msg::ResumeHookEnvOverride, Lang::En) => {
+                s("Currently off for this shell: CLAUDE_ACC_NO_RESUME_HOOK is set.")
+            }
+            (Msg::ResumeHookEnvOverride, Lang::Ru) => {
+                s("Сейчас выключено для этой оболочки: задана CLAUDE_ACC_NO_RESUME_HOOK.")
+            }
+            (Msg::ResumeHookHint, Lang::En) => s("Change it:  claude-acc resume-hook on|off"),
+            (Msg::ResumeHookHint, Lang::Ru) => s("Изменить:  claude-acc resume-hook on|off"),
+            (Msg::ResumeHookInvalid(ref v), Lang::En) => {
+                format!("Expected 'on' or 'off', got '{}'.", v)
+            }
+            (Msg::ResumeHookInvalid(ref v), Lang::Ru) => {
+                format!("Ожидалось 'on' или 'off', получено '{}'.", v)
+            }
+            (Msg::ResumeHookWriteFailed(ref e), Lang::En) => {
+                format!("Could not save the setting: {}", e)
+            }
+            (Msg::ResumeHookWriteFailed(ref e), Lang::Ru) => {
+                format!("Не удалось сохранить настройку: {}", e)
+            }
+
+            // desktop
+            (Msg::DesktopUnsupported, Lang::En) => {
+                s("Desktop profiles are macOS-only for now. Windows and Linux: see issue #75.")
+            }
+            (Msg::DesktopUnsupported, Lang::Ru) => {
+                s("Профили десктопа пока только для macOS. Windows и Linux — см. issue #75.")
+            }
+            (Msg::DesktopAppNotFound, Lang::En) => {
+                s("Claude.app not found in /Applications or ~/Applications. \
+                 Set CLAUDE_ACC_DESKTOP_APP to its path.")
+            }
+            (Msg::DesktopAppNotFound, Lang::Ru) => {
+                s("Claude.app не найден в /Applications или ~/Applications. \
+                 Укажите путь в CLAUDE_ACC_DESKTOP_APP.")
+            }
+            (Msg::DesktopNoDefault, Lang::En) => {
+                s("'default' isn't a desktop profile — that's the app's own, \
+                 which you open as usual.")
+            }
+            (Msg::DesktopNoDefault, Lang::Ru) => {
+                s("'default' — не профиль десктопа: это собственный профиль \
+                 приложения, откройте его как обычно.")
+            }
+            (Msg::DesktopExists(ref n), Lang::En) => {
+                format!("Desktop profile '{}' already exists.", n)
+            }
+            (Msg::DesktopExists(ref n), Lang::Ru) => {
+                format!("Профиль десктопа '{}' уже существует.", n)
+            }
+            (Msg::DesktopNotFound(ref n), Lang::En) => format!(
+                "Desktop profile '{}' not found. Create it: claude-acc desktop add {}",
+                n, n
+            ),
+            (Msg::DesktopNotFound(ref n), Lang::Ru) => format!(
+                "Профиль десктопа '{}' не найден. Создать: claude-acc desktop add {}",
+                n, n
+            ),
+            (Msg::DesktopCreateFailed(ref e), Lang::En) => {
+                format!("Could not create the profile directory: {}", e)
+            }
+            (Msg::DesktopCreateFailed(ref e), Lang::Ru) => {
+                format!("Не удалось создать директорию профиля: {}", e)
+            }
+            (Msg::DesktopCreated(ref n), Lang::En) => {
+                format!("Desktop profile '{}' created. Opening Claude on it...", n)
+            }
+            (Msg::DesktopCreated(ref n), Lang::Ru) => {
+                format!("Профиль десктопа '{}' создан. Открываю Claude на нём...", n)
+            }
+            (Msg::DesktopSignInHint, Lang::En) => {
+                s("It opens signed out — sign in there with the account for this profile.")
+            }
+            (Msg::DesktopSignInHint, Lang::Ru) => {
+                s("Оно откроется без входа — войдите там под аккаунтом для этого профиля.")
+            }
+            (Msg::DesktopDiskNote, Lang::En) => s(
+                "The profile is fully isolated, so the app would re-download \
+                 its whole runtime into it — about 10.5 GB. To skip that, \
+                 clone it instead (free, on APFS):",
+            ),
+            (Msg::DesktopDiskNote, Lang::Ru) => {
+                s("Профиль полностью изолирован, поэтому приложение заново \
+                 скачало бы в него весь рантайм — около 10.5 ГБ. Чтобы этого \
+                 избежать, склонируйте его (на APFS это бесплатно):")
+            }
+            (Msg::DesktopDiskHint(ref n), _) => {
+                format!("  claude-acc desktop clone-runtime {}", n)
+            }
+            (Msg::DesktopHintRun(ref n), Lang::En) => {
+                format!("Open it again later:  claude-acc desktop run {}", n)
+            }
+            (Msg::DesktopHintRun(ref n), Lang::Ru) => {
+                format!("Открыть его позже:  claude-acc desktop run {}", n)
+            }
+            (Msg::DesktopListEmpty, Lang::En) => {
+                s("No desktop profiles. Add one: claude-acc desktop add <name>")
+            }
+            (Msg::DesktopListEmpty, Lang::Ru) => {
+                s("Нет профилей десктопа. Добавьте: claude-acc desktop add <name>")
+            }
+            (Msg::DesktopListHeader, Lang::En) => s("Claude Desktop profiles:"),
+            (Msg::DesktopListHeader, Lang::Ru) => s("Профили Claude Desktop:"),
+            (Msg::DesktopSignedIn, Lang::En) => s("(signed in)"),
+            (Msg::DesktopSignedIn, Lang::Ru) => s("(выполнен вход)"),
+            (Msg::DesktopSignedOut, Lang::En) => s("(signed out)"),
+            (Msg::DesktopSignedOut, Lang::Ru) => s("(вход не выполнен)"),
+            (Msg::DesktopStandard, Lang::En) => s("(the app's own profile)"),
+            (Msg::DesktopStandard, Lang::Ru) => s("(собственный профиль приложения)"),
+            (Msg::DesktopLaunching(ref n), Lang::En) => {
+                format!("Opening Claude on profile '{}'...", n)
+            }
+            (Msg::DesktopLaunching(ref n), Lang::Ru) => {
+                format!("Открываю Claude на профиле '{}'...", n)
+            }
+            (Msg::DesktopLaunchFailed(ref e), Lang::En) => format!("Could not open Claude: {}", e),
+            (Msg::DesktopLaunchFailed(ref e), Lang::Ru) => {
+                format!("Не удалось открыть Claude: {}", e)
+            }
+            (Msg::DesktopRemoveWarn(ref n), Lang::En) => format!(
+                "This deletes the whole profile '{}' — its sign-in, its \
+                 settings and its MCP servers. Quit that window first.",
+                n
+            ),
+            (Msg::DesktopRemoveWarn(ref n), Lang::Ru) => format!(
+                "Профиль '{}' будет удалён целиком — вход, настройки и \
+                 MCP-серверы. Сначала закройте его окно.",
+                n
+            ),
+            (Msg::DesktopRemoveConfirm(ref n), Lang::En) => {
+                format!("Delete profile '{}'? [y/N] ", n)
+            }
+            (Msg::DesktopRemoveConfirm(ref n), Lang::Ru) => {
+                format!("Удалить профиль '{}'? [y/N] ", n)
+            }
+            (Msg::DesktopRemoveCancelled, Lang::En) => s("Cancelled."),
+            (Msg::DesktopRemoveCancelled, Lang::Ru) => s("Отменено."),
+            (Msg::DesktopRemoveFailed(ref e), Lang::En) => {
+                format!("Could not delete the profile: {}", e)
+            }
+            (Msg::DesktopRemoveFailed(ref e), Lang::Ru) => {
+                format!("Не удалось удалить профиль: {}", e)
+            }
+            (Msg::DesktopRemoved(ref n), Lang::En) => format!("Desktop profile '{}' deleted.", n),
+            (Msg::DesktopRemoved(ref n), Lang::Ru) => format!("Профиль десктопа '{}' удалён.", n),
+            (Msg::DesktopCloneNoSource(ref n), Lang::En) => {
+                format!("{} has no claude_desktop_config.json to copy.", n)
+            }
+            (Msg::DesktopCloneNoSource(ref n), Lang::Ru) => {
+                format!(
+                    "В {} нет claude_desktop_config.json — копировать нечего.",
+                    n
+                )
+            }
+            (Msg::DesktopCloneKeep, Lang::En) => {
+                s("This profile already has a claude_desktop_config.json. \
+                 Replace it with --force.")
+            }
+            (Msg::DesktopCloneKeep, Lang::Ru) => {
+                s("У этого профиля уже есть claude_desktop_config.json. \
+                 Заменить — с --force.")
+            }
+            (Msg::DesktopCloneDone(ref n), Lang::En) => {
+                format!("MCP servers and preferences copied from {}.", n)
+            }
+            (Msg::DesktopCloneDone(ref n), Lang::Ru) => {
+                format!("MCP-серверы и настройки скопированы из {}.", n)
+            }
+            (Msg::DesktopCloneAuthNote, Lang::En) => s(
+                "Server definitions only — any that sign in separately will \
+                 ask for that again in the new profile.",
+            ),
+            (Msg::DesktopCloneAuthNote, Lang::Ru) => {
+                s("Скопированы только описания серверов — те, что логинятся \
+                 отдельно, попросят вход и в новом профиле.")
+            }
+            (Msg::DesktopCloneFailed(ref e), Lang::En) => {
+                format!("Could not copy the config: {}", e)
+            }
+            (Msg::DesktopCloneFailed(ref e), Lang::Ru) => {
+                format!("Не удалось скопировать конфиг: {}", e)
+            }
+            (Msg::DesktopUsageHeader, Lang::En) => s("Claude Desktop usage:"),
+            (Msg::DesktopUsageHeader, Lang::Ru) => s("Использование Claude Desktop:"),
+            (Msg::DesktopKeychainNote, Lang::En) => s(
+                "macOS will now ask for your login keychain password: reading a \
+                 profile's account and usage means decrypting its token, and the \
+                 key for that lives in the 'Claude Safe Storage' keychain entry. \
+                 Declining only costs you this listing.",
+            ),
+            (Msg::DesktopKeychainNote, Lang::Ru) => s(
+                "Сейчас macOS запросит пароль от связки ключей «Вход»: чтобы \
+                 узнать аккаунт и расход профиля, нужно расшифровать его токен, \
+                 а ключ для этого лежит в записи «Claude Safe Storage». Если \
+                 отказать, не будет только этого списка.",
+            ),
+            (Msg::DesktopKeychainDenied, Lang::En) => {
+                s("no keychain access — the account behind this profile stays unknown")
+            }
+            (Msg::DesktopKeychainDenied, Lang::Ru) => {
+                s("нет доступа к связке ключей — аккаунт профиля остаётся неизвестен")
+            }
+            (Msg::DesktopTokenUnreadable, Lang::En) => {
+                s("credentials could not be read — the app may have changed their format")
+            }
+            (Msg::DesktopTokenUnreadable, Lang::Ru) => {
+                s("не удалось прочитать креды — приложение могло сменить их формат")
+            }
+            (Msg::DesktopTokenExpired, Lang::En) => {
+                s("credentials have expired — open this profile to refresh them")
+            }
+            (Msg::DesktopTokenExpired, Lang::Ru) => {
+                s("креды истекли — откройте этот профиль, чтобы обновить их")
+            }
+            (Msg::DesktopQuitFirst, Lang::En) => s(
+                "Quit Claude before signing in. Signing in finishes through a \
+                 claude:// link, and the system hands that to whichever \
+                 instance is registered for it — with another one open, the \
+                 new profile never receives it. Currently open:",
+            ),
+            (Msg::DesktopQuitFirst, Lang::Ru) => s(
+                "Закройте Claude перед входом. Вход завершается переходом по \
+                 ссылке claude://, а её система отдаёт тому экземпляру, что \
+                 зарегистрирован на неё, — при другом открытом окне новый \
+                 профиль её просто не получит. Сейчас открыто:",
+            ),
+            (Msg::DesktopRunningInstance(ref pid, ref what), Lang::En) => {
+                format!("  pid {}  —  {}", pid, what)
+            }
+            (Msg::DesktopRunningInstance(ref pid, ref what), Lang::Ru) => {
+                format!("  pid {}  —  {}", pid, what)
+            }
+            (Msg::DesktopQuitFirstHint, Lang::En) => s(
+                "Quit them, sign in, and after that profiles open side by side \
+                 as usual. To go ahead anyway: --force",
+            ),
+            (Msg::DesktopQuitFirstHint, Lang::Ru) => {
+                s("Закройте их, войдите — после этого профили открываются \
+                 одновременно как обычно. Всё равно продолжить: --force")
+            }
+            (Msg::DesktopSignInForced, Lang::En) => {
+                s("Claude is already running; --force given, so the sign-in may not arrive.")
+            }
+            (Msg::DesktopSignInForced, Lang::Ru) => {
+                s("Claude уже запущен; передан --force, так что вход может не дойти.")
+            }
+            (Msg::DesktopIdentityMacOnly, Lang::En) => s(
+                "Reading a profile's account is macOS-only for now: the key to \
+                 its token lives in the Keychain, and the Windows and Linux \
+                 equivalents aren't implemented. See issue #75.",
+            ),
+            (Msg::DesktopIdentityMacOnly, Lang::Ru) => s(
+                "Определение аккаунта профиля пока только для macOS: ключ к \
+                 его токену лежит в связке ключей, а аналоги для Windows и \
+                 Linux не реализованы. См. issue #75.",
+            ),
+            (Msg::DesktopStorePackage, Lang::En) => s(
+                "Claude Desktop is installed from the Microsoft Store, which \
+                 can't be opened on a separate profile: its executable can \
+                 only be started through the Store's own activation, and the \
+                 package redirects file paths. The installer from \
+                 claude.com/download can. See issue #75.",
+            ),
+            (Msg::DesktopStorePackage, Lang::Ru) => {
+                s("Claude Desktop установлен из Microsoft Store, а такую \
+                 установку нельзя открыть на отдельном профиле: её \
+                 исполняемый файл запускается только через активацию Store, \
+                 а пакет подменяет пути к файлам. Установщик с \
+                 claude.com/download — можно. См. issue #75.")
+            }
+            (Msg::DesktopRuntimeNoSource(ref n), Lang::En) => {
+                format!("{} has no downloaded runtime to clone.", n)
+            }
+            (Msg::DesktopRuntimeNoSource(ref n), Lang::Ru) => {
+                format!("В {} нет скачанного рантайма — клонировать нечего.", n)
+            }
+            (Msg::DesktopRuntimeKeep, Lang::En) => {
+                s("This profile already has a downloaded runtime. Replace it \
+                 with --force.")
+            }
+            (Msg::DesktopRuntimeKeep, Lang::Ru) => {
+                s("У этого профиля уже есть скачанный рантайм. Заменить — с \
+                 --force.")
+            }
+            (Msg::DesktopRuntimeWouldCopy, Lang::En) => s(
+                "The profile is on a different filesystem from the source, so \
+                 this would copy every byte instead of cloning it — the \
+                 opposite of the point. Not done.",
+            ),
+            (Msg::DesktopRuntimeWouldCopy, Lang::Ru) => {
+                s("Профиль лежит на другой файловой системе, чем источник, \
+                 поэтому вместо клонирования скопировался бы каждый байт — \
+                 ровно наоборот от смысла. Не выполнено.")
+            }
+            (Msg::DesktopRuntimeCloned(ref n, ref size, ref from), Lang::En) => format!(
+                "Cloned {} runtime component(s), {} logical, from {}.",
+                n, size, from
+            ),
+            (Msg::DesktopRuntimeCloned(ref n, ref size, ref from), Lang::Ru) => format!(
+                "Склонировано компонентов рантайма: {}, логически {}, из {}.",
+                n, size, from
+            ),
+            (Msg::DesktopRuntimeCost(ref size), Lang::En) => {
+                format!("Disk actually used: {}.", size)
+            }
+            (Msg::DesktopRuntimeCost(ref size), Lang::Ru) => {
+                format!("Реально занято на диске: {}.", size)
+            }
+            (Msg::DesktopRuntimeCostUnknown, Lang::En) => {
+                s("Couldn't measure what it cost on disk.")
+            }
+            (Msg::DesktopRuntimeCostUnknown, Lang::Ru) => {
+                s("Не удалось измерить, во сколько это обошлось на диске.")
+            }
+            (Msg::DesktopRuntimeUnverified, Lang::En) => s(
+                "Whether the app accepts a pre-seeded runtime is untested — \
+                 if this profile misbehaves, delete its vm_bundles/, \
+                 claude-code/ and claude-code-vm/, and it will fetch its own.",
+            ),
+            (Msg::DesktopRuntimeUnverified, Lang::Ru) => {
+                s("Примет ли приложение подложенный рантайм — не проверено: \
+                 если профиль поведёт себя странно, удалите его vm_bundles/, \
+                 claude-code/ и claude-code-vm/, и он скачает свои.")
+            }
+            (Msg::DesktopRuntimeFailed(ref e), Lang::En) => {
+                format!("Could not clone the runtime: {}", e)
+            }
+            (Msg::DesktopRuntimeFailed(ref e), Lang::Ru) => {
+                format!("Не удалось склонировать рантайм: {}", e)
+            }
+            (Msg::DesktopNotSignedIn, Lang::En) => s("not signed in"),
+            (Msg::DesktopNotSignedIn, Lang::Ru) => s("вход не выполнен"),
+            (Msg::DesktopIdentityHint, Lang::En) => {
+                s("  Which account each is signed in as:  claude-acc desktop usage")
+            }
+            (Msg::DesktopIdentityHint, Lang::Ru) => {
+                s("  Под каким аккаунтом каждый:  claude-acc desktop usage")
+            }
         }
     }
 
@@ -414,6 +1000,10 @@ pub enum Msg {
     StatuslineInstallFailed(String),
     UpdateUpToDate(String),
     UpdateAvailable(String, String),
+    UpdateDowngrading(String, String),
+    UpdateInvalidVersion(String),
+    UpdateVersionNotFound(String),
+    UpdateHintAvailable(String, String),
     UpdateDownloading(String),
     UpdateDone(String, String),
     UpdateCheckFailed,
@@ -421,12 +1011,104 @@ pub enum Msg {
     UpdateUnsupportedPlatform,
     UpdateRepoUnknown,
     UpdateReplaceFailed(String),
+    UpdateWrapperRefreshed,
+    UpdateWrapperFailed(String),
     ImportSourceNotDir(String),
     ImportSourceManaged,
     ImportFailed(String),
     ImportDone(String, String),
     ImportRekeyed,
     ImportVerified(String),
+    SessionsHeader(String),
+    SessionsHeaderAll,
+    SessionsEmpty,
+    SessionsEmptyHere(String),
+    SessionsNewestCopy,
+    SessionsDuplicateNote,
+    SessionsHintResume,
+    SessionNotFound(String),
+    SessionSourceUnknown(String, String),
+    SessionAlreadyThere(String, String),
+    SessionAmbiguousNeedsFrom(String),
+    SessionPickSource,
+    SessionPickPrompt,
+    SessionOverwriteWarn(String),
+    SessionLabelSource,
+    SessionLabelReplaced,
+    SessionCostNote,
+    SessionConfirmCopy(String, String),
+    SessionConfirmOverwrite(String, String),
+    SessionCancelled,
+    SessionCopied(String, String, String, String),
+    SessionCopiedSubagents(usize),
+    SessionResumeHint(String, String),
+    SessionCopyFailed(String),
+    ResumeNotHere(String, String),
+    ResumeCopyConfirm(String, String),
+    ResumeContinuingWithout,
+    ResumeContinuingLocal(String),
+    ResumeCopied(String, String),
+    ResumeSeveralCopies(String),
+    ResumePickThisAccount,
+    ResumePickNewest,
+    ResumePickNoChoice(String),
+    ResumeHookState(String),
+    ResumeHookSet(String),
+    ResumeHookExplainOn,
+    ResumeHookExplainOff,
+    ResumeHookEnvOverride,
+    ResumeHookHint,
+    ResumeHookInvalid(String),
+    ResumeHookWriteFailed(String),
+    DesktopUnsupported,
+    DesktopAppNotFound,
+    DesktopNoDefault,
+    DesktopExists(String),
+    DesktopNotFound(String),
+    DesktopCreateFailed(String),
+    DesktopCreated(String),
+    DesktopSignInHint,
+    DesktopDiskNote,
+    DesktopHintRun(String),
+    DesktopListEmpty,
+    DesktopListHeader,
+    DesktopSignedIn,
+    DesktopSignedOut,
+    DesktopStandard,
+    DesktopLaunching(String),
+    DesktopLaunchFailed(String),
+    DesktopRemoveWarn(String),
+    DesktopRemoveConfirm(String),
+    DesktopRemoveCancelled,
+    DesktopRemoveFailed(String),
+    DesktopRemoved(String),
+    DesktopCloneNoSource(String),
+    DesktopCloneKeep,
+    DesktopCloneDone(String),
+    DesktopCloneAuthNote,
+    DesktopCloneFailed(String),
+    DesktopUsageHeader,
+    DesktopKeychainNote,
+    DesktopKeychainDenied,
+    DesktopTokenUnreadable,
+    DesktopTokenExpired,
+    DesktopIdentityHint,
+    DesktopNotSignedIn,
+    DesktopStorePackage,
+    DesktopQuitFirst,
+    DesktopRunningInstance(String, String),
+    DesktopQuitFirstHint,
+    DesktopSignInForced,
+    DesktopIdentityMacOnly,
+    DesktopRuntimeNoSource(String),
+    DesktopRuntimeKeep,
+    DesktopRuntimeWouldCopy,
+    DesktopRuntimeCloned(String, String, String),
+    DesktopRuntimeCost(String),
+    DesktopRuntimeCostUnknown,
+    DesktopRuntimeUnverified,
+    DesktopRuntimeFailed(String),
+    DesktopDiskHint(String),
 }
 
 fn relative_time(secs: u64, lang: Lang) -> String {

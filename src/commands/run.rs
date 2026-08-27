@@ -1,6 +1,7 @@
 use crate::config::{AppConfig, validate_name};
 use crate::environment::strip_claude_auth_env;
 use crate::i18n::{I18n, Msg};
+use crate::sessions;
 use crate::windows_invocation::claude_command;
 use std::path::Path;
 use std::process::Command;
@@ -41,6 +42,10 @@ fn build_command(args: &[String], acc_dir: Option<&Path>) -> Command {
 
 pub fn run(config: &AppConfig, i18n: &I18n, name: &str, args: &[String]) {
     if name == "default" {
+        let dir = crate::identity::standard_token_dir();
+        if let Some(dir) = dir.as_deref() {
+            super::session::preflight_resume(config, i18n, args, sessions::DEFAULT_LABEL, dir);
+        }
         let status = build_command(args, None)
             .status()
             .expect("Failed to run claude");
@@ -58,6 +63,7 @@ pub fn run(config: &AppConfig, i18n: &I18n, name: &str, args: &[String]) {
     }
 
     let acc_dir = config.account_path(name);
+    super::session::preflight_resume(config, i18n, args, name, &acc_dir);
     let status = build_command(args, Some(&acc_dir))
         .status()
         .expect("Failed to run claude");

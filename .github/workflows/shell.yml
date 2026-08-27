@@ -38,3 +38,17 @@ jobs:
           zsh -n shell/init.zsh
           bash -n shell/init.bash
           bash -n shell/claude-wrapper.sh
+
+      # init.ps1 is `eval`'d by PowerShell users' profiles, so a syntax error
+      # there breaks their shell startup. pwsh is preinstalled on the runner.
+      - name: Syntax-check the PowerShell template
+        shell: pwsh
+        run: |
+          $errors = $null
+          $null = [System.Management.Automation.Language.Parser]::ParseFile(
+              (Resolve-Path shell/init.ps1).Path, [ref]$null, [ref]$errors)
+          if ($errors) {
+              $errors | ForEach-Object { Write-Error $_.Message }
+              exit 1
+          }
+          Write-Output "shell/init.ps1 parses cleanly"

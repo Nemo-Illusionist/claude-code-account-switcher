@@ -17,4 +17,13 @@ cargo test --release                          # tests, release profile
 To auto-fix formatting before the check: `cargo fmt --all`.
 
 If you touched shell files (`claude-switch.sh`, shell templates), the **Shell**
-workflow also runs `zsh -n` / `bash -n` syntax checks on them.
+workflow also syntax-checks them — `zsh -n` on `claude-switch.sh` and
+`shell/init.zsh`, `bash -n` on `shell/init.bash` and `shell/claude-wrapper.sh`,
+and a PowerShell parse of `shell/init.ps1`.
+
+## Everything else lives in `.claude/rules/`
+
+Project conventions beyond the build — commits and PR scope, tests, i18n,
+shell parity, completions, README parity. Most load on their own when the
+files they govern come into play, but a path-scoped rule can't fire before
+you've opened the file. Look there before starting work.

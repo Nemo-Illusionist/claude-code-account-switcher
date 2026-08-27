@@ -25,18 +25,84 @@ __claude_acc_activate
 
 # Completions
 _claude_acc_complete() {
-    local cur prev
+    local cur prev cmd sub accounts
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
+    cmd="${COMP_WORDS[1]}"
+    sub="${COMP_WORDS[2]}"
+
     if [[ $COMP_CWORD -eq 1 ]]; then
-        COMPREPLY=($(compgen -W "list add login remove default reset link unlink links status usage statusline update run doctor whoami clone-settings import help" -- "$cur"))
-    elif [[ $COMP_CWORD -eq 2 ]]; then
-        case "$prev" in
+        COMPREPLY=($(compgen -W "list add login remove default reset link unlink links status usage sessions session desktop resume-hook statusline update install run doctor whoami clone-settings import help" -- "$cur"))
+        return
+    fi
+
+    # The value of a flag that takes one, whatever word number it lands on.
+    case "$prev" in
+        --from)
+            # `session copy --from` takes an account; `desktop` takes a profile.
+            if [[ "$cmd" == desktop ]]; then
+                COMPREPLY=($(compgen -W "$('__CLAUDE_ACC_BIN__' completions desktop)" -- "$cur"))
+            else
+                COMPREPLY=($(compgen -W "default $('__CLAUDE_ACC_BIN__' completions accounts)" -- "$cur"))
+            fi
+            return
+            ;;
+        --to)
+            # `default` is not a managed account directory but every command
+            # taking an account name accepts it as the standard ~/.claude one.
+            COMPREPLY=($(compgen -W "default $('__CLAUDE_ACC_BIN__' completions accounts)" -- "$cur"))
+            return
+            ;;
+        --version)
+            return
+            ;;
+    esac
+
+    if [[ "$cur" == -* ]]; then
+        case "$cmd" in
+            add) COMPREPLY=($(compgen -W "--seed -s" -- "$cur")) ;;
+            remove) COMPREPLY=($(compgen -W "--force -f" -- "$cur")) ;;
+            import) COMPREPLY=($(compgen -W "--move" -- "$cur")) ;;
+            statusline) COMPREPLY=($(compgen -W "--install" -- "$cur")) ;;
+            sessions) COMPREPLY=($(compgen -W "--all" -- "$cur")) ;;
+            doctor) COMPREPLY=($(compgen -W "--json" -- "$cur")) ;;
+            update) COMPREPLY=($(compgen -W "--check --version" -- "$cur")) ;;
+            session) COMPREPLY=($(compgen -W "--to --from --force -f" -- "$cur")) ;;
+            desktop) COMPREPLY=($(compgen -W "--seed -s --from --force -f" -- "$cur")) ;;
+        esac
+        return
+    fi
+
+    if [[ $COMP_CWORD -eq 2 ]]; then
+        case "$cmd" in
             remove|clone-settings)
                 COMPREPLY=($(compgen -W "$('__CLAUDE_ACC_BIN__' completions accounts)" -- "$cur"))
                 ;;
             default|link|login|run)
                 COMPREPLY=($(compgen -W "default $('__CLAUDE_ACC_BIN__' completions accounts)" -- "$cur"))
+                ;;
+            session)
+                COMPREPLY=($(compgen -W "copy" -- "$cur"))
+                ;;
+            desktop)
+                COMPREPLY=($(compgen -W "add clone-config clone-runtime list usage run remove" -- "$cur"))
+                ;;
+            resume-hook)
+                COMPREPLY=($(compgen -W "on off" -- "$cur"))
+                ;;
+        esac
+    elif [[ $COMP_CWORD -eq 3 ]]; then
+        case "$cmd" in
+            # `import <name> <path>`: the name is new, the path exists.
+            import) COMPREPLY=($(compgen -d -- "$cur")) ;;
+            session)
+                [[ "$sub" == copy ]] &&
+                    COMPREPLY=($(compgen -W "$('__CLAUDE_ACC_BIN__' completions sessions)" -- "$cur"))
+                ;;
+            # `desktop add <name>` is a new name; run/remove take an existing one.
+            desktop)
+                [[ "$sub" == run || "$sub" == remove || "$sub" == clone-config || "$sub" == clone-runtime ]] &&
+                    COMPREPLY=($(compgen -W "$('__CLAUDE_ACC_BIN__' completions desktop)" -- "$cur"))
                 ;;
         esac
     fi

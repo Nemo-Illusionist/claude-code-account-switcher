@@ -55,7 +55,7 @@ fn print_result(result: UsageResult, i18n: &I18n, name: &str) {
     }
 }
 
-fn print_usage(usage: &Usage, i18n: &I18n) {
+pub fn print_usage(usage: &Usage, i18n: &I18n) {
     if let Some(w) = &usage.five_hour {
         print_window("5h", w, i18n);
     }
@@ -93,7 +93,7 @@ fn reset_label(resets_at: Option<&str>, i18n: &I18n) -> String {
 
 /// "  <email>" or "  <email>  Max 20x" from a cached identity. Empty when the
 /// cache has no email (e.g. `doctor` hasn't audited the account yet).
-fn label_suffix(cache: Option<CachedInfo>) -> String {
+pub fn label_suffix(cache: Option<CachedInfo>) -> String {
     let Some(c) = cache else {
         return String::new();
     };

@@ -1,5 +1,62 @@
 # Changelog
 
+## [0.16.0](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.15.0...v0.16.0) (2026-08-26)
+
+
+### Features
+
+* clone a profile's downloaded runtime instead of re-fetching it ([#95](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/95)) ([83289a5](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/83289a5d171d86800663f8a2d2c1279c9e2b02db))
+
+
+### Bug Fixes
+
+* refuse to sign a profile in while Claude is running ([#96](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/96)) ([2a0185d](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/2a0185d78171bfb8f61d45732d31caabc856439a))
+
+## [0.15.0](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.14.0...v0.15.0) (2026-08-26)
+
+
+### Features
+
+* run Claude Desktop under separate account profiles ([#86](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/86)) ([a0b3c58](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/a0b3c5820335af8e87cf2d0b05392024092f6534))
+* run desktop profiles on Windows and Linux too ([#90](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/90)) ([607ef4a](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/607ef4ad664f2c441f20540676c5045568786e76))
+* seed a desktop profile's MCP servers from another profile ([#88](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/88)) ([16d61c1](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/16d61c175aaca2f2e23e94770fd725430a017455))
+* show the account and rate-limit usage behind each desktop profile ([#89](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/89)) ([0270b56](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/0270b569647114a6390dffea09af3c964eaf628f))
+
+## [0.14.0](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.13.0...v0.14.0) (2026-08-26)
+
+
+### Features
+
+* check `--resume` in the claude wrapper, with an on/off switch ([#81](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/81)) ([d250251](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/d250251c59435565dd1f5fe59b0bf83c65b77131))
+* complete every command's arguments and flags ([#84](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/84)) ([cd5704f](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/cd5704f9852eee53ff876adcbd626a872f7cab89))
+
+
+### Bug Fixes
+
+* refresh the claude wrapper on update ([#83](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/83)) ([25cd47f](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/25cd47f5dce78fb88a2f52a269882be4b159c8c7))
+
+## [0.13.0](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.12.0...v0.13.0) (2026-08-26)
+
+
+### Features
+
+* check cross-account copies before `run --resume` ([#78](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/78)) ([03d4fab](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/03d4fab8be3d6e43b2135ac2a0b2fdb11359679d))
+* copy a session into another account ([#77](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/77)) ([3e554eb](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/3e554eb1e397c4b9215b656d0c497a2fe37c27a9))
+* list Claude Code sessions across accounts ([#76](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/76)) ([63995f9](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/63995f92d9c69a86aa2cd58eef3016cdc0c46ceb))
+
+
+### Documentation
+
+* document the session commands in the Russian README ([#80](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/80)) ([798da6a](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/798da6ac164a8c2f98f1e0a4d8525619ca3a5e31))
+
+## [0.12.0](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.11.0...v0.12.0) (2026-08-26)
+
+
+### Features
+
+* print a passive hint when a newer claude-acc version is out ([#74](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/74)) ([48cf191](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/48cf191e96b0bfa66279d61f625ef03d2435448f))
+* update accepts --version for pinning/rollback ([#72](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/72)) ([952c1c0](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/952c1c06a88ffc93813d6441385cb4c6bb6b1f95))
+
 ## [0.11.0](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.10.5...v0.11.0) (2026-08-26)
 
 

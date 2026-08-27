@@ -23,8 +23,23 @@ add-zsh-hook chpwd _claude_chpwd_hook
 __claude_acc_activate
 
 # Completions
+_claude_acc_accounts() {
+    local -a accounts
+    accounts=(${(f)"$('__CLAUDE_ACC_BIN__' completions accounts)"})
+    # `default` is not a managed account directory but every command that
+    # takes an account name accepts it as "the standard ~/.claude one".
+    [[ -n "$1" ]] && accounts=('default' $accounts)
+    _describe 'account' accounts
+}
+
+_claude_acc_profiles() {
+    local -a profiles
+    profiles=(${(f)"$('__CLAUDE_ACC_BIN__' completions desktop)"})
+    _describe 'profile' profiles
+}
+
 _claude_acc_completion() {
-    local -a subcmds accounts
+    local -a subcmds flags states subsubs sessions
     subcmds=(
         'list:List accounts'
         'add:Add account'
@@ -37,25 +52,110 @@ _claude_acc_completion() {
         'links:Show all links'
         'status:Current account info'
         'usage:Show 5h / 7d usage for every account'
+        'sessions:List Claude Code sessions across accounts'
+        'session:Work with a single session transcript'
+        'desktop:Manage Claude Desktop profiles'
+        'resume-hook:Toggle the --resume check in the claude wrapper'
         'statusline:Render / install the Claude Code status line'
         'update:Update the binary to the latest release'
+        'install:Install binary and shell integration'
         'run:Run claude under a specific account'
         'doctor:Audit each account OAuth identity'
         'whoami:Print active account email'
         'clone-settings:Copy ~/.claude/ config into account'
         'import:Import an existing Claude config dir (no re-login)'
     )
+
+    local cmd="${words[2]}"
+    local cur="${words[CURRENT]}"
+    local prev="${words[CURRENT-1]}"
+
     if (( CURRENT == 2 )); then
         _describe 'command' subcmds
-    elif (( CURRENT == 3 )); then
-        case "${words[2]}" in
+        return
+    fi
+
+    # The value of a flag that takes one. Checked before anything positional:
+    # `--to <TAB>` wants an account, whatever word number it lands on.
+    case "$prev" in
+        --from)
+            # `session copy --from` takes an account; `desktop` takes a profile.
+            if [[ "$cmd" == desktop ]]; then
+                _claude_acc_profiles
+            else
+                _claude_acc_accounts with-default
+            fi
+            return
+            ;;
+        --to)
+            _claude_acc_accounts with-default
+            return
+            ;;
+        --version)
+            return
+            ;;
+    esac
+
+    if [[ "$cur" == -* ]]; then
+        case "$cmd" in
+            add) flags=('--seed:Seed the new account from ~/.claude/' '-s:Seed the new account from ~/.claude/') ;;
+            remove) flags=('--force:Skip confirmation' '-f:Skip confirmation') ;;
+            import) flags=('--move:Move the directory instead of copying it') ;;
+            statusline) flags=('--install:Write the statusLine config into settings.json') ;;
+            sessions) flags=('--all:Every project, not just this directory') ;;
+            doctor) flags=('--json:Output as JSON') ;;
+            update) flags=('--check:Only check, do not download' '--version:Install a specific version') ;;
+            session) flags=('--to:Destination account' '--from:Source account' '--force:Skip confirmation' '-f:Skip confirmation') ;;
+            desktop) flags=('--seed:Seed MCP config from the app profile' '-s:Seed MCP config from the app profile' '--from:Copy the config from this profile' '--force:Skip confirmation / replace / sign-in check' '-f:Skip confirmation / replace') ;;
+        esac
+        (( ${#flags} )) && _describe 'option' flags
+        return
+    fi
+
+    if (( CURRENT == 3 )); then
+        case "$cmd" in
             remove|clone-settings)
-                accounts=(${(f)"$('__CLAUDE_ACC_BIN__' completions accounts)"})
-                _describe 'account' accounts
+                _claude_acc_accounts
                 ;;
             default|link|login|run)
-                accounts=('default' ${(f)"$('__CLAUDE_ACC_BIN__' completions accounts)"})
-                _describe 'account' accounts
+                _claude_acc_accounts with-default
+                ;;
+            session)
+                subsubs=('copy:Copy a session into another account')
+                _describe 'subcommand' subsubs
+                ;;
+            desktop)
+                subsubs=(
+                    'add:Create a profile and sign in'
+                    'clone-config:Copy MCP servers into a profile'
+                    'clone-runtime:Clone the downloaded runtime into a profile'
+                    'list:List desktop profiles'
+                    'usage:Account and rate-limit usage per profile'
+                    'run:Open Claude Desktop on a profile'
+                    'remove:Delete a profile'
+                )
+                _describe 'subcommand' subsubs
+                ;;
+            resume-hook)
+                states=('on:Check --resume in the claude wrapper' 'off:Pass --resume straight through')
+                _describe 'state' states
+                ;;
+        esac
+    elif (( CURRENT == 4 )); then
+        case "$cmd" in
+            # `import <name> <path>`: the name is new, the path exists.
+            import) _files -/ ;;
+            session)
+                if [[ "${words[3]}" == copy ]]; then
+                    sessions=(${(f)"$('__CLAUDE_ACC_BIN__' completions sessions)"})
+                    _describe 'session' sessions
+                fi
+                ;;
+            # `desktop add <name>` is a new name; run/remove take an existing one.
+            desktop)
+                case "${words[3]}" in
+                    run|remove|clone-config|clone-runtime) _claude_acc_profiles ;;
+                esac
                 ;;
         esac
     fi

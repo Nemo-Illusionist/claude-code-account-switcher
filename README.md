@@ -105,6 +105,7 @@ Other tools solving nearby problems, and how they differ (summarised from their 
 | Auto-rotation when a limit is hit | no (out of scope) | yes — strategies, cooldown, hysteresis | no | no |
 | Status line with the active account | `statusline --install` | no | no | no |
 | IDE launches (JetBrains, VS Code) | wrapper on `PATH` + `ide/` symlink | follow the global login | follow the global profile | no |
+| Claude **desktop app** accounts | `desktop` — isolated profiles, open side by side | no | no | no |
 | Adopt an existing config dir without re-login | `import` — re-keys the macOS Keychain entry | `add` / `import` of credential exports | capture the current login as a profile | n/a |
 | Other coding CLIs (Codex, Gemini) | no | no | yes | n/a |
 | Runtime | Rust binary (or a single zsh script) | Python (uv / pipx) | Rust | direnv |
@@ -129,6 +130,13 @@ Short version: **cswap** if you want one active account plus automatic rotation 
 | `claude-acc links` | Show all directory links |
 | `claude-acc status` | Show active account |
 | `claude-acc usage` | Show 5h / 7d rate-limit usage for every account |
+| `claude-acc sessions [--all]` | List Claude Code sessions across accounts (current directory by default) |
+| `claude-acc session copy <id> --to <name>` | Copy a session into another account so `claude --resume` can see it |
+| `claude-acc resume-hook [on\|off]` | Show/set whether plain `claude --resume <id>` gets the same check |
+| `claude-acc desktop add\|list\|run\|remove [<name>]` | Claude Desktop profiles — separate app profiles that run side by side |
+| `claude-acc desktop clone-config <name>` | Copy MCP servers and preferences into a desktop profile (`--from`, `--force`) |
+| `claude-acc desktop clone-runtime <name>` | Clone the downloaded runtime into a profile, copy-on-write (macOS/APFS) |
+| `claude-acc desktop usage` | Account, plan and 5h / 7d usage behind every desktop profile (macOS) |
 | `claude-acc statusline [--install]` | Render (or install) a Claude Code status line with the active account |
 | `claude-acc run <name>` | Run claude under a specific account |
 | `claude-acc whoami` | Print the email (or name) of the active account |
@@ -198,6 +206,20 @@ JetBrains IDEs (PhpStorm, IntelliJ etc.) and VSCode launch the `claude` binary d
 - A symlink `~/.claude-switch/accounts/<name>/ide → ~/.claude/ide` for every account. Claude Code writes IDE lock files to `$CLAUDE_CONFIG_DIR/ide/`, but IDE plugins always look in `~/.claude/ide/`. The symlink makes both sides agree.
 
 No manual setup required — `claude-acc install` does both. New accounts created via `claude-acc add` get their `ide/` symlink automatically.
+
+## Shell completions
+
+`claude-acc install` also wires up Tab completion for zsh, bash and PowerShell. It covers every command and its arguments — account names (with `default` where the command accepts it), `session copy` ids for the current directory, `desktop` profile names, `resume-hook on|off`, `import`'s path, and each command's flags:
+
+```
+$ claude-acc session copy <TAB>
+363edaeb-e81c-4021-94f4-7fe7d91815f4  0266a566-0336-4055-8f05-c553d368528e
+
+$ claude-acc session copy 0266a566-… --to <TAB>
+default  personal  work
+```
+
+Session ids are scoped to the current directory on purpose: a full listing runs to hundreds of uuids across every project ever opened, which is not a menu anyone can pick from.
 
 ## What gets switched
 
@@ -373,6 +395,293 @@ Claude Code usage:
 
 Unlike `doctor`, the usage figures are always a live fetch — usage is volatile, so nothing is cached. The email/plan next to each account come from `doctor`'s cache, so run `claude-acc doctor` once to populate them. Accounts with no token show `no token (run: claude-acc login <name>)`; an unreachable API shows `token present, but API unreachable`. Same dependencies and platform caveat as `doctor` (`security`, `curl`, `jq`, `shasum`; macOS only for now).
 
+## Sessions across accounts (`sessions`)
+
+Claude Code stores a conversation as a transcript inside the config directory it was running under:
+
+```
+<CLAUDE_CONFIG_DIR>/projects/<slugified-cwd>/<session-id>.jsonl
+```
+
+Because every account here gets its own `CLAUDE_CONFIG_DIR`, every account also gets its own `projects/` tree. That has a consequence worth knowing: **`claude --resume <id>` only ever sees sessions that belong to the account it runs under.** Start a conversation on `work`, hit a limit, switch to `personal`, and `--resume` won't list it — the transcript is still there, just in the other account's directory.
+
+`claude-acc sessions` shows the whole picture. By default it lists the current directory's sessions across every account; `--all` covers every project:
+
+```
+$ claude-acc sessions
+Sessions for /Users/alice/Documents/my-repo:
+
+  363edaeb-e81c-4021-94f4-7fe7d91815f4  work      just now     9.9 MB
+  0266a566-0336-4055-8f05-c553d368528e  work      15h ago       60 KB  ← newest copy
+  0266a566-0336-4055-8f05-c553d368528e  personal  6d ago        58 KB
+
+The same session id appears in more than one account — those are separate
+copies that have drifted apart. 'claude --resume' only ever sees the copy in
+the account it runs under.
+
+Resume one:  claude-acc run <account> --resume <id>
+```
+
+The same id can exist in more than one account once a transcript has been copied around. Those copies then drift independently, so the listing flags **which one was updated most recently** — that is usually the one you actually want to continue.
+
+The transcript format itself carries no account identity — no email, no user id, no organization uuid (those live in `.claude.json`, which this command never reads or writes). That's why a transcript is portable between accounts at all.
+
+### Moving a session to another account (`session copy`)
+
+Hit a rate limit mid-task? Copy the conversation into a fresh account and carry on there:
+
+```
+$ claude-acc session copy 0266a566-0336-4055-8f05-c553d368528e --to personal
+
+Note: the prompt cache is per-account, so the first message after resuming
+under another account re-sends the whole transcript — slower and more expensive
+than a normal turn.
+Copy it from 'work' to 'personal'? [y/N] y
+Copied session 0266a566-0336-4055-8f05-c553d368528e from 'work' to 'personal' (60 KB).
+Also copied 3 subagent transcript(s).
+Continue it:  claude-acc run personal --resume 0266a566-0336-4055-8f05-c553d368528e
+```
+
+It copies the transcript and, when there is one, the sidecar directory of subagent transcripts. `--to default` targets the standard `~/.claude`.
+
+**This copies — it doesn't move.** The original stays where it is, so backing out costs nothing. From then on the two copies are independent: whichever account you actually continue the conversation under is the one whose copy grows.
+
+Prompts you'll see, and how to skip them:
+
+- **Which copy?** — if several accounts already hold this id, you get a numbered pick showing each copy's account, how long ago it was touched, and its size. `--from <account>` answers it up front. This is the one prompt `--force` can't skip: with copies that have drifted apart, guessing risks overwriting the version you wanted.
+- **Overwrite?** — if the destination already holds a copy, both are shown side by side (marked `← copying this one` / `← will be replaced`) before you confirm.
+- **The cost note** — the prompt cache is per-account, so the first turn after the move re-sends the whole transcript. On a large conversation that is slow and not cheap. Worth knowing before, not after.
+
+`--force` skips the confirmations for scripting.
+
+### `run --resume` checks for you
+
+You don't have to remember any of this up front. When `claude-acc run <account> --resume <id>` names a session that account doesn't have, it says so before starting claude — which would otherwise just report an unknown session, with no hint that the transcript is sitting one account over:
+
+```
+$ claude-acc run work --resume 0266a566-0336-4055-8f05-c553d368528e
+
+Session 0266a566-0336-4055-8f05-c553d368528e isn't in account 'work', but another account has it:
+  default       15h ago       60 KB
+
+Note: the prompt cache is per-account, so the first message after resuming
+under another account re-sends the whole transcript — slower and more expensive
+than a normal turn.
+Copy it from 'default' into 'work' and resume? [y/N]
+```
+
+Answer `n` and claude starts anyway, exactly as before — it reports the unknown session itself.
+
+When the id exists **both here and in another account**, those are two conversations that have drifted apart, and only you know which one you meant. So you get the copies as a numbered pick, with the current account's own copy among them:
+
+```
+Session 0266a566-0336-4055-8f05-c553d368528e exists in more than one account. Which copy do you want to resume?
+  [1]  default       25m ago       60 KB
+  [2]  work          15h ago       60 KB  ← this account, newest
+
+Number (Enter to cancel):
+```
+
+Picking this account's copy (or pressing Enter) leaves everything alone. Picking another copies it in first.
+
+Anything else is claude's ordinary behaviour, untouched: an id no other account has, and a bare `--resume` with no id — that opens claude's own session picker, and getting in front of it would only be in the way.
+
+### The same check for plain `claude --resume`
+
+`claude` on your PATH is this tool's wrapper (see [IDE integration](#ide-integration)), so the check doesn't have to be limited to `claude-acc run`. With the hook on — the default — a plain `claude --resume <id>` gets exactly the prompts above:
+
+```
+claude-acc resume-hook          # show the current state
+claude-acc resume-hook off      # plain `claude --resume` goes straight through
+claude-acc resume-hook on
+```
+
+The setting lives in `~/.claude-switch/config`. `CLAUDE_ACC_NO_RESUME_HOOK=1` turns it off for a single shell without changing the stored value. `claude-acc run <account> --resume <id>` checks either way — the hook only governs the bare `claude` path.
+
+The wrapper is careful about staying out of the way:
+
+- it does nothing unless `--resume` is actually among the arguments, so an ordinary launch pays nothing;
+- it does nothing without a terminal on both stdin and stdout, so scripts, pipes and CI are never prompted at;
+- whatever happens, claude still starts — a failure in the check is never a failure to launch.
+
+**macOS and Linux only.** The hook lives in the wrapper script, and there is no wrapper on Windows — PATH-based interception there would need a `.cmd`/`.exe` shim. `claude-acc run <account> --resume <id>` does the same check on every platform.
+
+`claude-acc update` refreshes the wrapper for you; `claude-acc install` does too, if you ever need to force it.
+
+## Claude Desktop profiles (`desktop`)
+
+Everything above is about the CLI. The **desktop app** has the same problem — one app, one signed-in account — and it turns out to have a clean answer.
+
+The app is Electron, so it honours Chromium's `--user-data-dir`. Point it at a directory of our own and it gets a fully isolated profile: its own sign-in, its own settings, its own MCP servers. That is the same move this tool already makes for the CLI with `CLAUDE_CONFIG_DIR` — and it has one property the CLI accounts don't:
+
+> **Profiles run side by side.** There is no "switch". Your work account and your personal account can both be open, in two windows, at the same time. The app takes no single-instance lock, and Chromium's lock lives inside each profile directory.
+
+**Signing in has to happen with Claude closed.** Not a nicety — signing in finishes through a `claude://` link, and the system hands that to whichever instance is registered for the scheme, which is not the one that started the login. With another window open, the new profile simply never receives it. So:
+
+1. Quit Claude.
+2. `claude-acc desktop add <name>`, and sign in in the window that opens.
+3. From then on, open as many profiles as you like — they run side by side.
+
+`desktop add` refuses while Claude is running and names what's open, rather than launching a window that can't finish signing in. The same check applies to `desktop run` on a profile that isn't signed in yet; a profile that already is opens freely. `--force` overrides it.
+
+```bash
+claude-acc desktop add work      # create the profile and open Claude on it to sign in
+claude-acc desktop add work -s   # ...and seed its MCP servers from the app's own profile
+claude-acc desktop list          # profiles, and which account each is signed in as
+claude-acc desktop usage         # ...plus their 5h / 7d rate-limit usage, live
+claude-acc desktop run work      # open Claude on that profile again
+claude-acc desktop clone-config work   # copy MCP servers into an existing profile
+claude-acc desktop clone-runtime work  # clone the ~10.5 GB runtime — free on APFS
+claude-acc desktop remove work   # delete the profile and everything in it
+```
+
+`desktop add` creates `~/.claude-switch/desktop/<name>/` and opens the app on it. The window comes up signed out — sign in there with the account this profile is for:
+
+```
+$ claude-acc desktop add work
+Desktop profile 'work' created. Opening Claude on it...
+It opens signed out — sign in there with the account for this profile.
+The profile is fully isolated, so the app re-downloads its sandbox images into it — expect several GB.
+
+Open it again later:  claude-acc desktop run work
+```
+
+```
+$ claude-acc desktop list
+Claude Desktop profiles:
+    work  (signed out)
+    ~/Library/…/Claude/  (the app's own profile)
+```
+
+Once signed in, that row carries the account it belongs to — see [`desktop usage`](#which-account-each-profile-is-signed-in-as-desktop-usage).
+
+The last row is the app's own profile — the one you get when you open Claude from the Dock. Nothing here reads or writes it; it is listed so the picture is complete.
+
+Your main instance is never quit, never touched, and never has its signed-in state copied around. That is the whole reason this approach is worth having: the alternative — quitting the app and swapping profile data on disk — mixes authentication state and triggers server-side re-authentication, which is exactly what the Windows tools in this space keep running into.
+
+**Trade-offs, stated plainly:**
+
+- **Disk.** Isolation is total, so a profile would re-download its whole ~10.5 GB runtime. `clone-runtime` makes that free on APFS — see below. Caches (~1.5 GB) are still per-profile.
+- **MCP servers are per-profile.** A new profile starts with none — `-s` or `clone-config` brings them over, see below.
+- **`--user-data-dir` is a Chromium switch, not a documented Claude Desktop feature.** This is how VS Code and most Electron apps are routinely run, so the risk is small — but if the app ever pins its own data directory unconditionally, this stops working.
+
+### Where it works
+
+| | Launching profiles | Which account a profile is on (`desktop usage`) |
+|---|---|---|
+| **macOS** | yes — `/Applications/Claude.app` or `~/Applications/` | yes |
+| **Windows**, installed from [claude.com/download](https://claude.com/download) | yes — `%LOCALAPPDATA%\AnthropicClaude\` | not yet — the key lives in DPAPI, not the Keychain |
+| **Windows**, installed from the Microsoft Store | **no** — see below | no |
+| **Linux** ([official package](https://code.claude.com/docs/en/desktop-linux), beta) | yes — `claude-desktop` on `PATH` | not yet — libsecret / kwallet |
+
+If the app is somewhere else — an unofficial Linux build, a non-standard install — point at it: `CLAUDE_ACC_DESKTOP_APP=/path/to/the/app`.
+
+**The Microsoft Store build can't do this, and won't pretend to.** Its executable lives under `WindowsApps` and starts only through the Store's own activation, which is no way to pass a command-line switch; the package also redirects file paths, so a switch that did arrive wouldn't point where it says. Rather than launch it and quietly open your real profile while claiming otherwise, `desktop` says what's wrong and stops. The installer from claude.com/download works.
+
+> Reported but unverified by us: on Windows, Cowork resolves its VM image relative to `%APPDATA%`, so a profile kept elsewhere may fail to start one, and only one Cowork VM runs at a time regardless. Plain chat is unaffected.
+
+### Bringing MCP servers along (`clone-config`)
+
+A profile's MCP servers and app preferences live in `claude_desktop_config.json` **inside the profile directory**, so a new profile starts with neither. Re-adding a docker MCP server by hand in every profile gets old fast — this is the desktop analog of [`clone-settings`](#inheriting-claude-config) for CLI accounts:
+
+```bash
+claude-acc desktop add work -s               # seed at creation, from the app's own profile
+claude-acc desktop clone-config work         # or seed an existing profile
+claude-acc desktop clone-config work --from personal   # from another profile instead
+```
+
+```
+$ claude-acc desktop clone-config work
+MCP servers and preferences copied from ~/Library/…/Claude/.
+Server definitions only — any that sign in separately will ask for that again in the new profile.
+```
+
+An existing config is **kept, not replaced** — it likely holds servers someone added by hand:
+
+```
+$ claude-acc desktop clone-config work
+This profile already has a claude_desktop_config.json. Replace it with --force.
+```
+
+Two things worth knowing:
+
+- **Definitions, not sessions.** An MCP server that authenticates on its own will ask for that again in the new profile — as it should, since the point of a separate profile is a separate identity.
+- The file can hold server credentials, so it is copied with its mode intact (`0600` in the app's own profile) and via a staging file, so an interrupted copy can't leave half a config behind.
+
+### Which account each profile is signed in as (`desktop usage`)
+
+`desktop list` reads nothing but files, so it can only say whether a profile holds a credential. `desktop usage` goes further — it decrypts the profile's token and asks the API, giving you the email, the plan, and the same 5h / 7d bars [`usage`](#usage-tracking-usage) shows for CLI accounts:
+
+```
+$ claude-acc desktop usage
+macOS will now ask for your login keychain password: reading a profile's account and usage means decrypting its token, and the key for that lives in the 'Claude Safe Storage' keychain entry. Declining only costs you this listing.
+
+Claude Desktop usage:
+    work  <work@company.com>  Max 20x
+      5h  [██████░░░░░░░░░░░░░░]   32%  resets in 52m
+      7d  [████████░░░░░░░░░░░░]   40%  resets in 5d 16h
+```
+
+It caches what it learns, so `desktop list` shows the email from then on without asking for anything:
+
+```
+$ claude-acc desktop list
+Claude Desktop profiles:
+    work  <work@company.com>  Max 20x  (signed in)
+    ~/Library/…/Claude/  (the app's own profile)
+```
+
+**About that keychain prompt.** The desktop app stores its token the way every Chromium app does on macOS: encrypted with a key kept in the keychain entry `Claude Safe Storage`, whose access list names only the app itself. Reading it therefore asks you for your login keychain password — once, if you pick "Always Allow". That is a real thing to be asked for, so `desktop usage` says what it is about to do *before* the dialog appears rather than after, and nothing else in this tool ever touches that entry. Decline and you lose this one listing; everything else keeps working.
+
+Without it, a profile still shows its account **uuid**, which sits in plaintext in the profile's own `config.json`:
+
+```
+$ claude-acc desktop list
+Claude Desktop profiles:
+    work  aa6c22d5…  (signed in)
+```
+
+Not an identity anyone recognises, but enough to see that two profiles are two different accounts.
+
+> `desktop usage` is a Rust-CLI feature. Decrypting the token needs PBKDF2-HMAC-SHA1 and AES-128-CBC with an explicit key — stock macOS ships LibreSSL, whose `openssl` has no `kdf` subcommand, so the shell script would need Homebrew's OpenSSL or Python to do it. It shows the uuid instead.
+
+### Not paying for the runtime twice (`clone-runtime`)
+
+Most of a profile's weight is components the app downloads and then only reads:
+
+| Size | |
+|---|---|
+| ~10 GB | `vm_bundles/claudevm.bundle/` — Cowork sandbox images |
+| 250 MB | `claude-code-vm/<version>/` |
+| 220 MB | `claude-code/<version>/` |
+
+Identical in every profile, and a new profile fetches its own copy of all of it. On APFS it doesn't have to: `clone-runtime` clones them **copy-on-write**, so each profile gets fully independent files that share blocks with the original until one of them is written.
+
+```
+$ claude-acc desktop clone-runtime work
+Cloned 13 runtime component(s), 10.5 GB logical, from ~/Library/…/Claude/.
+Disk actually used: 12 KB.
+```
+
+Ten and a half gigabytes, in a third of a second, for twelve kilobytes of directory metadata. `--from <profile>` clones from another profile instead of the app's own; `--force` replaces a runtime the profile already has.
+
+**Why clone rather than share.** The Windows tools in this space point every profile at one `vm_bundles/` directory. They can, because they quit the app before switching, so only one instance ever touches those files. Ours run at the same time — two live VMs writing to one image is corruption, not a saving. A clone has no shared writer at all: writing to one leaves the other byte-for-byte intact, and only the changed blocks get allocated.
+
+**What is not cloned, deliberately.** The sandbox bundle mixes downloads with per-VM identity, and only the first kind may travel:
+
+| Cloned | Left for the app |
+|---|---|
+| `rootfs.img`, `vmlinuz`, `initrd*` — the images | `machineIdentifier`, `macAddress`, `gvisorMacAddress`, `vmIP` — two live VMs sharing a MAC address is a collision, not a saving |
+| `.*.origin` — which image set they came from, so the app doesn't refetch | `sessiondata.img`, `efivars.fd` — this profile's own state |
+| `claude-code/<version>/`, `claude-code-vm/<version>/` — whole, they are a download and a `.verified` marker | `Cache/` (1.2 GB), `Code Cache/` (346 MB) — live Chromium caches, written continuously and refilled by the app |
+
+Two caveats, both stated by the command itself:
+
+- **Cross-filesystem clones are refused, not performed.** `cp -c` silently falls back to a real copy when it can't clone, which would spend 10 GB to save 10 GB. If the profile isn't on the same filesystem as the source, the command says so and does nothing.
+- **Whether the app accepts a pre-seeded runtime is untested.** The filesystem mechanics are verified; the app's reaction is not — nobody has run Cowork in a profile seeded this way. If it misbehaves, delete that profile's `vm_bundles/`, `claude-code/` and `claude-code-vm/`, and the app fetches its own. Reports either way are welcome in [#92](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/92).
+
+Attachments are unaffected by any of this: Cowork keeps user files at the path in `coworkUserFilesPath`, which lives **outside** the profile and travels with [`clone-config`](#bringing-mcp-servers-along-clone-config), so a new profile points at the files you already have rather than a copy of them.
+
 ## Status line
 
 Claude Code can show a custom status bar at the bottom of the screen. `claude-acc statusline` renders one that leads with **the account this session is running under** — the one thing Claude Code itself can't show — followed by git branch, model, project, and a 5-hour rate-limit bar:
@@ -436,6 +745,7 @@ Both versions read and write the same files under `~/.claude-switch/`:
 ```
 ~/.claude-switch/
 ├── accounts/        ← per-account CLAUDE_CONFIG_DIR
+├── desktop/         ← per-profile Claude Desktop user-data dirs
 ├── config           ← default account
 └── links            ← directory ↔ account bindings
 ```
