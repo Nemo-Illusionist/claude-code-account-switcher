@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.16.1](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.16.0...v0.16.1) (2026-08-27)
+
+
+### Bug Fixes
+
+* launch claude through Windows .cmd shims, with arguments intact ([#71](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/71)) ([a7d33ac](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/a7d33aced584ab0559661814b9a89f4f120e00cc))
+
 ## [0.16.0](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.15.0...v0.16.0) (2026-08-26)
 
 
