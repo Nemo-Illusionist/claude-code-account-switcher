@@ -150,6 +150,11 @@ fn ensure_shell_integration(config: &AppConfig, i18n: &I18n) {
     } else {
         i18n.print(Msg::InstallShellManual(eval_line));
     }
+
+    // The VS Code extension's native UI doesn't go through PATH, so the
+    // wrapper above doesn't reach it. Say so — but don't write into
+    // someone's editor config unasked; that's `vscode install`.
+    super::vscode::print_install_hint(config, i18n);
 }
 
 fn detect_shell_and_rc() -> (String, Option<PathBuf>) {

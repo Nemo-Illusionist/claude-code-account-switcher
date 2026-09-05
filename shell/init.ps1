@@ -35,7 +35,7 @@ Register-ArgumentCompleter -CommandName claude-acc -ScriptBlock {
     $candidates = @()
 
     if ($count -le 2) {
-        $candidates = @('list','add','login','remove','default','reset','link','unlink','links','status','usage','sessions','session','desktop','resume-hook','statusline','update','install','run','doctor','whoami','clone-settings','import','help')
+        $candidates = @('list','add','login','remove','default','reset','link','unlink','links','status','usage','sessions','session','desktop','vscode','resume-hook','statusline','update','install','run','doctor','whoami','clone-settings','import','help')
     } elseif ($prev -eq '--from' -and $cmd -eq 'desktop') {
         # `session copy --from` takes an account; `desktop` takes a profile.
         $candidates = (& '__CLAUDE_ACC_BIN__' completions desktop) -split "`n"
@@ -55,6 +55,7 @@ Register-ArgumentCompleter -CommandName claude-acc -ScriptBlock {
             'update'     { $candidates = @('--check','--version') }
             'session'    { $candidates = @('--to','--from','--force','-f') }
             'desktop'    { $candidates = @('--seed','-s','--from','--force','-f') }
+            'vscode'     { $candidates = @('--force','-f') }
         }
     } elseif ($count -eq 3) {
         switch ($cmd) {
@@ -66,6 +67,7 @@ Register-ArgumentCompleter -CommandName claude-acc -ScriptBlock {
             }
             'session'     { $candidates = @('copy') }
             'desktop'     { $candidates = @('add','clone-config','clone-runtime','list','usage','run','remove') }
+            'vscode'      { $candidates = @('install','uninstall','status') }
             'resume-hook' { $candidates = @('on','off') }
         }
     } elseif ($count -eq 4 -and $cmd -eq 'session' -and $sub -eq 'copy') {

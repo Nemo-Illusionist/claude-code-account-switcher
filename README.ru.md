@@ -103,7 +103,8 @@ claude-acc link work
 | Расход лимитов | `usage` — 5ч / 7д по каждому аккаунту | TUI-дашборд, меню-бар macOS, адаптивный опрос | нет | нет |
 | Автоматическая ротация при упоре в лимит | нет (вне задачи) | да — стратегии, cooldown, гистерезис | нет | нет |
 | Статус-панель с активным аккаунтом | `statusline --install` | нет | нет | нет |
-| Запуск из IDE (JetBrains, VS Code) | враппер в `PATH` + симлинк `ide/` | следует глобальному логину | следует глобальному профилю | нет |
+| Запуск из IDE (JetBrains, терминал VS Code) | враппер в `PATH` + симлинк `ide/` | следует глобальному логину | следует глобальному профилю | нет |
+| **Нативный UI** VS Code (собственная панель расширения) | `vscode install` — `claudeCode.claudeProcessWrapper` | нет | нет | нет |
 | Аккаунты в **десктопном приложении** Claude | `desktop` — изолированные профили, работают одновременно | нет | нет | нет |
 | Подхватить существующую config-папку без повторного логина | `import` — перевешивает запись в Keychain на новый путь | `add` / `import` экспортов кредов | сохранить текущий логин как профиль | n/a |
 | Другие coding CLI (Codex, Gemini) | нет | нет | да | n/a |
@@ -136,6 +137,7 @@ claude-acc link work
 | `claude-acc desktop clone-config <name>` | Перенести MCP-серверы и настройки в профиль десктопа (`--from`, `--force`) |
 | `claude-acc desktop clone-runtime <name>` | Склонировать скачанный рантайм в профиль, copy-on-write (macOS/APFS) |
 | `claude-acc desktop usage` | Аккаунт, план и расход 5ч / 7д по каждому профилю десктопа (macOS) |
+| `claude-acc vscode install\|uninstall\|status` | Подключить нативный UI расширения VS Code к аккаунтам, привязанным к каталогам |
 | `claude-acc statusline [--install]` | Отрисовать (или установить) статус-панель Claude Code с активным аккаунтом |
 | `claude-acc run <имя>` | Запустить claude под конкретным аккаунтом |
 | `claude-acc whoami` | Email (или имя) активного аккаунта |
@@ -199,16 +201,53 @@ claude-acc link default
 
 ## Интеграция с IDE
 
-JetBrains IDE (PhpStorm, IntelliJ и т.п.) и VSCode запускают `claude` напрямую, не source-я ваш shell-конфиг. Без этого `CLAUDE_CONFIG_DIR` не выставится и подхватится не тот аккаунт. Чтобы это работало для не-default аккаунтов, `claude-acc install` ставит две вещи:
+JetBrains IDE (PhpStorm, IntelliJ и т.п.) и VS Code запускают `claude` напрямую, не source-я ваш shell-конфиг. Без этого `CLAUDE_CONFIG_DIR` не выставится и подхватится не тот аккаунт. Чтобы это работало для не-default аккаунтов, `claude-acc install` ставит две вещи:
 
 - Wrapper `~/.claude-switch/bin/claude`, который определяет аккаунт для текущей директории (через `claude-acc activate`) и `exec`-ает реальный `claude`. `~/.claude-switch/bin` добавляется в начало `PATH` (через shell-init), так что и терминал, и IDE прозрачно подхватывают wrapper.
 - Symlink `~/.claude-switch/accounts/<name>/ide → ~/.claude/ide` для каждого аккаунта. Claude Code пишет lock-файлы IDE в `$CLAUDE_CONFIG_DIR/ide/`, а IDE-плагины ищут их в `~/.claude/ide/`. Symlink приводит обе стороны к одному месту.
 
 Никаких ручных шагов не нужно — `claude-acc install` делает обе вещи. Новые аккаунты, создаваемые через `claude-acc add`, получают `ide/` symlink автоматически.
 
+### Нативному UI расширения VS Code нужен ещё один шаг (`vscode`)
+
+Всё вышеописанное держится на `PATH`, а расширение Claude Code для VS Code **его не использует**. Его нативный UI запускает тот бинарник `claude`, который лежит внутри самого расширения (`resources/native-binary/claude`), с окружением хоста расширений — то есть wrapper не запускается вообще, а `CLAUDE_CONFIG_DIR` равен тому, что login-шелл выдал при старте редактора, одинаково для всех workspace. Единственная настройка расширения для переменных окружения, `claudeCode.environmentVariables`, машинного скоупа — задать её отдельно для проекта нельзя.
+
+Режим терминала (`claudeCode.useTerminal: true`) этой проблемы никогда не имел — там `claude` действительно ищется в `PATH`.
+
+У расширения есть настройка ровно под этот случай: `claudeCode.claudeProcessWrapper` — исполняемый файл, который расширение запускает *вместо* своего бинарника, передавая этот бинарник первым аргументом и выставляя рабочую директорию в папку workspace. Этого достаточно:
+
+```bash
+claude-acc vscode install     # направить установленные редакторы на ~/.claude-switch/bin/claude-vscode
+claude-acc vscode status      # на что сейчас указывает каждый редактор
+claude-acc vscode uninstall   # убрать настройку обратно
+```
+
+```
+$ claude-acc vscode status
+Process wrapper для VS Code:
+    VS Code            выкл — нативный UI игнорирует аккаунт
+    Cursor             выкл — нативный UI игнорирует аккаунт
+  Включить:  claude-acc vscode install
+
+$ claude-acc vscode install
+VS Code: claudeCode.claudeProcessWrapper -> /Users/you/.claude-switch/bin/claude-vscode
+Cursor: claudeCode.claudeProcessWrapper -> /Users/you/.claude-switch/bin/claude-vscode
+С заданным process wrapper расширение само определяет permission mode вместо того, чтобы отдать это CLI, и перестаёт проверять свои обновления. Это его поведение, не наше; откатить — claude-acc vscode uninstall.
+Перезапустите редактор, чтобы изменения вступили в силу.
+```
+
+Покрываются VS Code, VS Code Insiders, VSCodium и Cursor — те из них, что установлены. `claude-acc install` только *упоминает* эту команду: настройка машинного скоупа и живёт в конфиге вашего редактора, поэтому её запись — осознанный шаг, а не то, что делается за вас.
+
+**Прямо о компромиссах:**
+
+- **Два поведения расширения меняются**, когда задан любой process wrapper — наш или чужой: оно само определяет permission mode вместо того, чтобы отдать это CLI, и перестаёт проверять свои обновления. `vscode uninstall` возвращает оба назад.
+- **`settings.json` правится как текст, а не пересериализуется.** Это JSONC — комментарии и висящие запятые в нём легальны, и round-trip через JSON-парсер удалил бы все комментарии. Трогается значение ровно одного ключа; файл, который не является JSON-объектом, не переписывается, а wrapper, указывающий на чужой инструмент, никогда не заменяется без `--force`.
+- **Пока не на Windows.** Wrapper — это shell-скрипт; `.cmd`/`.exe` шима, который расширение сможет запустить, ещё нет. Режим терминала там работает уже сейчас.
+- **Remote-SSH, WSL и code-server не покрыты.** Wrapper должен был бы лежать на удалённой машине — это отдельная задача.
+
 ## Автодополнение в оболочке
 
-`claude-acc install` заодно настраивает автодополнение по Tab для zsh, bash и PowerShell. Оно покрывает все команды и их аргументы — имена аккаунтов (с `default` там, где команда его принимает), id сессий для `session copy` в текущей директории, имена профилей `desktop`, `resume-hook on|off`, путь для `import` и флаги каждой команды:
+`claude-acc install` заодно настраивает автодополнение по Tab для zsh, bash и PowerShell. Оно покрывает все команды и их аргументы — имена аккаунтов (с `default` там, где команда его принимает), id сессий для `session copy` в текущей директории, имена профилей `desktop`, `vscode install|uninstall|status`, `resume-hook on|off`, путь для `import` и флаги каждой команды:
 
 ```
 $ claude-acc session copy <TAB>

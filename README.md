@@ -104,7 +104,8 @@ Other tools solving nearby problems, and how they differ (summarised from their 
 | Rate-limit usage | `usage` — 5h / 7d per account | TUI dashboard, macOS menu bar, adaptive polling | no | no |
 | Auto-rotation when a limit is hit | no (out of scope) | yes — strategies, cooldown, hysteresis | no | no |
 | Status line with the active account | `statusline --install` | no | no | no |
-| IDE launches (JetBrains, VS Code) | wrapper on `PATH` + `ide/` symlink | follow the global login | follow the global profile | no |
+| IDE launches (JetBrains, VS Code terminal) | wrapper on `PATH` + `ide/` symlink | follow the global login | follow the global profile | no |
+| VS Code **native UI** (the extension's own panel) | `vscode install` — `claudeCode.claudeProcessWrapper` | no | no | no |
 | Claude **desktop app** accounts | `desktop` — isolated profiles, open side by side | no | no | no |
 | Adopt an existing config dir without re-login | `import` — re-keys the macOS Keychain entry | `add` / `import` of credential exports | capture the current login as a profile | n/a |
 | Other coding CLIs (Codex, Gemini) | no | no | yes | n/a |
@@ -137,6 +138,7 @@ Short version: **cswap** if you want one active account plus automatic rotation 
 | `claude-acc desktop clone-config <name>` | Copy MCP servers and preferences into a desktop profile (`--from`, `--force`) |
 | `claude-acc desktop clone-runtime <name>` | Clone the downloaded runtime into a profile, copy-on-write (macOS/APFS) |
 | `claude-acc desktop usage` | Account, plan and 5h / 7d usage behind every desktop profile (macOS) |
+| `claude-acc vscode install\|uninstall\|status` | Wire the VS Code extension's native UI up to directory-bound accounts |
 | `claude-acc statusline [--install]` | Render (or install) a Claude Code status line with the active account |
 | `claude-acc run <name>` | Run claude under a specific account |
 | `claude-acc whoami` | Print the email (or name) of the active account |
@@ -200,16 +202,53 @@ claude-acc link default
 
 ## IDE integration
 
-JetBrains IDEs (PhpStorm, IntelliJ etc.) and VSCode launch the `claude` binary directly without sourcing your shell config, so `CLAUDE_CONFIG_DIR` would not be set and the wrong account would be used. To make IDE ↔ Claude Code handshake work for non-default accounts, `claude-acc install` sets up two things:
+JetBrains IDEs (PhpStorm, IntelliJ etc.) and VS Code launch the `claude` binary directly without sourcing your shell config, so `CLAUDE_CONFIG_DIR` would not be set and the wrong account would be used. To make IDE ↔ Claude Code handshake work for non-default accounts, `claude-acc install` sets up two things:
 
 - A wrapper at `~/.claude-switch/bin/claude` that picks the account for the current working directory (via `claude-acc activate`) and `exec`s the real `claude` binary. `~/.claude-switch/bin` is prepended to `PATH` (by the shell init), so both terminals and IDEs pick up the wrapper transparently.
 - A symlink `~/.claude-switch/accounts/<name>/ide → ~/.claude/ide` for every account. Claude Code writes IDE lock files to `$CLAUDE_CONFIG_DIR/ide/`, but IDE plugins always look in `~/.claude/ide/`. The symlink makes both sides agree.
 
 No manual setup required — `claude-acc install` does both. New accounts created via `claude-acc add` get their `ide/` symlink automatically.
 
+### The VS Code extension's native UI needs one more step (`vscode`)
+
+Everything above rests on `PATH`, and the Claude Code **VS Code extension does not use it**. Its native UI runs the `claude` binary it ships (`resources/native-binary/claude` inside the extension directory) with the extension host's own environment — so the wrapper never runs, and `CLAUDE_CONFIG_DIR` is whatever a login shell happened to resolve at editor startup, the same value for every workspace. Its one env-var setting, `claudeCode.environmentVariables`, is machine-scoped and can't be set per-project.
+
+Terminal mode (`claudeCode.useTerminal: true`) has never had this problem — that path does resolve `claude` from `PATH`.
+
+The extension has a setting for exactly this: `claudeCode.claudeProcessWrapper`, an executable it calls *instead of* its bundled binary, passing that binary as the first argument and running it with the working directory set to the workspace folder. That is everything needed:
+
+```bash
+claude-acc vscode install     # point installed editors at ~/.claude-switch/bin/claude-vscode
+claude-acc vscode status      # what each editor currently points at
+claude-acc vscode uninstall   # remove the setting again
+```
+
+```
+$ claude-acc vscode status
+VS Code process wrapper:
+    VS Code            off — the native UI ignores the account
+    Cursor             off — the native UI ignores the account
+  Turn it on:  claude-acc vscode install
+
+$ claude-acc vscode install
+VS Code: claudeCode.claudeProcessWrapper -> /Users/you/.claude-switch/bin/claude-vscode
+Cursor: claudeCode.claudeProcessWrapper -> /Users/you/.claude-switch/bin/claude-vscode
+With a process wrapper set, the extension resolves the permission mode itself instead of deferring to the CLI, and stops checking for its own updates. Both are its behaviour, not ours; undo with claude-acc vscode uninstall.
+Restart the editor for it to take effect.
+```
+
+It covers VS Code, VS Code Insiders, VSCodium and Cursor — whichever are installed. `claude-acc install` only *mentions* it; the setting is machine-scoped and lives in your editor's config, so writing it is opted into rather than done for you.
+
+**Stated plainly:**
+
+- **Two behaviours of the extension change** when any process wrapper is set, ours or anyone's: it resolves the permission mode itself instead of deferring to the CLI, and it stops checking for its own updates. `vscode uninstall` puts both back.
+- **`settings.json` is edited as text, not reserialised.** It is JSONC — comments and trailing commas are legal, and round-tripping it through a JSON parser would delete every comment in it. Only the one key's value is touched; a file that isn't a JSON object is reported and left alone, and a wrapper pointing at another tool is never replaced without `--force`.
+- **Not on Windows yet.** The wrapper is a shell script; a `.cmd`/`.exe` shim the extension can spawn hasn't been built. Terminal mode works there today.
+- **Remote-SSH, WSL and code-server are not covered.** The wrapper would have to live on the remote machine, which is a different problem.
+
 ## Shell completions
 
-`claude-acc install` also wires up Tab completion for zsh, bash and PowerShell. It covers every command and its arguments — account names (with `default` where the command accepts it), `session copy` ids for the current directory, `desktop` profile names, `resume-hook on|off`, `import`'s path, and each command's flags:
+`claude-acc install` also wires up Tab completion for zsh, bash and PowerShell. It covers every command and its arguments — account names (with `default` where the command accepts it), `session copy` ids for the current directory, `desktop` profile names, `vscode install|uninstall|status`, `resume-hook on|off`, `import`'s path, and each command's flags:
 
 ```
 $ claude-acc session copy <TAB>

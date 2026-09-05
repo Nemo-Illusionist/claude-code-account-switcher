@@ -55,6 +55,7 @@ _claude_acc_completion() {
         'sessions:List Claude Code sessions across accounts'
         'session:Work with a single session transcript'
         'desktop:Manage Claude Desktop profiles'
+        'vscode:Wire the VS Code extension up to directory-bound accounts'
         'resume-hook:Toggle the --resume check in the claude wrapper'
         'statusline:Render / install the Claude Code status line'
         'update:Update the binary to the latest release'
@@ -106,6 +107,7 @@ _claude_acc_completion() {
             doctor) flags=('--json:Output as JSON') ;;
             update) flags=('--check:Only check, do not download' '--version:Install a specific version') ;;
             session) flags=('--to:Destination account' '--from:Source account' '--force:Skip confirmation' '-f:Skip confirmation') ;;
+            vscode) flags=('--force:Replace a wrapper set to something else' '-f:Replace a wrapper set to something else') ;;
             desktop) flags=('--seed:Seed MCP config from the app profile' '-s:Seed MCP config from the app profile' '--from:Copy the config from this profile' '--force:Skip confirmation / replace / sign-in check' '-f:Skip confirmation / replace') ;;
         esac
         (( ${#flags} )) && _describe 'option' flags
@@ -133,6 +135,14 @@ _claude_acc_completion() {
                     'usage:Account and rate-limit usage per profile'
                     'run:Open Claude Desktop on a profile'
                     'remove:Delete a profile'
+                )
+                _describe 'subcommand' subsubs
+                ;;
+            vscode)
+                subsubs=(
+                    'install:Point installed editors at the wrapper'
+                    'uninstall:Remove the setting again'
+                    'status:Show what each editor points at'
                 )
                 _describe 'subcommand' subsubs
                 ;;

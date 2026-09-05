@@ -967,6 +967,122 @@ impl I18n {
             (Msg::DesktopIdentityHint, Lang::Ru) => {
                 s("  Под каким аккаунтом каждый:  claude-acc desktop usage")
             }
+
+            // vscode
+            (Msg::VscodeWindowsUnsupported, Lang::En) => s(
+                "Not on Windows yet: the wrapper is a shell script, and a .cmd \
+                 or .exe shim the extension can spawn hasn't been built. \
+                 Terminal mode (claudeCode.useTerminal) works there today.",
+            ),
+            (Msg::VscodeWindowsUnsupported, Lang::Ru) => s(
+                "Пока не на Windows: wrapper — это shell-скрипт, а .cmd/.exe \
+                 шима, который расширение сможет запустить, ещё нет. Режим \
+                 терминала (claudeCode.useTerminal) там работает уже сейчас.",
+            ),
+            (Msg::VscodeNoEditors, Lang::En) => {
+                s("No VS Code, VS Code Insiders, VSCodium or Cursor found on this machine.")
+            }
+            (Msg::VscodeNoEditors, Lang::Ru) => {
+                s("На этой машине не найдены VS Code, VS Code Insiders, VSCodium или Cursor.")
+            }
+            (Msg::VscodeWrapperFailed(ref e), Lang::En) => {
+                format!("Could not write the VS Code wrapper: {}", e)
+            }
+            (Msg::VscodeWrapperFailed(ref e), Lang::Ru) => {
+                format!("Не удалось записать wrapper для VS Code: {}", e)
+            }
+            (Msg::VscodeConfigured(ref ed, ref w), Lang::En) => {
+                format!("{}: claudeCode.claudeProcessWrapper -> {}", ed, w)
+            }
+            (Msg::VscodeConfigured(ref ed, ref w), Lang::Ru) => {
+                format!("{}: claudeCode.claudeProcessWrapper -> {}", ed, w)
+            }
+            (Msg::VscodeAlready(ref ed), Lang::En) => format!("{}: already set up.", ed),
+            (Msg::VscodeAlready(ref ed), Lang::Ru) => format!("{}: уже настроен.", ed),
+            (Msg::VscodeForeign(ref ed, ref v), Lang::En) => format!(
+                "{}: claudeCode.claudeProcessWrapper already points at '{}'. \
+                 Left alone — pass --force to replace it.",
+                ed, v
+            ),
+            (Msg::VscodeForeign(ref ed, ref v), Lang::Ru) => format!(
+                "{}: claudeCode.claudeProcessWrapper уже указывает на '{}'. \
+                 Не трогаю — заменить: --force.",
+                ed, v
+            ),
+            (Msg::VscodeUnreadable(ref ed, ref p), Lang::En) => format!(
+                "{}: {} isn't a JSON object this can edit safely. \
+                 Left untouched — add the setting by hand.",
+                ed, p
+            ),
+            (Msg::VscodeUnreadable(ref ed, ref p), Lang::Ru) => format!(
+                "{}: {} — не JSON-объект, который можно безопасно править. \
+                 Не трогаю — добавьте настройку вручную.",
+                ed, p
+            ),
+            (Msg::VscodeWriteFailed(ref ed, ref e), Lang::En) => {
+                format!("{}: could not write settings.json: {}", ed, e)
+            }
+            (Msg::VscodeWriteFailed(ref ed, ref e), Lang::Ru) => {
+                format!("{}: не удалось записать settings.json: {}", ed, e)
+            }
+            (Msg::VscodeForeignKept(ref ed, ref v), Lang::En) => format!(
+                "{}: claudeCode.claudeProcessWrapper points at '{}', which isn't \
+                 ours. Left alone — remove it yourself if you want it gone.",
+                ed, v
+            ),
+            (Msg::VscodeForeignKept(ref ed, ref v), Lang::Ru) => format!(
+                "{}: claudeCode.claudeProcessWrapper указывает на '{}' — это не наш \
+                 wrapper. Не трогаю: если он не нужен, удалите его сами.",
+                ed, v
+            ),
+            (Msg::VscodeRemoved(ref ed), Lang::En) => {
+                format!("{}: claudeCode.claudeProcessWrapper removed.", ed)
+            }
+            (Msg::VscodeRemoved(ref ed), Lang::Ru) => {
+                format!("{}: claudeCode.claudeProcessWrapper удалён.", ed)
+            }
+            (Msg::VscodeNotConfigured(ref ed), Lang::En) => format!("{}: nothing to remove.", ed),
+            (Msg::VscodeNotConfigured(ref ed), Lang::Ru) => format!("{}: удалять нечего.", ed),
+            (Msg::VscodeSideEffects, Lang::En) => s(
+                "With a process wrapper set, the extension resolves the permission \
+                 mode itself instead of deferring to the CLI, and stops checking for \
+                 its own updates. Both are its behaviour, not ours; undo with \
+                 claude-acc vscode uninstall.",
+            ),
+            (Msg::VscodeSideEffects, Lang::Ru) => s(
+                "С заданным process wrapper расширение само определяет permission \
+                 mode вместо того, чтобы отдать это CLI, и перестаёт проверять свои \
+                 обновления. Это его поведение, не наше; откатить — \
+                 claude-acc vscode uninstall.",
+            ),
+            (Msg::VscodeRestartHint, Lang::En) => s("Restart the editor for it to take effect."),
+            (Msg::VscodeRestartHint, Lang::Ru) => {
+                s("Перезапустите редактор, чтобы изменения вступили в силу.")
+            }
+            (Msg::VscodeStatusHeader, Lang::En) => s("VS Code process wrapper:"),
+            (Msg::VscodeStatusHeader, Lang::Ru) => s("Process wrapper для VS Code:"),
+            (Msg::VscodeStateOurs, Lang::En) => s("on — accounts follow the workspace folder"),
+            (Msg::VscodeStateOurs, Lang::Ru) => s("вкл — аккаунт следует за папкой workspace"),
+            (Msg::VscodeStateUnset, Lang::En) => s("off — the native UI ignores the account"),
+            (Msg::VscodeStateUnset, Lang::Ru) => s("выкл — нативный UI игнорирует аккаунт"),
+            (Msg::VscodeStateForeign(ref v), Lang::En) => format!("set by something else: {}", v),
+            (Msg::VscodeStateForeign(ref v), Lang::Ru) => format!("задан кем-то другим: {}", v),
+            (Msg::VscodeStateUnreadable, Lang::En) => s("settings.json can't be read as JSON"),
+            (Msg::VscodeStateUnreadable, Lang::Ru) => s("settings.json не читается как JSON"),
+            (Msg::VscodeStatusHint, Lang::En) => s("  Turn it on:  claude-acc vscode install"),
+            (Msg::VscodeStatusHint, Lang::Ru) => s("  Включить:  claude-acc vscode install"),
+            (Msg::InstallVscodeHint(ref eds), Lang::En) => format!(
+                "\n{} found. Its native UI launches Claude without going through \
+                 PATH, so accounts don't follow the directory there yet:\n  \
+                 claude-acc vscode install",
+                eds
+            ),
+            (Msg::InstallVscodeHint(ref eds), Lang::Ru) => format!(
+                "\nНайден {}. Его нативный UI запускает Claude в обход PATH, поэтому \
+                 аккаунты там пока не следуют за каталогом:\n  \
+                 claude-acc vscode install",
+                eds
+            ),
         }
     }
 
@@ -1107,6 +1223,26 @@ pub enum Msg {
     ResumeHookExplainOff,
     ResumeHookEnvOverride,
     ResumeHookHint,
+    VscodeWindowsUnsupported,
+    VscodeNoEditors,
+    VscodeWrapperFailed(String),
+    VscodeConfigured(String, String),
+    VscodeAlready(String),
+    VscodeForeign(String, String),
+    VscodeForeignKept(String, String),
+    VscodeUnreadable(String, String),
+    VscodeWriteFailed(String, String),
+    VscodeRemoved(String),
+    VscodeNotConfigured(String),
+    VscodeSideEffects,
+    VscodeRestartHint,
+    VscodeStatusHeader,
+    VscodeStateOurs,
+    VscodeStateUnset,
+    VscodeStateForeign(String),
+    VscodeStateUnreadable,
+    VscodeStatusHint,
+    InstallVscodeHint(String),
     ResumeHookInvalid(String),
     ResumeHookWriteFailed(String),
     DesktopUnsupported,

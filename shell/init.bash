@@ -32,7 +32,7 @@ _claude_acc_complete() {
     sub="${COMP_WORDS[2]}"
 
     if [[ $COMP_CWORD -eq 1 ]]; then
-        COMPREPLY=($(compgen -W "list add login remove default reset link unlink links status usage sessions session desktop resume-hook statusline update install run doctor whoami clone-settings import help" -- "$cur"))
+        COMPREPLY=($(compgen -W "list add login remove default reset link unlink links status usage sessions session desktop vscode resume-hook statusline update install run doctor whoami clone-settings import help" -- "$cur"))
         return
     fi
 
@@ -69,6 +69,7 @@ _claude_acc_complete() {
             update) COMPREPLY=($(compgen -W "--check --version" -- "$cur")) ;;
             session) COMPREPLY=($(compgen -W "--to --from --force -f" -- "$cur")) ;;
             desktop) COMPREPLY=($(compgen -W "--seed -s --from --force -f" -- "$cur")) ;;
+            vscode) COMPREPLY=($(compgen -W "--force -f" -- "$cur")) ;;
         esac
         return
     fi
@@ -86,6 +87,9 @@ _claude_acc_complete() {
                 ;;
             desktop)
                 COMPREPLY=($(compgen -W "add clone-config clone-runtime list usage run remove" -- "$cur"))
+                ;;
+            vscode)
+                COMPREPLY=($(compgen -W "install uninstall status" -- "$cur"))
                 ;;
             resume-hook)
                 COMPREPLY=($(compgen -W "on off" -- "$cur"))
