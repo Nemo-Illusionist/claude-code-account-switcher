@@ -195,6 +195,12 @@ pub fn status(config: &AppConfig, i18n: &I18n) -> i32 {
     i18n.print(Msg::VscodeStatusHeader);
     for ed in &editors {
         let line = match vscode::wrapper_state(&ed.settings, &wrapper) {
+            // "on" flat would be a false positive for anyone working in a
+            // profile that carries its own settings: the setting is there,
+            // and that profile never reads it.
+            WrapperState::Ours if !vscode::extra_profiles(ed.dir).is_empty() => {
+                i18n.msg(Msg::VscodeStateOursDefaultProfileOnly)
+            }
             WrapperState::Ours => i18n.msg(Msg::VscodeStateOurs),
             WrapperState::Unset => i18n.msg(Msg::VscodeStateUnset),
             WrapperState::Foreign(other) => i18n.msg(Msg::VscodeStateForeign(other)),

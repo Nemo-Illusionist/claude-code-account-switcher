@@ -1056,20 +1056,22 @@ impl I18n {
                  claude-acc vscode uninstall.",
             ),
             (Msg::VscodeProfiles(ref ed, ref names), Lang::En) => format!(
-                "{}: {} other profile(s) ({}) keep their own settings.json, and \
-                 this setting is per-profile — windows on those still ignore \
-                 the account. Only the default profile is set up.",
-                ed,
-                names.split(", ").count(),
-                names
+                "{}: profiles with their own settings ({}) read those instead of \
+                 the file this writes, so windows on them still ignore the \
+                 account — VS Code keeps only application-scoped settings \
+                 outside a profile, and this one is machine-scoped. Either work \
+                 in the default profile, or add \
+                 claudeCode.claudeProcessWrapper to settings.applyToAllProfiles.",
+                ed, names
             ),
             (Msg::VscodeProfiles(ref ed, ref names), Lang::Ru) => format!(
-                "{}: у других профилей ({} шт.: {}) свой settings.json, а эта \
-                 настройка профиле-зависимая — окна на них по-прежнему \
-                 игнорируют аккаунт. Настроен только профиль по умолчанию.",
-                ed,
-                names.split(", ").count(),
-                names
+                "{}: профили со своими настройками ({}) читают их, а не тот файл, \
+                 который пишет эта команда, — поэтому окна на них по-прежнему \
+                 игнорируют аккаунт. Вне профиля в VS Code живут только \
+                 настройки скоупа application, а эта — machine. Либо работайте \
+                 в профиле по умолчанию, либо добавьте \
+                 claudeCode.claudeProcessWrapper в settings.applyToAllProfiles.",
+                ed, names
             ),
             (Msg::VscodeRestartHint, Lang::En) => s("Restart the editor for it to take effect."),
             (Msg::VscodeRestartHint, Lang::Ru) => {
@@ -1079,6 +1081,12 @@ impl I18n {
             (Msg::VscodeStatusHeader, Lang::Ru) => s("Process wrapper для VS Code:"),
             (Msg::VscodeStateOurs, Lang::En) => s("on — accounts follow the workspace folder"),
             (Msg::VscodeStateOurs, Lang::Ru) => s("вкл — аккаунт следует за папкой workspace"),
+            (Msg::VscodeStateOursDefaultProfileOnly, Lang::En) => {
+                s("on for the default profile only — see below")
+            }
+            (Msg::VscodeStateOursDefaultProfileOnly, Lang::Ru) => {
+                s("вкл только для профиля по умолчанию — см. ниже")
+            }
             (Msg::VscodeStateUnset, Lang::En) => s("off — the native UI ignores the account"),
             (Msg::VscodeStateUnset, Lang::Ru) => s("выкл — нативный UI игнорирует аккаунт"),
             (Msg::VscodeStateForeign(ref v), Lang::En) => format!("set by something else: {}", v),
@@ -1255,6 +1263,7 @@ pub enum Msg {
     VscodeProfiles(String, String),
     VscodeStatusHeader,
     VscodeStateOurs,
+    VscodeStateOursDefaultProfileOnly,
     VscodeStateUnset,
     VscodeStateForeign(String),
     VscodeStateUnreadable,
