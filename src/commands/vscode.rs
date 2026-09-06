@@ -126,6 +126,9 @@ pub fn install(config: &AppConfig, i18n: &I18n, force: bool) -> i32 {
         }
     }
 
+    for ed in &editors {
+        report_profiles(i18n, ed);
+    }
     if wrote > 0 {
         i18n.print(Msg::VscodeSideEffects);
         i18n.print(Msg::VscodeRestartHint);
@@ -199,6 +202,9 @@ pub fn status(config: &AppConfig, i18n: &I18n) -> i32 {
         };
         println!("    {:<18} {}", ed.label, line);
     }
+    for ed in &editors {
+        report_profiles(i18n, ed);
+    }
     // Don't point at `vscode install` on Windows, where it refuses. Say why
     // instead. (`uninstall` stays available there — taking the setting back
     // out has to work wherever it can be set.)
@@ -213,6 +219,17 @@ pub fn status(config: &AppConfig, i18n: &I18n) -> i32 {
         i18n.print(Msg::VscodeStatusHint);
     }
     0
+}
+
+/// Say when an editor has profiles beyond the default one. The setting is
+/// per-profile, we only write the default profile's file, and a window on
+/// another profile would go on ignoring the account with nothing to explain
+/// why.
+fn report_profiles(i18n: &I18n, ed: &vscode::Editor) {
+    let names = vscode::extra_profiles(ed.dir);
+    if !names.is_empty() {
+        i18n.print(Msg::VscodeProfiles(ed.label.to_string(), names.join(", ")));
+    }
 }
 
 /// Printed at the end of `claude-acc install` when an editor is installed

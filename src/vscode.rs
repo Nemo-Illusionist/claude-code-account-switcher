@@ -42,6 +42,8 @@ const WRAPPER_PLACEHOLDER: &str = "__CLAUDE_ACC_BIN__";
 pub struct Editor {
     pub label: &'static str,
     pub settings: PathBuf,
+    /// Directory name under the config root, for looking up its profiles.
+    pub dir: &'static str,
 }
 
 /// Editors that ship the Claude Code extension and read the same setting.
@@ -72,6 +74,7 @@ pub fn detect_editors() -> Vec<Editor> {
             settings.parent()?.is_dir().then_some(Editor {
                 label,
                 settings: settings.clone(),
+                dir,
             })
         })
         .collect()
@@ -91,11 +94,50 @@ pub fn install_wrapper(base_dir: &Path, claude_acc_bin: &Path) -> std::io::Resul
     let bin_dir = base_dir.join("bin");
     fs::create_dir_all(&bin_dir)?;
     let wrapper = bin_dir.join(WRAPPER_NAME);
-    let content =
-        VSCODE_WRAPPER_TEMPLATE.replace(WRAPPER_PLACEHOLDER, &claude_acc_bin.to_string_lossy());
+    let content = VSCODE_WRAPPER_TEMPLATE.replace(
+        WRAPPER_PLACEHOLDER,
+        &sh_single_quoted(&claude_acc_bin.to_string_lossy()),
+    );
     fs::write(&wrapper, content)?;
     fs::set_permissions(&wrapper, fs::Permissions::from_mode(0o755))?;
     Ok(wrapper)
+}
+
+/// Body of a POSIX single-quoted string holding `raw`.
+///
+/// The template wraps the placeholder in `'...'`, and a single quote in the
+/// path — `/Users/O'Brien` is an ordinary home directory — closes that
+/// string early and leaves a script the shell cannot parse. The escape is
+/// the standard one: end the quoted run, emit an escaped quote, start a new
+/// run.
+#[cfg(not(windows))]
+fn sh_single_quoted(raw: &str) -> String {
+    raw.replace('\'', "'\\''")
+}
+
+/// Directories under `<config>/<dir>/User/profiles/`, one per non-default
+/// VS Code profile.
+///
+/// `claudeCode.claudeProcessWrapper` is declared `"scope": "machine"`, and
+/// in VS Code only `application`-scoped settings live outside a profile. So
+/// what we write to `User/settings.json` is what the *default* profile
+/// reads, and a window on another profile reads its own file instead. We do
+/// not write those — but silently doing nothing for someone on a second
+/// profile is worse than saying so.
+pub fn extra_profiles(dir: &str) -> Vec<String> {
+    let Some(root) = dirs::config_dir() else {
+        return Vec::new();
+    };
+    let Ok(entries) = fs::read_dir(root.join(dir).join("User").join("profiles")) else {
+        return Vec::new();
+    };
+    let mut names: Vec<String> = entries
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().is_dir())
+        .map(|e| e.file_name().to_string_lossy().to_string())
+        .collect();
+    names.sort();
+    names
 }
 
 /// What `settings.json` currently says about the wrapper setting.
@@ -890,6 +932,38 @@ mod tests {
             fs::read_to_string(&settings).unwrap(),
             "{\n    \"editor.fontSize\": 13\n}\n"
         );
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    #[cfg(not(windows))]
+    fn a_path_with_an_apostrophe_does_not_break_out_of_the_quoted_string() {
+        // Regression: `/Users/O'Brien` is an ordinary home directory. Pasting
+        // it into the template's `'...'` closed the string early and produced
+        // a wrapper the shell cannot parse — while `vscode install` reported
+        // success, so every launch failed with nothing pointing here.
+        assert_eq!(sh_single_quoted("/plain/path"), "/plain/path");
+        assert_eq!(
+            sh_single_quoted("/Users/O'Brien/bin"),
+            "/Users/O'\\''Brien/bin"
+        );
+
+        let dir = scratch("quoting");
+        let bin = dir.join("O'Brien").join("claude-acc");
+        let w = install_wrapper(&dir, &bin).unwrap();
+
+        // The proof is the shell's own: it must parse the generated file.
+        let out = std::process::Command::new("sh")
+            .arg("-n")
+            .arg(&w)
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "generated wrapper does not parse: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+
         fs::remove_dir_all(&dir).unwrap();
     }
 

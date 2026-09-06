@@ -1055,6 +1055,22 @@ impl I18n {
                  обновления. Это его поведение, не наше; откатить — \
                  claude-acc vscode uninstall.",
             ),
+            (Msg::VscodeProfiles(ref ed, ref names), Lang::En) => format!(
+                "{}: {} other profile(s) ({}) keep their own settings.json, and \
+                 this setting is per-profile — windows on those still ignore \
+                 the account. Only the default profile is set up.",
+                ed,
+                names.split(", ").count(),
+                names
+            ),
+            (Msg::VscodeProfiles(ref ed, ref names), Lang::Ru) => format!(
+                "{}: у других профилей ({} шт.: {}) свой settings.json, а эта \
+                 настройка профиле-зависимая — окна на них по-прежнему \
+                 игнорируют аккаунт. Настроен только профиль по умолчанию.",
+                ed,
+                names.split(", ").count(),
+                names
+            ),
             (Msg::VscodeRestartHint, Lang::En) => s("Restart the editor for it to take effect."),
             (Msg::VscodeRestartHint, Lang::Ru) => {
                 s("Перезапустите редактор, чтобы изменения вступили в силу.")
@@ -1072,14 +1088,14 @@ impl I18n {
             (Msg::VscodeStatusHint, Lang::En) => s("  Turn it on:  claude-acc vscode install"),
             (Msg::VscodeStatusHint, Lang::Ru) => s("  Включить:  claude-acc vscode install"),
             (Msg::InstallVscodeHint(ref eds), Lang::En) => format!(
-                "\n{} found. Its native UI launches Claude without going through \
-                 PATH, so accounts don't follow the directory there yet:\n  \
-                 claude-acc vscode install",
+                "\nFound {}. The extension's native UI launches Claude without \
+                 going through PATH, so accounts don't follow the directory \
+                 there yet:\n  claude-acc vscode install",
                 eds
             ),
             (Msg::InstallVscodeHint(ref eds), Lang::Ru) => format!(
-                "\nНайден {}. Его нативный UI запускает Claude в обход PATH, поэтому \
-                 аккаунты там пока не следуют за каталогом:\n  \
+                "\nНайдено: {}. Нативный UI расширения запускает Claude в обход \
+                 PATH, поэтому аккаунты там пока не следуют за каталогом:\n  \
                  claude-acc vscode install",
                 eds
             ),
@@ -1236,6 +1252,7 @@ pub enum Msg {
     VscodeNotConfigured(String),
     VscodeSideEffects,
     VscodeRestartHint,
+    VscodeProfiles(String, String),
     VscodeStatusHeader,
     VscodeStateOurs,
     VscodeStateUnset,

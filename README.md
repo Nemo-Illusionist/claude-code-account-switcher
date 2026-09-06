@@ -215,7 +215,7 @@ Everything above rests on `PATH`, and the Claude Code **VS Code extension does n
 
 Terminal mode (`claudeCode.useTerminal: true`) has never had this problem — that path does resolve `claude` from `PATH`.
 
-The extension has a setting for exactly this: `claudeCode.claudeProcessWrapper`, an executable it calls *instead of* its bundled binary, passing that binary as the first argument and running it with the working directory set to the workspace folder. That is everything needed:
+The extension has a setting for exactly this: `claudeCode.claudeProcessWrapper`, an executable it calls *instead of* its bundled binary, passing that binary as the first argument and running it with the working directory set to the workspace folder. That is enough to put **the agent** on the right account — read the limits below before deciding it is enough for you:
 
 ```bash
 claude-acc vscode install     # point installed editors at ~/.claude-switch/bin/claude-vscode
@@ -241,6 +241,8 @@ It covers VS Code, VS Code Insiders, VSCodium and Cursor — whichever are insta
 
 **Stated plainly:**
 
+- **This puts the agent on the right account, not the whole extension.** A wrapper sets the environment of the process it launches, and only that. The extension *host* — the session list and picker, MCP and plugin persistence in `.claude.json`, file history, plans — resolves the config dir from its own environment, which never receives ours and architecturally cannot: in 2.1.252 that is `process.env.CLAUDE_CONFIG_DIR ?? ~/.claude`, read by the host process. So conversations run on the workspace's account while the picker still lists `~/.claude`'s history, and MCP servers and plugins do not separate per account. Upstream tracks the host half as [anthropics/claude-code#30538](https://github.com/anthropics/claude-code/issues/30538); closing it needs a setting the extension reads for its own process, which no wrapper can substitute for.
+- **Only the default VS Code profile is set up.** `claudeCode.claudeProcessWrapper` is machine-scoped, and in VS Code only `application`-scoped settings sit outside a profile — so a non-default profile reads its own `settings.json`, which we do not write. `vscode install` and `vscode status` say when other profiles exist rather than leaving you to wonder why a window ignores the account.
 - **Two behaviours of the extension change** when any process wrapper is set, ours or anyone's: it resolves the permission mode itself instead of deferring to the CLI, and it stops checking for its own updates. `vscode uninstall` puts both back.
 - **`settings.json` is edited as text, not reserialised.** It is JSONC — comments and trailing commas are legal, and round-tripping it through a JSON parser would delete every comment in it. Only the one key's value is touched; a file that isn't a JSON object is reported and left alone, and a wrapper pointing at another tool is never replaced without `--force`.
 - **Not on Windows yet.** The wrapper is a shell script; a `.cmd`/`.exe` shim the extension can spawn hasn't been built. Terminal mode works there today.
