@@ -1,0 +1,51 @@
+version: 2
+
+# Two ecosystems, both grouped, both weekly. Grouping matters more than the
+# schedule here: every PR in this repo needs a merge that overrides the review
+# requirement, so ten separate patch bumps cost ten of those. One PR a week
+# costs one.
+
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    commit-message:
+      # release-please reads this prefix to build the changelog and pick the
+      # next version. `chore:` keeps dependency bumps out of the release notes
+      # and still gets them a patch bump — see .claude/rules/commits-and-prs.md.
+      prefix: chore
+    groups:
+      # The RustCrypto stack decrypts desktop profile tokens; they move
+      # together and are reviewed together.
+      crypto:
+        patterns:
+          - aes
+          - cbc
+          - hmac
+          - pbkdf2
+          - sha1
+          - sha2
+      # Everything else, minor and patch in one PR. A major bump comes on its
+      # own, because it is a decision rather than a bump.
+      rust-minor-and-patch:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: ci
+    groups:
+      actions:
+        patterns:
+          - "*"

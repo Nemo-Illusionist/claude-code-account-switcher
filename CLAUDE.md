@@ -38,6 +38,30 @@ workflow also syntax-checks them — `zsh -n` on `claude-switch.sh` and
 over the two wrappers since they declare `#!/bin/sh`, and a PowerShell parse
 of `shell/init.ps1`. A new shell file is not covered until it is added there.
 
+## Actions are pinned to a commit SHA
+
+Every `uses:` in `.github/workflows/` names a commit, with the tag it came
+from in a trailing comment:
+
+```yaml
+- uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+```
+
+A tag is mutable — whoever owns the action can move `v4` to a different
+commit, and CI would run that code with the workflow's token. This repo
+handles other people's credentials, so that is not a theoretical worry.
+Dependabot bumps these weekly, SHA and comment together.
+
+**Adding a new action means pinning it too.** Resolve the tag first:
+
+```sh
+gh api repos/<owner>/<repo>/git/ref/tags/<tag> --jq '.object.sha'
+```
+
+If the action selects its behaviour from the ref it is used at — as
+`dtolnay/rust-toolchain@stable` did — say that explicitly in `with:`, because
+the pin takes the ref away.
+
 ## Everything else lives in `.claude/rules/`
 
 Project conventions beyond the build — commits and PR scope, tests, i18n,
