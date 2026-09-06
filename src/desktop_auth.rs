@@ -20,7 +20,7 @@
 use std::path::Path;
 use std::process::Command;
 
-use aes::cipher::{BlockDecryptMut, KeyIvInit, block_padding::Pkcs7};
+use aes::cipher::{BlockModeDecrypt, KeyIvInit, block_padding::Pkcs7};
 use hmac::Hmac;
 use sha1::Sha1;
 
@@ -95,7 +95,7 @@ pub fn decrypt(blob: &[u8], key: &[u8; 16]) -> Option<String> {
     }
     let mut buf = body.to_vec();
     let plain = Aes128CbcDec::new(key.into(), &IV.into())
-        .decrypt_padded_mut::<Pkcs7>(&mut buf)
+        .decrypt_padded::<Pkcs7>(&mut buf)
         .ok()?;
     String::from_utf8(plain.to_vec()).ok()
 }
@@ -261,13 +261,13 @@ mod tests {
 
     #[test]
     fn decrypt_round_trips_what_the_same_key_encrypted() {
-        use aes::cipher::{BlockEncryptMut, KeyIvInit};
+        use aes::cipher::{BlockModeEncrypt, KeyIvInit};
         let key = derive_key("peanuts");
         let plain = br#"{"a:b:c:user:profile":{"token":"t"}}"#;
         let mut buf = vec![0u8; plain.len() + 16];
         buf[..plain.len()].copy_from_slice(plain);
         let ct = cbc::Encryptor::<aes::Aes128>::new(&key.into(), &IV.into())
-            .encrypt_padded_mut::<Pkcs7>(&mut buf, plain.len())
+            .encrypt_padded::<Pkcs7>(&mut buf, plain.len())
             .unwrap()
             .to_vec();
 
