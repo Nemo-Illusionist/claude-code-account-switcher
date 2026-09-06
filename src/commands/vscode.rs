@@ -103,11 +103,24 @@ pub fn uninstall(config: &AppConfig, i18n: &I18n) -> i32 {
     let mut removed = 0;
     let mut failed = false;
     for ed in &editors {
-        // Only ever remove our own. A path someone set by hand, or another
-        // tool's, is theirs to remove.
-        if let WrapperState::Foreign(other) = vscode::wrapper_state(&ed.settings, &wrapper) {
-            i18n.print(Msg::VscodeForeignKept(ed.label.to_string(), other));
-            continue;
+        match vscode::wrapper_state(&ed.settings, &wrapper) {
+            // Only ever remove our own. A path someone set by hand, or
+            // another tool's, is theirs to remove.
+            WrapperState::Foreign(other) => {
+                i18n.print(Msg::VscodeForeignKept(ed.label.to_string(), other));
+                continue;
+            }
+            // Report it as unreadable rather than letting `clear_wrapper`
+            // surface the read error as a write failure.
+            WrapperState::Unreadable => {
+                i18n.print(Msg::VscodeUnreadable(
+                    ed.label.to_string(),
+                    ed.settings.display().to_string(),
+                ));
+                failed = true;
+                continue;
+            }
+            _ => {}
         }
         match vscode::clear_wrapper(&ed.settings) {
             Ok(true) => {

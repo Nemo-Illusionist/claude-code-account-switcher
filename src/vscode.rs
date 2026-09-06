@@ -107,14 +107,32 @@ pub enum WrapperState {
     /// The key points at something else — another tool, or a hand-written
     /// path. Never overwritten without `--force`.
     Foreign(String),
-    /// The file exists but isn't a JSON object we can edit safely.
+    /// The file is there but we can't safely edit it: it isn't a JSON
+    /// object, isn't valid UTF-8, or couldn't be read at all.
     Unreadable,
+}
+
+/// Read a settings file, distinguishing "there is no file" from "there is a
+/// file we could not read".
+///
+/// `read_to_string` collapses the two, and the difference decides whether the
+/// next step creates a fresh object or refuses to touch anything. A file
+/// holding one non-UTF-8 byte, or one we lack permission to read, must never
+/// look like an absent file.
+fn read_settings(settings: &Path) -> Result<Option<String>, std::io::Error> {
+    match fs::read_to_string(settings) {
+        Ok(s) => Ok(Some(s)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e),
+    }
 }
 
 /// Read the state of `WRAPPER_SETTING` in a settings file that may not exist.
 pub fn wrapper_state(settings: &Path, ours: &Path) -> WrapperState {
-    let Ok(src) = fs::read_to_string(settings) else {
-        return WrapperState::Unset;
+    let src = match read_settings(settings) {
+        Ok(Some(s)) => s,
+        Ok(None) => return WrapperState::Unset,
+        Err(_) => return WrapperState::Unreadable,
     };
     if src.trim().is_empty() {
         return WrapperState::Unset;
@@ -133,7 +151,11 @@ pub fn wrapper_state(settings: &Path, ours: &Path) -> WrapperState {
 /// `false` when the existing file isn't something we can edit without
 /// risking it — the caller reports that rather than clobbering it.
 pub fn set_wrapper(settings: &Path, wrapper: &Path) -> std::io::Result<bool> {
-    let src = fs::read_to_string(settings).unwrap_or_default();
+    // Regression: this used to be `read_to_string(...).unwrap_or_default()`,
+    // so a settings.json that failed to read — one stray non-UTF-8 byte was
+    // enough — looked empty and was replaced wholesale with an object holding
+    // only our key. Someone's entire editor config, gone, reported as success.
+    let src = read_settings(settings)?.unwrap_or_default();
     let Some(out) = set_string_value(&src, WRAPPER_SETTING, &wrapper.to_string_lossy()) else {
         return Ok(false);
     };
@@ -146,7 +168,7 @@ pub fn set_wrapper(settings: &Path, wrapper: &Path) -> std::io::Result<bool> {
 
 /// Drop the setting. Returns `false` when there was nothing to remove.
 pub fn clear_wrapper(settings: &Path) -> std::io::Result<bool> {
-    let Ok(src) = fs::read_to_string(settings) else {
+    let Some(src) = read_settings(settings)? else {
         return Ok(false);
     };
     let Some(out) = remove_key(&src, WRAPPER_SETTING) else {
@@ -645,6 +667,65 @@ mod tests {
     }
 
     #[test]
+    fn a_settings_file_that_is_not_valid_utf8_is_never_mistaken_for_an_absent_one() {
+        // Regression: read_to_string collapses "no file" with "unreadable
+        // file", so a settings.json holding one Latin-1 byte read as empty
+        // and set_wrapper replaced the whole editor config with an object
+        // containing only our key — exit 0, success message, config gone.
+        let dir = scratch("nonutf8");
+        let settings = dir.join("settings.json");
+        let ours = dir.join("bin").join(WRAPPER_NAME);
+        let original: &[u8] = b"{\n    \"workbench.colorTheme\": \"Caf\xe9 Noir\"\n}\n";
+        fs::write(&settings, original).unwrap();
+
+        assert!(matches!(
+            wrapper_state(&settings, &ours),
+            WrapperState::Unreadable
+        ));
+        assert!(set_wrapper(&settings, &ours).is_err());
+        assert!(clear_wrapper(&settings).is_err());
+        assert_eq!(
+            fs::read(&settings).unwrap(),
+            original,
+            "the file was rewritten"
+        );
+
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn a_settings_file_we_cannot_read_is_reported_rather_than_replaced() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = scratch("noperm");
+        let settings = dir.join("settings.json");
+        let ours = dir.join("bin").join(WRAPPER_NAME);
+        fs::write(&settings, "{\n    \"editor.fontSize\": 13\n}\n").unwrap();
+        fs::set_permissions(&settings, fs::Permissions::from_mode(0o000)).unwrap();
+
+        // Running as root defeats the permission bits entirely; skip rather
+        // than assert something the environment can't produce.
+        if fs::read_to_string(&settings).is_ok() {
+            fs::set_permissions(&settings, fs::Permissions::from_mode(0o644)).unwrap();
+            fs::remove_dir_all(&dir).unwrap();
+            return;
+        }
+
+        assert!(matches!(
+            wrapper_state(&settings, &ours),
+            WrapperState::Unreadable
+        ));
+        assert!(set_wrapper(&settings, &ours).is_err());
+
+        fs::set_permissions(&settings, fs::Permissions::from_mode(0o644)).unwrap();
+        assert_eq!(
+            fs::read_to_string(&settings).unwrap(),
+            "{\n    \"editor.fontSize\": 13\n}\n"
+        );
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
     fn a_wrapper_belonging_to_something_else_is_reported_as_foreign() {
         let dir = scratch("foreign");
         let settings = dir.join("settings.json");
@@ -711,6 +792,15 @@ mod tests {
             // inherited value — the extension host's environment is the
             // login shell's, resolved once, for the home directory.
             assert!(!VSCODE_WRAPPER_TEMPLATE.contains("-z \"$CLAUDE_CONFIG_DIR\""));
+            // Regression: without the unset, an `activate` that fails leaves
+            // the inherited value standing, which is the one thing the
+            // wrapper exists to stop trusting.
+            let unset = VSCODE_WRAPPER_TEMPLATE.find("unset CLAUDE_CONFIG_DIR");
+            let eval = VSCODE_WRAPPER_TEMPLATE.find("activate --shell posix");
+            assert!(
+                unset.is_some() && unset < eval,
+                "unset must precede the eval"
+            );
         }
     }
 

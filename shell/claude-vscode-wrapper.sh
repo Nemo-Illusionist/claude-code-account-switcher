@@ -18,9 +18,16 @@ if [ "$#" -eq 0 ]; then
     exit 64
 fi
 
+# Clear it first, so the fallback is the standard account rather than
+# whatever the extension host inherited. Without this an `activate` that
+# fails — a moved or deleted claude-acc, a broken install — leaves the
+# inherited value standing, silently running every workspace on the one
+# account this file exists to stop trusting.
+unset CLAUDE_CONFIG_DIR
+
 # `activate` emits `export CLAUDE_CONFIG_DIR=...`, or `unset` for the
 # standard account. Never fatal: a broken activation must still leave a
-# working Claude, just on the default account.
+# working Claude, just on the standard account.
 eval "$('__CLAUDE_ACC_BIN__' activate --shell posix 2>/dev/null)"
 
 real="$1"
