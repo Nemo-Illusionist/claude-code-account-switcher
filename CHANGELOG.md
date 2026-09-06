@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.17.0](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.16.1...v0.17.0) (2026-09-06)
+
+
+### Features
+
+* carry plugins and their marketplaces into a seeded account ([#106](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/106)) ([6da64c0](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/6da64c0874286947e82b6f9c05c91f1a907730f6))
+* run the VS Code extension's agent on the account bound to the workspace ([#100](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/100)) ([9264a2a](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/9264a2ae5dc761788688c0387f0b044515d3049b))
+
+
+### Bug Fixes
+
+* keep the seed tests off Windows, where they are dead code ([#104](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/104)) ([c0542ea](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/c0542ea953c252815142c334d1e4cc3fd2337c15))
+* seed accounts that have a symlinked skill, agent or command ([#103](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/103)) ([51ba2e6](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/51ba2e6430fa9d141d2d46f3773a3ace2d924fc0))
+
 ## [0.16.1](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.16.0...v0.16.1) (2026-08-27)
 
 
