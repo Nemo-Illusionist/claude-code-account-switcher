@@ -142,7 +142,8 @@ Short version: **cswap** if you want one active account plus automatic rotation 
 | `claude-acc statusline [--install]` | Render (or install) a Claude Code status line with the active account |
 | `claude-acc run <name>` | Run claude under a specific account |
 | `claude-acc whoami` | Print the email (or name) of the active account |
-| `claude-acc doctor [--json]` | Audit each account's actual OAuth identity |
+| `claude-acc lock <name>` | Pin an account to the identity it is signed in as (`--force` to re-pin) |
+| `claude-acc doctor [--json]` | Audit each account's actual OAuth identity, and report drift from the pin |
 | `claude-acc install` | Install binary and shell integration |
 | `claude-acc update [--check]` | Update the binary to the latest GitHub release |
 
@@ -330,6 +331,59 @@ An account that has already installed plugins of its own is left alone.
 Seeding is not a merge, and what you installed there is yours.
 
 Existing files in the target are skipped — `clone-settings` is a one-shot seed, not a sync.
+
+### Pinning an account to an identity (`lock`)
+
+`doctor` tells you which account a directory is signed in as. It cannot tell
+you whether that is the account it *should* be — you have to remember. A
+re-login is where that goes wrong: the OAuth flow never asks which account
+you meant, so signing in with the wrong browser session quietly rebinds a
+config dir, and every session after that goes to the wrong place.
+
+`lock` records the answer:
+
+```bash
+claude-acc lock work            # pin work to whoever it is signed in as now
+claude-acc lock work --force    # accept a new identity on purpose
+claude-acc lock default         # the standard ~/.claude account too
+```
+
+`add` and `login` pin automatically the first time an account signs in, so
+this is for accounts created before the pin existed, and for the deliberate
+re-pin. **Re-logging in never moves an existing pin** — that swap is exactly
+what the pin exists to report.
+
+`doctor` then compares the two, and says nothing at all while they agree:
+
+```
+$ claude-acc doctor
+Auditing 2 account(s):
+  ✓ work        alice@corp.com  uuid=a72fe3df-…  ⚠ DRIFT: pinned to alice@corp.com (a72fe3df-…), signed in as bob@personal.com (aa6c22d5-…)
+  ✓ ~/.claude/  bob@personal.com  Max 20x  uuid=aa6c22d5-…  (standard)
+
+Drift means this directory is signed in as an account it was not pinned to — work done here would go to the wrong one. Put it back with `claude-acc login <name>`, or accept the new identity with `claude-acc lock <name> --force`.
+```
+
+Drift makes `doctor` exit non-zero, so a shell prompt or a CI step can gate
+on it.
+
+**The comparison costs nothing.** It reads Claude Code's own record of the
+signed-in account — a small JSON file beside each config dir — so there is no
+keychain prompt and no network call, unlike the profile lookup the rest of
+`doctor` does. That is what makes it cheap enough to run often.
+
+**Only the UUID decides.** An email can change on one account, and two
+accounts can share a display name; comparing on anything softer would report
+drift that isn't there and miss drift that is.
+
+**What it does not do:** nothing is blocked. `lock` and `doctor` report; they
+never stand between you and `claude`. Whether a wrong identity should refuse
+to launch at all is [#16](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/16), still open.
+
+The pin lives in `~/.claude-switch/accounts/<name>/.identity-lock.json` —
+except the standard account's, which goes to
+`~/.claude-switch/default.identity-lock.json` rather than inside `~/.claude/`,
+which belongs to Claude Code.
 
 ## Importing an existing config dir
 

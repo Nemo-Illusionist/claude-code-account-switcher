@@ -969,6 +969,73 @@ impl I18n {
             }
 
             // vscode
+            // identity lock
+            (Msg::LockDone(ref n, ref who), Lang::En) => format!(
+                "Account '{}' pinned to {}.\n  A later login as anyone else \
+                 will show up in `claude-acc doctor` as drift.",
+                n, who
+            ),
+            (Msg::LockDone(ref n, ref who), Lang::Ru) => format!(
+                "Аккаунт '{}' закреплён за {}.\n  Если позже войти под кем-то \
+                 другим, `claude-acc doctor` покажет расхождение.",
+                n, who
+            ),
+            (Msg::LockAlready(ref n, ref who), Lang::En) => {
+                format!("Account '{}' is already pinned to {}.", n, who)
+            }
+            (Msg::LockAlready(ref n, ref who), Lang::Ru) => {
+                format!("Аккаунт '{}' уже закреплён за {}.", n, who)
+            }
+            (Msg::LockWouldReplace(ref n, ref old, ref new), Lang::En) => format!(
+                "Account '{}' is pinned to {}, but is signed in as {}.\n  \
+                 That is drift — the thing the pin exists to report. If the \
+                 new identity is the one you want here, re-pin deliberately: \
+                 claude-acc lock {} --force",
+                n, old, new, n
+            ),
+            (Msg::LockWouldReplace(ref n, ref old, ref new), Lang::Ru) => format!(
+                "Аккаунт '{}' закреплён за {}, а вход выполнен под {}.\n  \
+                 Это и есть расхождение, ради которого закрепление и делается. \
+                 Если новая личность здесь и нужна — закрепите её осознанно: \
+                 claude-acc lock {} --force",
+                n, old, new, n
+            ),
+            (Msg::LockNoIdentity(ref n), Lang::En) => format!(
+                "Account '{}' has no signed-in identity to pin. Log in first: \
+                 claude-acc login {}",
+                n, n
+            ),
+            (Msg::LockNoIdentity(ref n), Lang::Ru) => format!(
+                "У аккаунта '{}' нет личности, которую можно закрепить — вход \
+                 не выполнен. Сначала: claude-acc login {}",
+                n, n
+            ),
+            (Msg::LockWriteFailed(ref e), Lang::En) => {
+                format!("Could not write the pin: {}", e)
+            }
+            (Msg::LockWriteFailed(ref e), Lang::Ru) => {
+                format!("Не удалось записать закрепление: {}", e)
+            }
+            (Msg::DoctorLockDrift(ref exp, ref act), Lang::En) => {
+                format!("⚠ DRIFT: pinned to {}, signed in as {}", exp, act)
+            }
+            (Msg::DoctorLockDrift(ref exp, ref act), Lang::Ru) => {
+                format!("⚠ РАСХОЖДЕНИЕ: закреплён за {}, вход под {}", exp, act)
+            }
+            (Msg::DoctorLockUnknown, Lang::En) => s("pinned, but not signed in"),
+            (Msg::DoctorLockUnknown, Lang::Ru) => s("закреплён, но вход не выполнен"),
+            (Msg::DoctorDriftHint, Lang::En) => s(
+                "\nDrift means this directory is signed in as an account it was \
+                 not pinned to — work done here would go to the wrong one. Put \
+                 it back with `claude-acc login <name>`, or accept the new \
+                 identity with `claude-acc lock <name> --force`.",
+            ),
+            (Msg::DoctorDriftHint, Lang::Ru) => s(
+                "\nРасхождение значит, что каталог залогинен под аккаунтом, за \
+                 которым он не закреплён, — работа отсюда уйдёт не туда. \
+                 Вернуть: `claude-acc login <name>`. Принять новую личность: \
+                 `claude-acc lock <name> --force`.",
+            ),
             (Msg::VscodeWindowsUnsupported, Lang::En) => s(
                 "Not on Windows yet: the wrapper is a shell script, and a .cmd \
                  or .exe shim the extension can spawn hasn't been built. \
@@ -1247,6 +1314,14 @@ pub enum Msg {
     ResumeHookExplainOff,
     ResumeHookEnvOverride,
     ResumeHookHint,
+    LockDone(String, String),
+    LockAlready(String, String),
+    LockWouldReplace(String, String, String),
+    LockNoIdentity(String),
+    LockWriteFailed(String),
+    DoctorLockDrift(String, String),
+    DoctorLockUnknown,
+    DoctorDriftHint,
     VscodeWindowsUnsupported,
     VscodeNoEditors,
     VscodeWrapperFailed(String),

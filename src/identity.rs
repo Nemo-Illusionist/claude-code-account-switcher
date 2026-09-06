@@ -67,6 +67,136 @@ pub fn default_cache_path(switch_dir: &Path) -> PathBuf {
     switch_dir.join("default.account-info.json")
 }
 
+/// Where Claude Code keeps its own record of the signed-in account for a
+/// config dir.
+///
+/// It writes `.claude.json` next to — not inside — the config dir it was
+/// given: `join(CLAUDE_CONFIG_DIR ?? homedir(), ".claude.json")`. So a
+/// managed account has it inside the account directory, and the standard
+/// account has it at `~/.claude.json`, beside `~/.claude/` rather than in it.
+pub fn local_identity_path(config_dir: &Path) -> Option<PathBuf> {
+    if Some(config_dir.to_path_buf()) == standard_token_dir() {
+        return dirs::home_dir().map(|h| h.join(".claude.json"));
+    }
+    Some(config_dir.join(".claude.json"))
+}
+
+/// The account Claude Code last signed this config dir in as, read from its
+/// own file.
+///
+/// This is the cheap way to answer "who is this?": a local JSON read, no
+/// keychain prompt and no network, which is what makes it usable somewhere
+/// that runs on every launch. It is Claude Code's cache rather than the
+/// authority — but drift happens *through* a login, and a login is exactly
+/// what rewrites this file.
+pub fn local_identity(config_dir: &Path) -> Option<Identity> {
+    let path = local_identity_path(config_dir)?;
+    let raw = fs::read_to_string(path).ok()?;
+    let v: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    let account = v.get("oauthAccount")?;
+    Some(Identity {
+        uuid: account
+            .get("accountUuid")
+            .and_then(|x| x.as_str())
+            .map(String::from)?,
+        email: account
+            .get("emailAddress")
+            .and_then(|x| x.as_str())
+            .map(String::from),
+    })
+}
+
+/// The account an account dir is pinned to, or is currently signed in as.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Identity {
+    pub uuid: String,
+    pub email: Option<String>,
+}
+
+/// Filename of the pin, inside the account dir.
+pub const LOCK_FILE: &str = ".identity-lock.json";
+
+/// Where the pin for the standard `~/.claude/` account lives.
+///
+/// Beside our own state, not inside `~/.claude/` — the same rule the doctor
+/// cache follows. That directory belongs to Claude Code; we read it and do
+/// not litter it.
+pub fn default_lock_path(switch_dir: &Path) -> PathBuf {
+    switch_dir.join("default.identity-lock.json")
+}
+
+/// Read the pin at `path`. Callers pass the path rather than the account dir
+/// because the standard account keeps its pin outside `~/.claude/`.
+pub fn read_lock_at(path: &Path) -> Option<Identity> {
+    let raw = fs::read_to_string(path).ok()?;
+    let v: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    Some(Identity {
+        uuid: v.get("uuid").and_then(|x| x.as_str()).map(String::from)?,
+        email: v.get("email").and_then(|x| x.as_str()).map(String::from),
+    })
+}
+
+/// Pin `path` to `identity`.
+pub fn write_lock_at(path: &Path, identity: &Identity) -> std::io::Result<()> {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let body = serde_json::json!({
+        "uuid": identity.uuid,
+        "email": identity.email,
+        "locked_at": now,
+    });
+    let serialized = serde_json::to_string_pretty(&body).map_err(std::io::Error::other)?;
+    fs::write(path, serialized)
+}
+
+/// What the pin says about an account dir right now.
+#[derive(Debug, PartialEq)]
+pub enum LockState {
+    /// Pinned, and the account signed in matches.
+    Ok,
+    /// Pinned to one account, signed in as another. The thing this exists to
+    /// catch: a re-login that quietly swapped identity underneath a directory
+    /// you had already decided belongs to someone.
+    Drift {
+        expected: Identity,
+        actual: Identity,
+    },
+    /// No pin — nothing to compare against.
+    NoLock,
+    /// Pinned, but Claude Code has not recorded who is signed in. A directory
+    /// that has never been logged in looks like this.
+    Unknown,
+}
+
+/// Value-in, value-out so the comparison can be checked without a filesystem.
+///
+/// The uuid decides. An email can change on the same account, and two
+/// accounts can share a display name; the uuid is the only stable identifier
+/// here, and comparing on anything softer would produce drift reports that
+/// are wrong in both directions.
+pub fn compare_lock(lock: Option<&Identity>, current: Option<&Identity>) -> LockState {
+    match (lock, current) {
+        (None, _) => LockState::NoLock,
+        (Some(_), None) => LockState::Unknown,
+        (Some(l), Some(c)) if l.uuid == c.uuid => LockState::Ok,
+        (Some(l), Some(c)) => LockState::Drift {
+            expected: l.clone(),
+            actual: c.clone(),
+        },
+    }
+}
+
+/// The pin state of an account dir, read from disk. `lock_path` is given
+/// separately so the standard account can keep its pin outside `~/.claude/`.
+pub fn lock_state_at(lock_path: &Path, config_dir: &Path) -> LockState {
+    compare_lock(
+        read_lock_at(lock_path).as_ref(),
+        local_identity(config_dir).as_ref(),
+    )
+}
+
 /// Does `(uuid, email)` identify the same account as `cached`? Uuid is the
 /// stable signal and takes priority; email is compared case-insensitively as
 /// a fallback for a `cached` entry that predates uuid caching. Pure — no I/O.
@@ -917,6 +1047,156 @@ mod tests {
     fn identity_matches_false_when_nothing_to_compare() {
         let c = cached(None, None);
         assert!(!identity_matches(None, None, &c));
+    }
+
+    fn id(uuid: &str, email: Option<&str>) -> Identity {
+        Identity {
+            uuid: uuid.to_string(),
+            email: email.map(String::from),
+        }
+    }
+
+    #[test]
+    fn a_pin_that_matches_the_signed_in_account_is_ok() {
+        let same = id("u-1", Some("a@example.com"));
+        assert_eq!(compare_lock(Some(&same), Some(&same)), LockState::Ok);
+    }
+
+    #[test]
+    fn a_different_uuid_is_drift_and_carries_both_identities() {
+        // The report has to name both, or the reader cannot tell which way
+        // round the swap went — "you are on the wrong account" is useless
+        // without "and the right one is this".
+        let pinned = id("u-1", Some("work@example.com"));
+        let now = id("u-2", Some("personal@example.com"));
+        match compare_lock(Some(&pinned), Some(&now)) {
+            LockState::Drift { expected, actual } => {
+                assert_eq!(expected, pinned);
+                assert_eq!(actual, now);
+            }
+            other => panic!("expected drift, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn only_the_uuid_decides_whether_the_pin_holds() {
+        // An email can change on the same account, and two accounts can share
+        // a display name. Comparing on anything softer than the uuid produces
+        // drift reports that are wrong in both directions.
+        let pinned = id("u-1", Some("old.address@example.com"));
+        let renamed = id("u-1", Some("new.address@example.com"));
+        assert_eq!(compare_lock(Some(&pinned), Some(&renamed)), LockState::Ok);
+
+        let twins_a = id("u-1", Some("same@example.com"));
+        let twins_b = id("u-2", Some("same@example.com"));
+        assert!(matches!(
+            compare_lock(Some(&twins_a), Some(&twins_b)),
+            LockState::Drift { .. }
+        ));
+    }
+
+    #[test]
+    fn an_unpinned_account_is_not_reported_as_drift() {
+        // Every account predating this feature is unpinned. Treating that as
+        // a problem would bury the real one under noise.
+        assert_eq!(
+            compare_lock(None, Some(&id("u-1", None))),
+            LockState::NoLock
+        );
+        assert_eq!(compare_lock(None, None), LockState::NoLock);
+    }
+
+    #[test]
+    fn a_pin_with_nobody_signed_in_is_unknown_rather_than_drift() {
+        // A directory that has never been logged in has no identity to
+        // compare against. That is not the same as being on the wrong one.
+        assert_eq!(
+            compare_lock(Some(&id("u-1", None)), None),
+            LockState::Unknown
+        );
+    }
+
+    #[test]
+    fn the_pin_round_trips_through_disk() {
+        let dir = std::env::temp_dir().join(format!("cc-lock-rt-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(LOCK_FILE);
+
+        let original = id("u-1", Some("a@example.com"));
+        write_lock_at(&path, &original).unwrap();
+        assert_eq!(read_lock_at(&path), Some(original));
+
+        // A pin without an email still reads back — older pins and accounts
+        // whose profile never carried one.
+        let no_email = id("u-2", None);
+        write_lock_at(&path, &no_email).unwrap();
+        assert_eq!(read_lock_at(&path), Some(no_email));
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_absent_or_unreadable_pin_reads_as_no_pin() {
+        let dir = std::env::temp_dir().join(format!("cc-lock-bad-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        assert_eq!(read_lock_at(&dir.join(LOCK_FILE)), None);
+        // Garbage, and valid JSON that simply has no uuid: both mean "no
+        // usable pin", never a drift report against nothing.
+        for body in ["{ broken", "{}", r#"{"email": "a@example.com"}"#] {
+            fs::write(dir.join(LOCK_FILE), body).unwrap();
+            assert_eq!(read_lock_at(&dir.join(LOCK_FILE)), None, "{body}");
+        }
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_identity_comes_from_claude_codes_own_file_without_keychain_or_network() {
+        // This is what makes the check cheap enough to run anywhere: Claude
+        // Code records the signed-in account in a plain JSON file next to the
+        // config dir it was given.
+        let dir = std::env::temp_dir().join(format!("cc-lock-local-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        fs::write(
+            dir.join(".claude.json"),
+            serde_json::json!({
+                "oauthAccount": { "accountUuid": "u-9", "emailAddress": "a@example.com" },
+                "somethingElse": 1
+            })
+            .to_string(),
+        )
+        .unwrap();
+        assert_eq!(local_identity(&dir), Some(id("u-9", Some("a@example.com"))));
+
+        // No oauthAccount, or no uuid in it: nobody is signed in.
+        fs::write(dir.join(".claude.json"), r#"{"other": 1}"#).unwrap();
+        assert_eq!(local_identity(&dir), None);
+        fs::write(dir.join(".claude.json"), r#"{"oauthAccount": {}}"#).unwrap();
+        assert_eq!(local_identity(&dir), None);
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_standard_account_keeps_its_record_beside_the_config_dir_not_inside_it() {
+        // Claude Code writes `.claude.json` at `CLAUDE_CONFIG_DIR ?? $HOME`,
+        // so for the un-managed account it lands next to `~/.claude/`, not in
+        // it. Looking inside would find nothing and report every standard
+        // account as never signed in.
+        let standard = standard_token_dir().unwrap();
+        let path = local_identity_path(&standard).unwrap();
+        assert_eq!(path, dirs::home_dir().unwrap().join(".claude.json"));
+
+        let managed = std::path::Path::new("/tmp/accounts/work");
+        assert_eq!(
+            local_identity_path(managed).unwrap(),
+            managed.join(".claude.json")
+        );
     }
 
     #[test]

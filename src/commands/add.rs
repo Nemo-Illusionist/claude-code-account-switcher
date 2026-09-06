@@ -87,6 +87,12 @@ pub fn run(config: &AppConfig, i18n: &I18n, name: &str, seed_from_default: bool)
         i18n.print(Msg::DuplicateAccountWarning(name.to_string(), existing));
     }
 
+    // Record which account this directory now belongs to, so a later
+    // re-login as somebody else is reported rather than silently accepted.
+    // Best-effort: the login is what mattered, and `claude-acc lock` can
+    // always do this by hand.
+    super::lock::write_after_login(config, name);
+
     println!();
     i18n.print(Msg::AddDone);
     i18n.print(Msg::AddHintDefault(name.to_string()));

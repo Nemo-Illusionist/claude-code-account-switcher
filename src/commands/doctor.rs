@@ -118,26 +118,35 @@ fn run_human(config: &AppConfig, i18n: &I18n, accounts: &[String], standard_pres
                 let email = p.email.as_deref().unwrap_or("<unknown>");
                 let uuid = p.uuid.as_deref().unwrap_or("<unknown>");
                 let shared = shared_seg(p.uuid.as_deref(), label, &by_uuid, i18n);
+                // The pin is compared from Claude Code's own local record, so
+                // this costs a small file read — no keychain, no network.
+                let lock = super::lock::state_marker(
+                    config,
+                    if is_standard { "default" } else { label },
+                    i18n,
+                );
                 if is_standard {
                     println!(
-                        "  ✓ {}{}  {}{}  uuid={}  ({}){}",
+                        "  ✓ {}{}  {}{}  uuid={}  ({}){}{}",
                         label,
                         pad,
                         email,
                         plan_seg(p),
                         uuid,
                         i18n.msg(Msg::ListStandard),
-                        shared
+                        shared,
+                        lock
                     );
                 } else {
                     println!(
-                        "  ✓ {}{}  {}{}  uuid={}{}",
+                        "  ✓ {}{}  {}{}  uuid={}{}{}",
                         label,
                         pad,
                         email,
                         plan_seg(p),
                         uuid,
-                        shared
+                        shared,
+                        lock
                     );
                 }
             }
@@ -160,12 +169,26 @@ fn run_human(config: &AppConfig, i18n: &I18n, accounts: &[String], standard_pres
         }
     }
 
+    // Drift is the one thing here that means "you are about to do work under
+    // the wrong account", so it decides the exit code even when every account
+    // audited fine.
+    let mut names: Vec<String> = accounts.to_vec();
+    if standard_present {
+        names.push("default".to_string());
+    }
+    let drift = super::lock::any_drift(config, &names);
+
     println!();
-    if healthy == total {
+    if drift {
+        i18n.print(Msg::DoctorDriftHint);
+    }
+    if healthy == total && !drift {
         i18n.print(Msg::DoctorAllOk);
         0
     } else {
-        i18n.print(Msg::DoctorPartial(healthy, total));
+        if healthy != total {
+            i18n.print(Msg::DoctorPartial(healthy, total));
+        }
         1
     }
 }
