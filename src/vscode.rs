@@ -137,13 +137,20 @@ pub fn wrapper_state(settings: &Path, ours: &Path) -> WrapperState {
     if src.trim().is_empty() {
         return WrapperState::Unset;
     }
-    if find_top_level_key(&src, WRAPPER_SETTING).is_none() && !is_json_object(&src) {
-        return WrapperState::Unreadable;
-    }
-    match read_string_value(&src, WRAPPER_SETTING) {
-        None => WrapperState::Unset,
-        Some(v) if Path::new(&v) == ours => WrapperState::Ours,
-        Some(v) => WrapperState::Foreign(v),
+    match find_top_level_key(&src, WRAPPER_SETTING) {
+        Scan::Malformed => WrapperState::Unreadable,
+        Scan::Absent => WrapperState::Unset,
+        Scan::Found(span) => {
+            match serde_json::from_str::<String>(&src[span.value_start..span.value_end]) {
+                Ok(v) if Path::new(&v) == ours => WrapperState::Ours,
+                Ok(v) => WrapperState::Foreign(v),
+                // The key is there holding something that isn't a string.
+                // Not ours, and not something to overwrite blind.
+                Err(_) => {
+                    WrapperState::Foreign(src[span.value_start..span.value_end].trim().to_string())
+                }
+            }
+        }
     }
 }
 
@@ -196,18 +203,33 @@ struct KeySpan {
     /// One past the entry's trailing comma, if it has one; `value_end`
     /// otherwise.
     entry_end: usize,
+    /// Offset of the comma separating the previous entry from this one, if
+    /// there is a previous entry. Recorded during the scan, which already
+    /// knows what is a comment and what is not — deleting the last entry has
+    /// to take that comma with it, and finding it by searching backwards
+    /// through raw text finds commas inside comments instead.
+    prev_comma: Option<usize>,
 }
 
-/// Whether the text is an object we are willing to edit at all.
-fn is_json_object(src: &str) -> bool {
-    let b = src.as_bytes();
-    let i = skip_ws_and_comments(b, 0);
-    i < b.len() && b[i] == b'{'
+/// Outcome of looking for one top-level key.
+enum Scan {
+    Found(KeySpan),
+    /// Scanned to the end of a well-formed object; the key isn't in it.
+    Absent,
+    /// The text is not an object we can scan — truncated, unterminated
+    /// string, something that isn't an object at all. Nothing may be
+    /// written to it.
+    Malformed,
 }
 
-/// The string value of a top-level key, if it is a string.
+/// The string value of a top-level key, if it is a string. Only the tests
+/// need this on its own; `wrapper_state` reads the span directly so it can
+/// tell a non-string value apart from an absent key.
+#[cfg(test)]
 pub fn read_string_value(src: &str, key: &str) -> Option<String> {
-    let span = find_top_level_key(src, key)?;
+    let Scan::Found(span) = find_top_level_key(src, key) else {
+        return None;
+    };
     serde_json::from_str::<String>(&src[span.value_start..span.value_end]).ok()
 }
 
@@ -220,16 +242,19 @@ pub fn set_string_value(src: &str, key: &str, value: &str) -> Option<String> {
     if src.trim().is_empty() {
         return Some(format!("{{\n    \"{}\": {}\n}}\n", key, encoded));
     }
-    if !is_json_object(src) {
-        return None;
-    }
-
-    if let Some(span) = find_top_level_key(src, key) {
-        let mut out = String::with_capacity(src.len() + encoded.len());
-        out.push_str(&src[..span.value_start]);
-        out.push_str(&encoded);
-        out.push_str(&src[span.value_end..]);
-        return Some(out);
+    // Regression: a truncated file — `{\n    "` is enough — used to reach
+    // the insert path below and get our key spliced into something that was
+    // never a complete object. Only a clean scan may be written to.
+    match find_top_level_key(src, key) {
+        Scan::Malformed => return None,
+        Scan::Found(span) => {
+            let mut out = String::with_capacity(src.len() + encoded.len());
+            out.push_str(&src[..span.value_start]);
+            out.push_str(&encoded);
+            out.push_str(&src[span.value_end..]);
+            return Some(out);
+        }
+        Scan::Absent => {}
     }
 
     let b = src.as_bytes();
@@ -254,7 +279,9 @@ pub fn set_string_value(src: &str, key: &str, value: &str) -> Option<String> {
 /// `src` with the top-level `key` and its value gone. `None` when the key
 /// wasn't there.
 pub fn remove_key(src: &str, key: &str) -> Option<String> {
-    let span = find_top_level_key(src, key)?;
+    let Scan::Found(span) = find_top_level_key(src, key) else {
+        return None;
+    };
 
     // Take the whole line when nothing but whitespace precedes the key on
     // it — otherwise removing the entry leaves a stranded blank line.
@@ -263,7 +290,7 @@ pub fn remove_key(src: &str, key: &str) -> Option<String> {
         .map(|p| p + 1)
         .unwrap_or(0);
     let own_line = src[line_start..span.key_start].trim().is_empty();
-    let mut start = if own_line { line_start } else { span.key_start };
+    let start = if own_line { line_start } else { span.key_start };
     let mut end = span.entry_end;
 
     if own_line
@@ -273,17 +300,34 @@ pub fn remove_key(src: &str, key: &str) -> Option<String> {
         end += nl + 1;
     }
 
-    // Last entry with no comma of its own: the previous entry's comma is
-    // now trailing. Legal in JSONC, but leave the file tidy.
-    if span.entry_end == span.value_end {
-        let before = src[..start].trim_end();
-        if before.ends_with(',') {
-            start = before.len() - 1;
-        }
-    }
+    // Last entry with no comma of its own: the comma that separated it from
+    // the previous entry is now trailing. Legal in JSONC, but leave the file
+    // tidy.
+    //
+    // Regression: this used to search backwards through the raw text for a
+    // comma, which happily found one inside a preceding line comment
+    // (`// dark, light, high contrast,`) and cut from the middle of the
+    // comment to the end of our entry — taking the closing brace with it and
+    // leaving a file VS Code rejects, resetting every setting to its default.
+    // The scan records where the real comma is instead.
+    //
+    // It is excised on its own rather than by widening the range back to it:
+    // anything between that comma and our entry — a trailing comment on the
+    // previous line, a standalone comment block — belongs to the file, not to
+    // us, and must survive.
+    let comma = (span.entry_end == span.value_end)
+        .then_some(span.prev_comma)
+        .flatten()
+        .filter(|c| *c < start);
 
     let mut out = String::with_capacity(src.len());
-    out.push_str(&src[..start]);
+    match comma {
+        Some(c) => {
+            out.push_str(&src[..c]);
+            out.push_str(&src[c + 1..start]);
+        }
+        None => out.push_str(&src[..start]),
+    }
     out.push_str(&src[end..]);
     Some(out)
 }
@@ -314,35 +358,49 @@ fn first_key_start(src: &str) -> Option<usize> {
     (i < b.len() && b[i] == b'"').then_some(i)
 }
 
-fn find_top_level_key(src: &str, key: &str) -> Option<KeySpan> {
+fn find_top_level_key(src: &str, key: &str) -> Scan {
     let b = src.as_bytes();
     let mut i = skip_ws_and_comments(b, 0);
     if i >= b.len() || b[i] != b'{' {
-        return None;
+        return Scan::Malformed;
     }
     i += 1;
+    let mut prev_comma = None;
 
     loop {
         i = skip_ws_and_comments(b, i);
-        if i >= b.len() || b[i] == b'}' {
-            return None;
+        // A well-formed object ends at its closing brace. Running off the
+        // end instead means the file is truncated.
+        if i >= b.len() {
+            return Scan::Malformed;
+        }
+        if b[i] == b'}' {
+            return Scan::Absent;
         }
         if b[i] == b',' {
+            prev_comma = Some(i);
             i += 1;
             continue;
         }
         if b[i] != b'"' {
             // Not something we understand — refuse rather than guess.
-            return None;
+            return Scan::Malformed;
         }
 
         let key_start = i;
-        let key_end = skip_string(b, i);
-        let name = &src[key_start + 1..key_end.saturating_sub(1)];
+        // Regression: an unterminated key string used to come back as
+        // `b.len()`, and `key_end - 1` then either ran backwards past
+        // `key_start + 1` or landed inside a multi-byte character — slicing
+        // `src` with it panicked, taking `claude-acc install` down with it
+        // (it calls this through the VS Code hint).
+        let Some(key_end) = skip_string(b, i) else {
+            return Scan::Malformed;
+        };
+        let name = &src[key_start + 1..key_end - 1];
 
         let colon = skip_ws_and_comments(b, key_end);
         if colon >= b.len() || b[colon] != b':' {
-            return None;
+            return Scan::Malformed;
         }
         let value_start = skip_ws_and_comments(b, colon + 1);
         let value_end = skip_value(b, value_start);
@@ -354,11 +412,12 @@ fn find_top_level_key(src: &str, key: &str) -> Option<KeySpan> {
             } else {
                 value_end
             };
-            return Some(KeySpan {
+            return Scan::Found(KeySpan {
                 key_start,
                 value_start,
                 value_end,
                 entry_end,
+                prev_comma,
             });
         }
         i = value_end;
@@ -388,17 +447,20 @@ fn skip_ws_and_comments(b: &[u8], mut i: usize) -> usize {
     }
 }
 
-/// One past the closing quote of the string starting at `i`.
-fn skip_string(b: &[u8], mut i: usize) -> usize {
+/// One past the closing quote of the string starting at `i`, or `None` when
+/// the string is never closed. Callers that slice on the result must treat
+/// `None` as "this text is not editable" — a made-up offset here is how a
+/// truncated file turns into a panic or a mangled write.
+fn skip_string(b: &[u8], mut i: usize) -> Option<usize> {
     i += 1;
     while i < b.len() {
         match b[i] {
             b'\\' => i += 2,
-            b'"' => return i + 1,
+            b'"' => return Some(i + 1),
             _ => i += 1,
         }
     }
-    b.len()
+    None
 }
 
 /// One past the last byte of the value starting at `i`.
@@ -408,13 +470,13 @@ fn skip_value(b: &[u8], i: usize) -> usize {
         return i;
     }
     match b[i] {
-        b'"' => skip_string(b, i),
+        b'"' => skip_string(b, i).unwrap_or(b.len()),
         open @ (b'{' | b'[') => {
             let close = if open == b'{' { b'}' } else { b']' };
             let mut depth = 0usize;
             while i < b.len() {
                 match b[i] {
-                    b'"' => i = skip_string(b, i),
+                    b'"' => i = skip_string(b, i).unwrap_or(b.len()),
                     b'/' if i + 1 < b.len() && (b[i + 1] == b'/' || b[i + 1] == b'*') => {
                         i = skip_ws_and_comments(b, i)
                     }
@@ -607,6 +669,85 @@ mod tests {
         let parsed: serde_json::Value = serde_json::from_str(&out).unwrap();
         assert_eq!(parsed["a"], "}\"{");
         assert_eq!(parsed["b"][1]["c"], 2);
+    }
+
+    #[test]
+    fn a_truncated_file_is_refused_rather_than_panicking() {
+        // Regression: an unterminated key string made `skip_string` return
+        // `b.len()`, and `key_end - 1` then ran backwards past the slice
+        // start or landed inside a multi-byte character. Slicing `src` with
+        // it panicked — and `claude-acc install` panicked with it, since the
+        // VS Code hint goes through here.
+        for src in [
+            "{\n    \"",
+            "{\n    \"editor.fontSize\": 13,\n    \"тем",
+            "{\n    \"a\": \"unterminated",
+            "{",
+            "{\n    \"a\"",
+            "{\n    \"a\": ",
+        ] {
+            assert_eq!(read_string_value(src, KEY), None, "{src:?}");
+            assert!(set_string_value(src, KEY, "/w").is_none(), "{src:?}");
+            assert!(remove_key(src, KEY).is_none(), "{src:?}");
+        }
+    }
+
+    #[test]
+    fn removing_the_last_entry_does_not_cut_into_a_preceding_comment() {
+        // Regression: the trailing-comma cleanup searched backwards through
+        // raw text and found the comma inside `// dark, light, high contrast,`
+        // — excising from mid-comment to the end of our entry, closing brace
+        // included. VS Code then rejects the file and resets every setting.
+        let src = "{\n    \"editor.fontSize\": 13,\n    \"workbench.colorTheme\": \"Default Dark+\", // dark, light, high contrast,\n    \"claudeCode.claudeProcessWrapper\": \"/w\"\n}\n";
+        let out = remove_key(src, KEY).unwrap();
+
+        assert!(
+            out.contains("// dark, light, high contrast,"),
+            "comment was cut: {out}"
+        );
+        assert!(out.trim_end().ends_with('}'), "closing brace lost: {out}");
+        let stripped: String = out
+            .lines()
+            .map(|l| match l.find("//") {
+                Some(i) => &l[..i],
+                None => l,
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        let parsed: serde_json::Value = serde_json::from_str(&stripped).unwrap();
+        assert!(parsed.get(KEY).is_none());
+        assert_eq!(parsed["editor.fontSize"], 13);
+    }
+
+    #[test]
+    fn a_standalone_comment_before_the_last_entry_survives_its_removal() {
+        let src = "{\n    \"editor.fontSize\": 13,\n    // TODO: fonts, themes,\n    \"claudeCode.claudeProcessWrapper\": \"/w\"\n}\n";
+        let out = remove_key(src, KEY).unwrap();
+        assert!(out.contains("// TODO: fonts, themes,"), "{out}");
+        assert!(out.trim_end().ends_with('}'), "{out}");
+    }
+
+    #[test]
+    fn no_truncation_of_a_realistic_file_can_panic_or_corrupt_it() {
+        // The scanner is hand-rolled byte-level parsing over text that
+        // arrives half-written after a crash or a sync race. Walk every
+        // prefix, including ones cutting through a multi-byte character.
+        let full = "{\n    // тема\n    \"workbench.colorTheme\": \"Тёмная\",\n    \"claudeCode.claudeProcessWrapper\": \"/путь/claude-vscode\",\n    \"editor.fontSize\": 13\n}\n";
+        for cut in 0..=full.len() {
+            let Some(src) = full.get(..cut) else {
+                continue; // mid-character; `get` declines rather than panics
+            };
+            let _ = read_string_value(src, KEY);
+            let _ = remove_key(src, KEY);
+            if let Some(out) = set_string_value(src, KEY, "/w") {
+                // Anything it agrees to write must come back readable.
+                assert_eq!(
+                    read_string_value(&out, KEY).as_deref(),
+                    Some("/w"),
+                    "{src:?}"
+                );
+            }
+        }
     }
 
     #[test]
