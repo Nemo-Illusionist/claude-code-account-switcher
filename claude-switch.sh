@@ -109,7 +109,7 @@ _claude_msg_en=(
     doctor_lock_drift   "⚠ DRIFT: pinned to %s, signed in as %s"
     doctor_lock_drift_tag "DRIFT"
     doctor_lock_unknown "pinned, but not signed in"
-    doctor_drift_hint   "\nDrift means this directory is signed in as an account it was not pinned to — work done here would go to the wrong one. Put it back with \`claude-acc login <name>\`, or accept the new identity with \`claude-acc lock <name> --force\`."
+    doctor_drift_hint   "Drift means this directory is signed in as an account it was not pinned to — work done here would go to the wrong one. Put it back with \`claude-acc login <name>\`, or accept the new identity with \`claude-acc lock <name> --force\`."
     help_lock           "Pin an account to its current identity"
     clone_settings_usage "Usage: claude-acc clone-settings <name>"
     import_usage        "Usage: claude-acc import <name> <path> [--move]"
@@ -250,7 +250,7 @@ _claude_msg_ru=(
     doctor_lock_drift   "⚠ РАСХОЖДЕНИЕ: закреплён за %s, вход под %s"
     doctor_lock_drift_tag "РАСХОЖДЕНИЕ"
     doctor_lock_unknown "закреплён, но вход не выполнен"
-    doctor_drift_hint   "\nРасхождение значит, что каталог залогинен под аккаунтом, за которым он не закреплён, — работа отсюда уйдёт не туда. Вернуть: \`claude-acc login <name>\`. Принять новую личность: \`claude-acc lock <name> --force\`."
+    doctor_drift_hint   "Расхождение значит, что каталог залогинен под аккаунтом, за которым он не закреплён, — работа отсюда уйдёт не туда. Вернуть: \`claude-acc login <name>\`. Принять новую личность: \`claude-acc lock <name> --force\`."
     help_lock           "Закрепить аккаунт за его текущей личностью"
     clone_settings_usage "Использование: claude-acc clone-settings <name>"
     import_usage        "Использование: claude-acc import <name> <путь> [--move]"
@@ -639,6 +639,10 @@ _claude_acc_add() {
             CLAUDE_CODE_OAUTH_TOKEN AWS_BEARER_TOKEN_BEDROCK
         CLAUDE_CONFIG_DIR="$acc_dir" claude auth login
     )
+    # Record which account this directory now belongs to, so a later
+    # re-login as somebody else is reported rather than silently
+    # accepted. Only writes when there is no pin yet.
+    _claude_acc_lock_after_login "$name"
     echo ""
     _msg add_done
     _msg add_hint_default "$name"
@@ -664,6 +668,7 @@ _claude_acc_login() {
                 CLAUDE_CODE_OAUTH_TOKEN AWS_BEARER_TOKEN_BEDROCK
             CLAUDE_ACC_RUN_DEFAULT=1 claude auth login
         )
+        _claude_acc_lock_after_login "default"
         _msg login_done
         return
     fi
@@ -684,6 +689,9 @@ _claude_acc_login() {
             CLAUDE_CODE_OAUTH_TOKEN AWS_BEARER_TOKEN_BEDROCK
         CLAUDE_CONFIG_DIR="$acc_dir" claude auth login
     )
+    # Pins only if this account has none yet: re-logging in to a pinned
+    # account must not move the pin, since that swap is the drift it reports.
+    _claude_acc_lock_after_login "$name"
     _msg login_done
 }
 

@@ -1025,13 +1025,13 @@ impl I18n {
             (Msg::DoctorLockUnknown, Lang::En) => s("pinned, but not signed in"),
             (Msg::DoctorLockUnknown, Lang::Ru) => s("закреплён, но вход не выполнен"),
             (Msg::DoctorDriftHint, Lang::En) => s(
-                "\nDrift means this directory is signed in as an account it was \
+                "Drift means this directory is signed in as an account it was \
                  not pinned to — work done here would go to the wrong one. Put \
                  it back with `claude-acc login <name>`, or accept the new \
                  identity with `claude-acc lock <name> --force`.",
             ),
             (Msg::DoctorDriftHint, Lang::Ru) => s(
-                "\nРасхождение значит, что каталог залогинен под аккаунтом, за \
+                "Расхождение значит, что каталог залогинен под аккаунтом, за \
                  которым он не закреплён, — работа отсюда уйдёт не туда. \
                  Вернуть: `claude-acc login <name>`. Принять новую личность: \
                  `claude-acc lock <name> --force`.",

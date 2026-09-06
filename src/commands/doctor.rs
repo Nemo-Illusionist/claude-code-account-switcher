@@ -109,22 +109,32 @@ fn run_human(config: &AppConfig, i18n: &I18n, accounts: &[String], standard_pres
     }
 
     let mut healthy = 0usize;
+    let mut drift = false;
     for (label, res) in &rows {
         let is_standard = label == standard_label;
         let pad = " ".repeat(label_w.saturating_sub(label.len()));
+        let acc_name = if is_standard {
+            "default"
+        } else {
+            label.as_str()
+        };
+
+        // The pin comparison reads Claude Code's own local record — a small
+        // file, no keychain and no network — so unlike the rest of this audit
+        // it still works when the account is offline or has no token. Compute
+        // it for every row, not just the healthy ones: an account that cannot
+        // reach the API is exactly when a silent wrong-identity would hurt
+        // most, and a hint printed with no row to point at is worse than
+        // useless.
+        let lock = super::lock::state_marker(config, acc_name, i18n);
+        drift |= super::lock::is_drift(config, acc_name);
+
         match res {
             AuditResult::Ok(p) => {
                 healthy += 1;
                 let email = p.email.as_deref().unwrap_or("<unknown>");
                 let uuid = p.uuid.as_deref().unwrap_or("<unknown>");
                 let shared = shared_seg(p.uuid.as_deref(), label, &by_uuid, i18n);
-                // The pin is compared from Claude Code's own local record, so
-                // this costs a small file read — no keychain, no network.
-                let lock = super::lock::state_marker(
-                    config,
-                    if is_standard { "default" } else { label },
-                    i18n,
-                );
                 if is_standard {
                     println!(
                         "  ✓ {}{}  {}{}  uuid={}  {}{}{}",
@@ -151,7 +161,13 @@ fn run_human(config: &AppConfig, i18n: &I18n, accounts: &[String], standard_pres
                 }
             }
             AuditResult::Offline => {
-                println!("  ? {}{}  {}", label, pad, i18n.msg(Msg::DoctorOffline));
+                println!(
+                    "  ? {}{}  {}{}",
+                    label,
+                    pad,
+                    i18n.msg(Msg::DoctorOffline),
+                    lock
+                );
             }
             AuditResult::NoToken => {
                 // For the standard row this just means the token vanished
@@ -159,10 +175,11 @@ fn run_human(config: &AppConfig, i18n: &I18n, accounts: &[String], standard_pres
                 // matching the prior behavior.
                 if !is_standard {
                     println!(
-                        "  ? {}{}  {}",
+                        "  ? {}{}  {}{}",
                         label,
                         pad,
-                        i18n.msg(Msg::DoctorNoToken(label.clone()))
+                        i18n.msg(Msg::DoctorNoToken(label.clone())),
+                        lock
                     );
                 }
             }
@@ -171,13 +188,8 @@ fn run_human(config: &AppConfig, i18n: &I18n, accounts: &[String], standard_pres
 
     // Drift is the one thing here that means "you are about to do work under
     // the wrong account", so it decides the exit code even when every account
-    // audited fine.
-    let mut names: Vec<String> = accounts.to_vec();
-    if standard_present {
-        names.push("default".to_string());
-    }
-    let drift = super::lock::any_drift(config, &names);
-
+    // audited fine. It is accumulated from the rows actually printed, so the
+    // hint below can never appear without a row explaining it.
     println!();
     if drift {
         i18n.print(Msg::DoctorDriftHint);

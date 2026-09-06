@@ -121,17 +121,15 @@ pub fn state_marker(config: &AppConfig, name: &str, i18n: &I18n) -> String {
     }
 }
 
-/// Whether any account is showing drift — `doctor` exits non-zero on that, so
-/// a script can gate on it.
-pub fn any_drift(config: &AppConfig, names: &[String]) -> bool {
-    names.iter().any(|name| {
-        paths(config, name)
-            .map(|(lock, dir)| {
-                matches!(
-                    identity::lock_state_at(&lock, &dir),
-                    LockState::Drift { .. }
-                )
-            })
-            .unwrap_or(false)
-    })
+/// Whether this account is showing drift — `doctor` exits non-zero when any
+/// is, so a script can gate on it.
+pub fn is_drift(config: &AppConfig, name: &str) -> bool {
+    paths(config, name)
+        .map(|(lock, dir)| {
+            matches!(
+                identity::lock_state_at(&lock, &dir),
+                LockState::Drift { .. }
+            )
+        })
+        .unwrap_or(false)
 }
