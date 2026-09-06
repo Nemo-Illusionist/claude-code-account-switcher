@@ -47,6 +47,7 @@ _claude_acc_completion() {
         'remove:Remove account'
         'default:Show/set default account'
         'reset:Reset default'
+        'lock:Pin an account to its current identity'
         'link:Link account to directory'
         'unlink:Unlink directory'
         'links:Show all links'
@@ -101,6 +102,7 @@ _claude_acc_completion() {
         case "$cmd" in
             add) flags=('--seed:Seed the new account from ~/.claude/' '-s:Seed the new account from ~/.claude/') ;;
             remove) flags=('--force:Skip confirmation' '-f:Skip confirmation') ;;
+            lock) flags=('--force:Re-pin to the identity signed in now' '-f:Re-pin to the identity signed in now') ;;
             import) flags=('--move:Move the directory instead of copying it') ;;
             statusline) flags=('--install:Write the statusLine config into settings.json') ;;
             sessions) flags=('--all:Every project, not just this directory') ;;
@@ -119,7 +121,7 @@ _claude_acc_completion() {
             remove|clone-settings)
                 _claude_acc_accounts
                 ;;
-            default|link|login|run)
+            default|link|login|run|lock)
                 _claude_acc_accounts with-default
                 ;;
             session)

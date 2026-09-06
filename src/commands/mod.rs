@@ -11,6 +11,7 @@ pub mod install;
 pub mod link;
 pub mod links;
 pub mod list;
+pub mod lock;
 pub mod login;
 pub mod remove;
 pub mod reset;

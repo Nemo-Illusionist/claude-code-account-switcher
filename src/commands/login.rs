@@ -61,6 +61,9 @@ pub fn run(config: &AppConfig, i18n: &I18n, name: &str) {
     }
 
     warn_if_duplicate(config, i18n, name, &acc_dir);
+    // Pins only if this account has none yet. Re-logging in to a pinned
+    // account must not move the pin — that swap is the drift it reports.
+    super::lock::write_after_login(config, name);
 
     i18n.print(Msg::LoginDone);
 }
@@ -78,6 +81,7 @@ fn login_default(config: &AppConfig, i18n: &I18n) {
     if let Some(dir) = identity::standard_token_dir() {
         warn_if_duplicate(config, i18n, "~/.claude/", &dir);
     }
+    super::lock::write_after_login(config, "default");
 
     i18n.print(Msg::LoginDone);
 }

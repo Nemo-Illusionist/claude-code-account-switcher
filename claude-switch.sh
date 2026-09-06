@@ -100,6 +100,18 @@ _claude_msg_en=(
     name_invalid        "Account name must contain only letters, digits, hyphens, and underscores."
     seed_copied         "  copied: %s"
     seed_nothing        "  nothing to copy from ~/.claude/"
+    lock_usage          "Usage: claude-acc lock <name> [--force]"
+    lock_done           "Account '%s' pinned to %s.\n  A later login as anyone else will show up in \`claude-acc doctor\` as drift."
+    lock_already        "Account '%s' is already pinned to %s."
+    lock_would_replace  "Account '%s' is pinned to %s, but is signed in as %s.\n  That is drift — the thing the pin exists to report. If the new identity is the one you want here, re-pin deliberately: claude-acc lock %s --force"
+    lock_no_identity    "Account '%s' has no signed-in identity to pin. Log in first: claude-acc login %s"
+    lock_write_failed   "Could not write the pin: %s"
+    doctor_lock_drift   "⚠ DRIFT: pinned to %s, signed in as %s"
+    doctor_lock_unknown "pinned, but not signed in"
+    lock_corrupt        "Account '%s' has a pin that cannot be read: %s\n  Not replacing it — a corrupted pin is how this protection gets switched off unnoticed. Inspect it, then re-pin on purpose: claude-acc lock %s --force"
+    doctor_lock_corrupt "⚠ pin unreadable — the drift check is off for this account"
+    doctor_drift_hint   "Drift means this directory is signed in as an account it was not pinned to — work done here would go to the wrong one. Put it back with \`claude-acc login <name>\`, or accept the new identity with \`claude-acc lock <name> --force\`."
+    help_lock           "Pin an account to its current identity"
     clone_settings_usage "Usage: claude-acc clone-settings <name>"
     import_usage        "Usage: claude-acc import <name> <path> [--move]"
     import_source_not_dir "Source '%s' is not a directory."
@@ -230,6 +242,18 @@ _claude_msg_ru=(
     name_invalid        "Имя аккаунта может содержать только буквы, цифры, дефисы и подчёркивания."
     seed_copied         "  скопировано: %s"
     seed_nothing        "  нечего копировать из ~/.claude/"
+    lock_usage          "Использование: claude-acc lock <name> [--force]"
+    lock_done           "Аккаунт '%s' закреплён за %s.\n  Если позже войти под кем-то другим, \`claude-acc doctor\` покажет расхождение."
+    lock_already        "Аккаунт '%s' уже закреплён за %s."
+    lock_would_replace  "Аккаунт '%s' закреплён за %s, а вход выполнен под %s.\n  Это и есть расхождение, ради которого закрепление и делается. Если новая личность здесь и нужна — закрепите её осознанно: claude-acc lock %s --force"
+    lock_no_identity    "У аккаунта '%s' нет личности, которую можно закрепить — вход не выполнен. Сначала: claude-acc login %s"
+    lock_write_failed   "Не удалось записать закрепление: %s"
+    doctor_lock_drift   "⚠ РАСХОЖДЕНИЕ: закреплён за %s, вход под %s"
+    doctor_lock_unknown "закреплён, но вход не выполнен"
+    lock_corrupt        "У аккаунта '%s' закрепление не читается: %s\n  Не заменяю — повреждённое закрепление это и есть способ незаметно отключить защиту. Посмотрите файл, потом закрепите осознанно: claude-acc lock %s --force"
+    doctor_lock_corrupt "⚠ закрепление не читается — проверка расхождений для этого аккаунта не работает"
+    doctor_drift_hint   "Расхождение значит, что каталог залогинен под аккаунтом, за которым он не закреплён, — работа отсюда уйдёт не туда. Вернуть: \`claude-acc login <name>\`. Принять новую личность: \`claude-acc lock <name> --force\`."
+    help_lock           "Закрепить аккаунт за его текущей личностью"
     clone_settings_usage "Использование: claude-acc clone-settings <name>"
     import_usage        "Использование: claude-acc import <name> <путь> [--move]"
     import_source_not_dir "Источник '%s' не является директорией."
@@ -617,6 +641,10 @@ _claude_acc_add() {
             CLAUDE_CODE_OAUTH_TOKEN AWS_BEARER_TOKEN_BEDROCK
         CLAUDE_CONFIG_DIR="$acc_dir" claude auth login
     )
+    # Record which account this directory now belongs to, so a later
+    # re-login as somebody else is reported rather than silently
+    # accepted. Only writes when there is no pin yet.
+    _claude_acc_lock_after_login "$name"
     echo ""
     _msg add_done
     _msg add_hint_default "$name"
@@ -642,6 +670,7 @@ _claude_acc_login() {
                 CLAUDE_CODE_OAUTH_TOKEN AWS_BEARER_TOKEN_BEDROCK
             CLAUDE_ACC_RUN_DEFAULT=1 claude auth login
         )
+        _claude_acc_lock_after_login "default"
         _msg login_done
         return
     fi
@@ -662,6 +691,9 @@ _claude_acc_login() {
             CLAUDE_CODE_OAUTH_TOKEN AWS_BEARER_TOKEN_BEDROCK
         CLAUDE_CONFIG_DIR="$acc_dir" claude auth login
     )
+    # Pins only if this account has none yet: re-logging in to a pinned
+    # account must not move the pin, since that swap is the drift it reports.
+    _claude_acc_lock_after_login "$name"
     _msg login_done
 }
 
@@ -1899,6 +1931,182 @@ _claude_acc_import() {
     _msg import_verified "$email"
 }
 
+# Where an account's pin lives, and the config dir it describes.
+#
+# The standard account is the odd one out on both counts: its config dir is
+# ~/.claude/, which belongs to Claude Code and which we only read, so its pin
+# goes beside our own state instead — the same rule the doctor cache follows.
+# And Claude Code writes its own record at `CLAUDE_CONFIG_DIR ?? $HOME`, so
+# for the standard account that file sits next to ~/.claude/, not inside it.
+_claude_acc_lock_paths() {
+    local name="$1"
+    if [[ "$name" == "default" ]]; then
+        print -r -- "$CLAUDE_SWITCH_DIR/default.identity-lock.json"
+        print -r -- "$HOME/.claude.json"
+    else
+        print -r -- "$CLAUDE_SWITCH_ACCOUNTS_DIR/$name/.identity-lock.json"
+        print -r -- "$CLAUDE_SWITCH_ACCOUNTS_DIR/$name/.claude.json"
+    fi
+}
+
+# The account Claude Code last signed a config dir in as, from its own file:
+# a local JSON read, no keychain prompt and no network. Prints "uuid<TAB>email".
+_claude_acc_local_identity() {
+    local f="$1"
+    [[ -f "$f" ]] || return 1
+    local out
+    out=$(jq -r '
+        if (.oauthAccount.accountUuid // "") == "" then empty
+        else "\(.oauthAccount.accountUuid)\t\(.oauthAccount.emailAddress // "")" end' \
+        "$f" 2>/dev/null) || return 1
+    [[ -z "$out" ]] && return 1
+    print -r -- "$out"
+}
+
+# Reads a pin. Exit 0 = pinned (prints "uuid<TAB>email"), 1 = no pin at all,
+# 2 = there is a pin and it cannot be read.
+#
+# The third case has to stay separate: a corrupted pin that reads as "no pin"
+# silently switches the drift check off for that account, and lets `lock`
+# overwrite it without --force. It is the one artefact the feature rests on.
+_claude_acc_read_lock() {
+    local f="$1"
+    [[ -e "$f" ]] || return 1
+    local out
+    out=$(jq -r 'if (.uuid | type) != "string" or .uuid == "" then empty
+                 else "\(.uuid)\t\(.email // "")" end' "$f" 2>/dev/null) || return 2
+    [[ -z "$out" ]] && return 2
+    print -r -- "$out"
+    return 0
+}
+
+# "email (uuid)", or the bare uuid when no email was recorded.
+_claude_acc_describe_identity() {
+    local uuid="$1" email="$2"
+    if [[ -n "$email" ]]; then print -r -- "$email ($uuid)"; else print -r -- "$uuid"; fi
+}
+
+_claude_acc_lock() {
+    local force=0 name=""
+    while (( $# )); do
+        case "$1" in
+            -f|--force) force=1; shift ;;
+            *) name="$1"; shift ;;
+        esac
+    done
+    if [[ -z "$name" ]]; then
+        _msg lock_usage
+        return 1
+    fi
+    if [[ "$name" != "default" && ! -d "$CLAUDE_SWITCH_ACCOUNTS_DIR/$name" ]]; then
+        _msg login_not_found "$name"
+        return 1
+    fi
+
+    local lock_file id_file cur_line
+    { read -r lock_file; read -r id_file } < <(_claude_acc_lock_paths "$name")
+
+    if ! cur_line=$(_claude_acc_local_identity "$id_file"); then
+        _msg lock_no_identity "$name" "$name"
+        return 1
+    fi
+    local cur_uuid="${cur_line%%$'\t'*}" cur_email="${cur_line#*$'\t'}"
+    local cur_desc; cur_desc=$(_claude_acc_describe_identity "$cur_uuid" "$cur_email")
+
+    # An existing pin is never replaced silently: re-pinning is how a drift
+    # warning gets switched off, and doing that by accident is the one outcome
+    # this command must not produce.
+    local old_line rc
+    old_line=$(_claude_acc_read_lock "$lock_file"); rc=$?
+    if (( rc == 2 && ! force )); then
+        _msg lock_corrupt "$name" "$lock_file" "$name"
+        return 1
+    fi
+    if (( rc == 0 && ! force )); then
+        local old_uuid="${old_line%%$'\t'*}" old_email="${old_line#*$'\t'}"
+        local old_desc; old_desc=$(_claude_acc_describe_identity "$old_uuid" "$old_email")
+        if [[ "$old_uuid" == "$cur_uuid" ]]; then
+            _msg lock_already "$name" "$old_desc"
+            return 0
+        fi
+        _msg lock_would_replace "$name" "$old_desc" "$cur_desc" "$name"
+        return 1
+    fi
+
+    local now; now=$(date +%s)
+    if ! jq -n --arg uuid "$cur_uuid" --arg email "$cur_email" --argjson at "$now" \
+        '{uuid: $uuid, email: (if $email == "" then null else $email end), locked_at: $at}' \
+        > "$lock_file.tmp" 2>/dev/null && mv "$lock_file.tmp" "$lock_file"; then
+        rm -f "$lock_file.tmp"
+        _msg lock_write_failed "$lock_file"
+        return 1
+    fi
+    _msg lock_done "$name" "$cur_desc"
+    return 0
+}
+
+# Pin after a login, best-effort, and only when there is no pin yet:
+# re-logging in to a pinned account must not move the pin, since that swap is
+# exactly the drift the pin exists to report.
+_claude_acc_lock_after_login() {
+    local name="$1" lock_file id_file cur_line now
+    { read -r lock_file; read -r id_file } < <(_claude_acc_lock_paths "$name")
+    # Anything other than "no pin at all" is left alone, a corrupt one
+    # included: this runs unattended after a login and must never be the thing
+    # that quietly replaces a pin.
+    _claude_acc_read_lock "$lock_file" >/dev/null; (( $? != 1 )) && return 0
+    cur_line=$(_claude_acc_local_identity "$id_file") || return 0
+    now=$(date +%s)
+    jq -n --arg uuid "${cur_line%%$'\t'*}" --arg email "${cur_line#*$'\t'}" --argjson at "$now" \
+        '{uuid: $uuid, email: (if $email == "" then null else $email end), locked_at: $at}' \
+        > "$lock_file.tmp" 2>/dev/null && mv "$lock_file.tmp" "$lock_file" || rm -f "$lock_file.tmp"
+    return 0
+}
+
+# The pin state as a stable word — never the translated marker text.
+#
+# doctor used to decide "is this drift?" by substring-matching the localized
+# tag, so changing a translation would have silently switched drift detection
+# off in this implementation while leaving it on in the Rust one.
+_claude_acc_lock_state() {
+    local name="$1" lock_file id_file lock_line cur_line rc
+    { read -r lock_file; read -r id_file } < <(_claude_acc_lock_paths "$name")
+    lock_line=$(_claude_acc_read_lock "$lock_file"); rc=$?
+    (( rc == 1 )) && { print -r -- "none"; return 0 }
+    (( rc == 2 )) && { print -r -- "corrupt"; return 0 }
+    if ! cur_line=$(_claude_acc_local_identity "$id_file"); then
+        print -r -- "unknown"
+        return 0
+    fi
+    if [[ "${lock_line%%$'\t'*}" == "${cur_line%%$'\t'*}" ]]; then
+        print -r -- "ok"
+    else
+        print -r -- "drift"
+    fi
+}
+
+# The marker doctor appends to a row: empty unless something needs attention.
+_claude_acc_lock_marker() {
+    local name="$1" lock_file id_file lock_line cur_line
+    { read -r lock_file; read -r id_file } < <(_claude_acc_lock_paths "$name")
+    local rc
+    lock_line=$(_claude_acc_read_lock "$lock_file"); rc=$?
+    (( rc == 1 )) && return 0
+    if (( rc == 2 )); then
+        print -r -- "  $(_msg doctor_lock_corrupt)"
+        return 0
+    fi
+    if ! cur_line=$(_claude_acc_local_identity "$id_file"); then
+        print -r -- "  $(_msg doctor_lock_unknown)"
+        return 0
+    fi
+    local lu="${lock_line%%$'\t'*}" cu="${cur_line%%$'\t'*}"
+    [[ "$lu" == "$cu" ]] && return 0
+    print -r -- "  $(_msg doctor_lock_drift \
+        "$(_claude_acc_describe_identity "$lu" "${lock_line#*$'\t'}")" \
+        "$(_claude_acc_describe_identity "$cu" "${cur_line#*$'\t'}")")"
+}
+
 _claude_acc_doctor() {
     local json=0
     if [[ "$1" == "--json" ]]; then
@@ -1996,17 +2204,29 @@ _claude_acc_doctor() {
 
     # Pass 2 — render, annotating accounts that share a UUID. ('status' is a
     # read-only special parameter in zsh, so the row state lives in `st`.)
-    local healthy=0 i label kind st plan_seg others nm
+    # `lock_seg` belongs here, not inside the loop: zsh's `typeset` echoes
+    # "name=value" to stdout when a `local` re-declares a name that already
+    # exists in the same scope — the same trap the comment above records for
+    # `acc`, and it only shows up with two or more rows.
+    local healthy=0 drift=0 i label kind st plan_seg others nm lock_seg acc_name
     local -a sib keep
     for (( i = 1; i <= ${#r_label}; i++ )); do
         label="${r_label[$i]}"; kind="${r_kind[$i]}"; st="${r_status[$i]}"
         email="${r_email[$i]}"; uuid="${r_uuid[$i]}"; plan="${r_plan[$i]}"
+        # The pin comparison reads a local file, so unlike the rest of this
+        # audit it still works with no token and no network — compute it for
+        # every row, not just the healthy ones, and take drift from what was
+        # actually printed so the hint can never appear without its row.
+        acc_name="$label"; [[ "$kind" == "standard" ]] && acc_name="default"
+        lock_seg=$(_claude_acc_lock_marker "$acc_name")
+        [[ "$(_claude_acc_lock_state "$acc_name")" == "drift" ]] && drift=1
         case "$st" in
             no_token)
-                printf "  ? %-${width}s  %s\n" "$label" "$(_msg doctor_no_token "$label")"
+                printf "  ? %-${width}s  %s%s\n" "$label" \
+                    "$(_msg doctor_no_token "$acc_name")" "$lock_seg"
                 ;;
             offline)
-                printf "  ? %-${width}s  %s\n" "$label" "$(_msg doctor_offline)"
+                printf "  ? %-${width}s  %s%s\n" "$label" "$(_msg doctor_offline)" "$lock_seg"
                 ;;
             ok)
                 (( healthy++ ))
@@ -2020,24 +2240,29 @@ _claude_acc_doctor() {
                     (( ${#keep} > 0 )) && others="  $(_msg doctor_shared_identity "${(j:, :)keep}")"
                 fi
                 if [[ "$kind" == "standard" ]]; then
-                    printf "  ✓ %-${width}s  %s%s  uuid=%s  (%s)%s\n" \
-                        "$label" "$email" "$plan_seg" "$uuid" "$(_msg list_standard)" "$others"
+                    printf "  ✓ %-${width}s  %s%s  uuid=%s  %s%s%s\n" \
+                        "$label" "$email" "$plan_seg" "$uuid" "$(_msg list_standard)" "$others" "$lock_seg"
                 else
-                    printf "  ✓ %-${width}s  %s%s  uuid=%s%s\n" \
-                        "$label" "$email" "$plan_seg" "$uuid" "$others"
+                    printf "  ✓ %-${width}s  %s%s  uuid=%s%s%s\n" \
+                        "$label" "$email" "$plan_seg" "$uuid" "$others" "$lock_seg"
                 fi
                 ;;
         esac
     done
 
     echo ""
+    # Drift is the one thing here that means "you are about to do work under
+    # the wrong account", so it decides the exit code even when every account
+    # audited fine.
+    (( drift )) && _msg doctor_drift_hint
+    # Exactly one summary line, always — see the Rust side.
     if (( healthy == total )); then
         _msg doctor_all_ok
-        return 0
     else
         _msg doctor_partial "$healthy" "$total"
-        return 1
     fi
+    (( healthy == total && drift == 0 )) && return 0
+    return 1
 }
 
 # JSON form of `doctor`. Last positional arg is the standard_present flag (0/1);
@@ -2149,6 +2374,7 @@ claude-acc() {
         remove)  _claude_acc_remove "$@" ;;
         default) _claude_acc_default "$@" ;;
         reset)   _claude_acc_reset ;;
+        lock)    _claude_acc_lock "$@" ;;
         link)    _claude_acc_link "$@" ;;
         unlink)  _claude_acc_unlink "$@" ;;
         links)   _claude_acc_links ;;
@@ -2186,6 +2412,7 @@ _claude_acc_completion() {
         "usage:$(_msg help_usage)"
         "update:$(_msg help_update)"
         "run:$(_msg help_run)"
+        "lock:$(_msg help_lock)"
         "doctor:$(_msg help_doctor)"
         "whoami:$(_msg help_whoami)"
         "clone-settings:$(_msg help_clone_settings)"

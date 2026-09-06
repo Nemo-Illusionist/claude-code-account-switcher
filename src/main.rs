@@ -65,6 +65,21 @@ enum Commands {
         force: bool,
         name: String,
     },
+    /// Pin an account to the identity it is signed in as
+    ///
+    /// A re-login can quietly swap which Anthropic account a config dir
+    /// belongs to — the OAuth flow does not ask which one you meant. Pinning
+    /// records the answer, and `doctor` reports it when the two stop
+    /// matching. `add` and `login` pin automatically the first time; this is
+    /// for accounts that predate that, or for accepting a new identity on
+    /// purpose with `--force`.
+    Lock {
+        /// Account name, or "default" for ~/.claude
+        name: String,
+        /// Re-pin to the identity signed in now, replacing the old pin
+        #[arg(short, long)]
+        force: bool,
+    },
     /// Show/set default account
     Default { name: Option<String> },
     /// Reset default to ~/.claude/
@@ -335,6 +350,9 @@ fn main() {
         Some(Commands::Login { name }) => commands::login::run(&config, &i18n, &name),
         Some(Commands::Remove { force, name }) => {
             commands::remove::run(&config, &i18n, &name, force)
+        }
+        Some(Commands::Lock { name, force }) => {
+            std::process::exit(commands::lock::run(&config, &i18n, &name, force))
         }
         Some(Commands::Default { name }) => commands::default::run(&config, &i18n, name.as_deref()),
         Some(Commands::Reset) => commands::reset::run(&config, &i18n),
