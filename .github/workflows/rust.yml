@@ -1,13 +1,11 @@
 name: Rust
 
 on:
+  # No `paths` filter here on purpose. A required status check that never
+  # runs never reports, and the pull request waits on it forever — so every
+  # PR runs this, including one that only touches docs. The `push` filter
+  # below keeps that from costing anything on master.
   pull_request:
-    paths:
-      - 'src/**'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
-      - 'shell/**'
-      - '.github/workflows/rust.yml'
   push:
     branches: [master]
     paths:
