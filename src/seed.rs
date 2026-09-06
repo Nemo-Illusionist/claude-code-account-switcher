@@ -414,9 +414,21 @@ mod tests {
             "hi",
         )
         .unwrap();
+        // Build the registry with serde rather than by substituting the path
+        // into a JSON string literal: a Windows path pastes `C:\Users\...`
+        // straight into the document, and `\U` is not a valid JSON escape.
+        let registry = serde_json::json!({
+            "version": 2,
+            "plugins": {
+                "helper@official": [{
+                    "scope": "user",
+                    "installPath": src_plugins.join("cache/official/helper/abc"),
+                }]
+            }
+        });
         fs::write(
             src_plugins.join("installed_plugins.json"),
-            REGISTRY.replace("/old/.claude/plugins", &src_plugins.to_string_lossy()),
+            serde_json::to_string_pretty(&registry).unwrap(),
         )
         .unwrap();
         fs::create_dir_all(&target).unwrap();
