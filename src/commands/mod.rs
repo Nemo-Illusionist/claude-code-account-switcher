@@ -23,6 +23,7 @@ pub mod statusline;
 pub mod unlink;
 pub mod update;
 pub mod usage;
+pub mod vscode;
 pub mod whoami;
 
 use crate::config::AppConfig;

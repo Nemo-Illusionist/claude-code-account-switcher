@@ -12,6 +12,7 @@ mod identity;
 mod resolve;
 mod seed;
 mod sessions;
+mod vscode;
 mod windows_invocation;
 
 use clap::{Parser, Subcommand};
@@ -137,6 +138,17 @@ enum Commands {
     Whoami,
     /// Install binary and shell integration
     Install,
+    /// Wire the VS Code extension's native UI up to directory-bound accounts
+    ///
+    /// The extension's native UI launches the `claude` binary it ships
+    /// instead of resolving one from PATH, so the wrapper `install` puts on
+    /// PATH never runs for it and every workspace gets the same account.
+    /// Pointing its `claudeCode.claudeProcessWrapper` setting at a launcher
+    /// of ours fixes that. Terminal mode has never needed this.
+    Vscode {
+        #[command(subcommand)]
+        action: VscodeCommands,
+    },
     /// Update the installed binary to the latest GitHub release
     Update {
         /// Only check whether an update is available; don't download
@@ -227,6 +239,20 @@ enum DesktopCommands {
         force: bool,
         name: String,
     },
+}
+
+#[derive(Subcommand)]
+enum VscodeCommands {
+    /// Point every installed editor at the wrapper
+    Install {
+        /// Replace a `claudeCode.claudeProcessWrapper` set to something else
+        #[arg(short, long)]
+        force: bool,
+    },
+    /// Remove the setting again
+    Uninstall,
+    /// Show what each installed editor currently points at
+    Status,
 }
 
 #[derive(Subcommand)]
@@ -370,6 +396,11 @@ fn main() {
         }
         Some(Commands::Whoami) => commands::whoami::run(&config),
         Some(Commands::Install) => commands::install::run(&config, &i18n),
+        Some(Commands::Vscode { action }) => std::process::exit(match action {
+            VscodeCommands::Install { force } => commands::vscode::install(&config, &i18n, force),
+            VscodeCommands::Uninstall => commands::vscode::uninstall(&config, &i18n),
+            VscodeCommands::Status => commands::vscode::status(&config, &i18n),
+        }),
         Some(Commands::Update { check, version }) => std::process::exit(commands::update::run(
             &config,
             &i18n,

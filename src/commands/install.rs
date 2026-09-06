@@ -89,7 +89,25 @@ fn ensure_ide_integration(config: &AppConfig, claude_acc_bin: &Path) {
     // and binary copy already happened.
     let _ = ide::install_wrapper(config, claude_acc_bin);
     let _ = ide::refresh_all_account_symlinks(config);
+    refresh_vscode_wrapper(config, claude_acc_bin);
 }
+
+/// The VS Code launcher embeds the path to this binary, exactly as the PATH
+/// wrapper does, so `install` has to refresh it for the same reason `update`
+/// does: a stale one points at wherever `claude-acc` used to be, and every
+/// launch then falls back to the standard account with nothing to say why.
+///
+/// Only refreshes one that is already there — `install` is not the moment to
+/// start writing into someone's editor config; that is `vscode install`.
+#[cfg(not(windows))]
+fn refresh_vscode_wrapper(config: &AppConfig, claude_acc_bin: &Path) {
+    if crate::vscode::wrapper_path(&config.base_dir).exists() {
+        let _ = crate::vscode::install_wrapper(&config.base_dir, claude_acc_bin);
+    }
+}
+
+#[cfg(windows)]
+fn refresh_vscode_wrapper(_config: &AppConfig, _claude_acc_bin: &Path) {}
 
 fn ensure_shell_integration(config: &AppConfig, i18n: &I18n) {
     let bin_path = config.base_dir.join("bin").join(binary_name());
@@ -150,6 +168,11 @@ fn ensure_shell_integration(config: &AppConfig, i18n: &I18n) {
     } else {
         i18n.print(Msg::InstallShellManual(eval_line));
     }
+
+    // The VS Code extension's native UI doesn't go through PATH, so the
+    // wrapper above doesn't reach it. Say so — but don't write into
+    // someone's editor config unasked; that's `vscode install`.
+    super::vscode::print_install_hint(config, i18n);
 }
 
 fn detect_shell_and_rc() -> (String, Option<PathBuf>) {
