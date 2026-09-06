@@ -20,6 +20,11 @@ updates:
     groups:
       # The RustCrypto stack decrypts desktop profile tokens; they move
       # together and are reviewed together.
+      #
+      # `update-types` on every group, not just the last: a group without it
+      # takes majors too. The first run proved it — six RustCrypto majors
+      # arrived here as one PR that did not compile, because `cipher` 0.5
+      # renamed the block-mode traits (#111).
       crypto:
         patterns:
           - aes
@@ -28,8 +33,13 @@ updates:
           - pbkdf2
           - sha1
           - sha2
-      # Everything else, minor and patch in one PR. A major bump comes on its
-      # own, because it is a decision rather than a bump.
+        update-types:
+          - minor
+          - patch
+      # Everything else, minor and patch in one PR. A major arrives on its
+      # own — ungrouped, because it is a decision rather than a bump, and
+      # because bundling one with routine updates means a failing PR nobody
+      # can split.
       rust-minor-and-patch:
         patterns:
           - "*"
@@ -49,3 +59,6 @@ updates:
       actions:
         patterns:
           - "*"
+        update-types:
+          - minor
+          - patch
