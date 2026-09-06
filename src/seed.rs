@@ -133,7 +133,10 @@ fn plural(n: usize) -> &'static str {
     if n == 1 { "" } else { "s" }
 }
 
-#[cfg(test)]
+// Every test here creates symlinks, so the whole module is unix-only.
+// Gating the tests individually and leaving the module in place makes the
+// helper and the `use` dead code on Windows, which fails CI's `-D warnings`.
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
 
@@ -145,7 +148,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(unix)]
     fn a_symlinked_directory_does_not_abort_the_copy_and_stays_a_link() {
         // Regression: `fs::copy` refuses a symlink to a directory, so a single
         // symlinked skill — `~/.claude/skills/foo -> ~/elsewhere/foo` is an
@@ -193,7 +195,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(unix)]
     fn a_dangling_symlink_is_carried_over_rather_than_failing_the_seed() {
         let dir = scratch("dangling");
         let src = dir.join("src");
