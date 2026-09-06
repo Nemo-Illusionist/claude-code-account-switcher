@@ -127,7 +127,7 @@ fn run_human(config: &AppConfig, i18n: &I18n, accounts: &[String], standard_pres
                 );
                 if is_standard {
                     println!(
-                        "  ✓ {}{}  {}{}  uuid={}  ({}){}{}",
+                        "  ✓ {}{}  {}{}  uuid={}  {}{}{}",
                         label,
                         pad,
                         email,

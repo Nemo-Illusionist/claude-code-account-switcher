@@ -358,8 +358,8 @@ what the pin exists to report.
 ```
 $ claude-acc doctor
 Auditing 2 account(s):
-  ✓ work        alice@corp.com  uuid=a72fe3df-…  ⚠ DRIFT: pinned to alice@corp.com (a72fe3df-…), signed in as bob@personal.com (aa6c22d5-…)
-  ✓ ~/.claude/  bob@personal.com  Max 20x  uuid=aa6c22d5-…  (standard)
+  ✓ work        alice@corp.com  uuid=a72fe3df-3623-46b0-89ab-85770432d3fd  ⚠ DRIFT: pinned to bob@personal.com (aa6c22d5-f7d1-4ac1-bb29-22abc90481c1), signed in as alice@corp.com (a72fe3df-3623-46b0-89ab-85770432d3fd)
+  ✓ ~/.claude/  bob@personal.com  Max 20x  uuid=aa6c22d5-f7d1-4ac1-bb29-22abc90481c1  (standard)
 
 Drift means this directory is signed in as an account it was not pinned to — work done here would go to the wrong one. Put it back with `claude-acc login <name>`, or accept the new identity with `claude-acc lock <name> --force`.
 ```

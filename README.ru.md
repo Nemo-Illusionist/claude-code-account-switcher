@@ -358,9 +358,9 @@ claude-acc lock default         # стандартный ~/.claude тоже мо
 
 ```
 $ claude-acc doctor
-Аудит 2 аккаунт(ов):
-  ✓ work        alice@corp.com  uuid=a72fe3df-…  ⚠ РАСХОЖДЕНИЕ: закреплён за alice@corp.com (a72fe3df-…), вход под bob@personal.com (aa6c22d5-…)
-  ✓ ~/.claude/  bob@personal.com  Max 20x  uuid=aa6c22d5-…  (стандартный)
+Проверка 2 аккаунт(ов):
+  ✓ work        alice@corp.com  uuid=a72fe3df-3623-46b0-89ab-85770432d3fd  ⚠ РАСХОЖДЕНИЕ: закреплён за bob@personal.com (aa6c22d5-f7d1-4ac1-bb29-22abc90481c1), вход под alice@corp.com (a72fe3df-3623-46b0-89ab-85770432d3fd)
+  ✓ ~/.claude/  bob@personal.com  Max 20x  uuid=aa6c22d5-f7d1-4ac1-bb29-22abc90481c1  (стандартный)
 
 Расхождение значит, что каталог залогинен под аккаунтом, за которым он не закреплён, — работа отсюда уйдёт не туда. Вернуть: `claude-acc login <name>`. Принять новую личность: `claude-acc lock <name> --force`.
 ```

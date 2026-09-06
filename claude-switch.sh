@@ -2176,7 +2176,7 @@ _claude_acc_doctor() {
                 local lock_seg
                 if [[ "$kind" == "standard" ]]; then
                     lock_seg=$(_claude_acc_lock_marker "default")
-                    printf "  ✓ %-${width}s  %s%s  uuid=%s  (%s)%s%s\n" \
+                    printf "  ✓ %-${width}s  %s%s  uuid=%s  %s%s%s\n" \
                         "$label" "$email" "$plan_seg" "$uuid" "$(_msg list_standard)" "$others" "$lock_seg"
                 else
                     lock_seg=$(_claude_acc_lock_marker "$label")
