@@ -61,12 +61,24 @@ pub fn run(config: &AppConfig, i18n: &I18n, json: bool) -> i32 {
 fn run_human(config: &AppConfig, i18n: &I18n, accounts: &[String], standard_present: bool) -> i32 {
     let standard_label = "~/.claude/";
 
-    if accounts.is_empty() && !standard_present {
+    // The standard account earns a row when it has a token *or* when its pin
+    // has something to say. Gating the pin check on the token would hide
+    // drift in `~/.claude.json` completely — and that account is the one
+    // `claude` falls back to, so a wrong identity there is the easiest to
+    // walk into. Computed before the empty-check below for the same reason.
+    let standard_lock_finding = !super::lock::state_marker(config, "default", i18n).is_empty();
+
+    if accounts.is_empty() && !standard_present && !standard_lock_finding {
         i18n.print(Msg::ListEmpty);
         return 0;
     }
 
-    let total = accounts.len() + if standard_present { 1 } else { 0 };
+    let total = accounts.len()
+        + if standard_present || standard_lock_finding {
+            1
+        } else {
+            0
+        };
     i18n.print(Msg::DoctorHeader(total));
 
     let label_w = accounts
@@ -91,7 +103,7 @@ fn run_human(config: &AppConfig, i18n: &I18n, accounts: &[String], standard_pres
             )
         })
         .collect();
-    if standard_present {
+    if standard_present || standard_lock_finding {
         rows.push((
             standard_label.to_string(),
             identity::audit_default(&config.base_dir),
@@ -170,15 +182,20 @@ fn run_human(config: &AppConfig, i18n: &I18n, accounts: &[String], standard_pres
                 );
             }
             AuditResult::NoToken => {
-                // For the standard row this just means the token vanished
-                // between the presence check and the audit — skip it silently,
-                // matching the prior behavior.
-                if !is_standard {
+                // For the standard row this normally just means the token
+                // vanished between the presence check and the audit — skip it
+                // silently, matching the prior behaviour. Unless the pin has
+                // something to report, in which case swallowing the row would
+                // leave the hint below with nothing to point at.
+                if !is_standard || !lock.is_empty() {
                     println!(
                         "  ? {}{}  {}{}",
                         label,
                         pad,
-                        i18n.msg(Msg::DoctorNoToken(label.clone())),
+                        // The hint names the argument `login` actually takes.
+                        // For the standard account that is `default`, not the
+                        // `~/.claude/` label the row is titled with.
+                        i18n.msg(Msg::DoctorNoToken(acc_name.to_string())),
                         lock
                     );
                 }
@@ -194,15 +211,15 @@ fn run_human(config: &AppConfig, i18n: &I18n, accounts: &[String], standard_pres
     if drift {
         i18n.print(Msg::DoctorDriftHint);
     }
-    if healthy == total && !drift {
+    // Exactly one summary line, always — a script grepping for either of
+    // these must not find silence just because drift showed up alongside a
+    // clean audit.
+    if healthy == total {
         i18n.print(Msg::DoctorAllOk);
-        0
     } else {
-        if healthy != total {
-            i18n.print(Msg::DoctorPartial(healthy, total));
-        }
-        1
+        i18n.print(Msg::DoctorPartial(healthy, total));
     }
+    if healthy == total && !drift { 0 } else { 1 }
 }
 
 /// Emit the same audit information as `run_human`, but as a single JSON
@@ -218,9 +235,17 @@ fn run_human(config: &AppConfig, i18n: &I18n, accounts: &[String], standard_pres
 /// }
 /// ```
 ///
-/// Same exit semantics as the human form: 0 if all audited entries are `ok`,
-/// 1 otherwise. `no_token` entries are *not* counted as failures (an account
-/// that hasn't been logged into is a known-empty state, not an error).
+/// Each entry also carries `"lock"`: `"ok"`, `"drift"`, `"none"`, `"unknown"`
+/// or `"corrupt"`, plus `"pinned_uuid"` when there is a pin. The human form
+/// exits 1 on drift and says why; a `--json` consumer is the one most likely
+/// to be gating a script on this, so it must be able to see the same thing —
+/// reporting it only to the human would leave automation blind to exactly
+/// what this is for.
+///
+/// Same exit semantics as the human form: 0 if all audited entries are `ok`
+/// and nothing has drifted, 1 otherwise. `no_token` entries are *not* counted
+/// as failures (an account that hasn't been logged into is a known-empty
+/// state, not an error).
 fn run_json(config: &AppConfig, accounts: &[String], standard_present: bool) -> i32 {
     let default_acc = config.get_default().ok().flatten();
     let mut entries = Vec::with_capacity(accounts.len());
@@ -228,24 +253,38 @@ fn run_json(config: &AppConfig, accounts: &[String], standard_present: bool) -> 
 
     for acc in accounts {
         let acc_dir = config.account_path(acc);
-        let entry = build_entry(
+        let mut entry = build_entry(
             acc.as_str(),
             identity::audit_account(&acc_dir),
             Some(default_acc.as_deref() == Some(acc.as_str())),
         );
-        if entry["status"] == "offline" {
+        add_lock_fields(config, acc.as_str(), &mut entry);
+        if entry["status"] == "offline" || entry["lock"] == "drift" {
             any_problem = true;
         }
         entries.push(entry);
     }
 
+    // The standard account's pin is checked whether or not it has a token:
+    // the comparison reads a local file, and an account that cannot be
+    // audited is not a reason to stop reporting that it is the wrong one.
     let standard = if standard_present {
-        let entry = build_entry(
+        let mut entry = build_entry(
             "~/.claude/",
             identity::audit_default(&config.base_dir),
             None,
         );
-        if entry["status"] == "offline" {
+        add_lock_fields(config, "default", &mut entry);
+        if entry["status"] == "offline" || entry["lock"] == "drift" {
+            any_problem = true;
+        }
+        Some(entry)
+    } else if super::lock::json_state(config, "default").0 != "none" {
+        // Same rule as the human form: a pin with something to report gets an
+        // entry even when the account has no token to audit.
+        let mut entry = build_entry("~/.claude/", AuditResult::NoToken, None);
+        add_lock_fields(config, "default", &mut entry);
+        if entry["lock"] == "drift" {
             any_problem = true;
         }
         Some(entry)
@@ -260,6 +299,17 @@ fn run_json(config: &AppConfig, accounts: &[String], standard_present: bool) -> 
     println!("{}", serde_json::to_string_pretty(&doc).unwrap_or_default());
 
     if any_problem { 1 } else { 0 }
+}
+
+/// Add `lock` and `pinned_uuid` to an entry. Separate from `build_entry`
+/// because the pin is read from a local file rather than from the audit —
+/// different source, different failure modes.
+fn add_lock_fields(config: &AppConfig, acc_name: &str, entry: &mut serde_json::Value) {
+    let (state, pinned) = super::lock::json_state(config, acc_name);
+    if let Some(obj) = entry.as_object_mut() {
+        obj.insert("lock".to_string(), serde_json::json!(state));
+        obj.insert("pinned_uuid".to_string(), serde_json::json!(pinned));
+    }
 }
 
 fn build_entry(name: &str, result: AuditResult, is_default: Option<bool>) -> serde_json::Value {

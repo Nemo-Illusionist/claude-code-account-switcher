@@ -1022,6 +1022,26 @@ impl I18n {
             (Msg::DoctorLockDrift(ref exp, ref act), Lang::Ru) => {
                 format!("⚠ РАСХОЖДЕНИЕ: закреплён за {}, вход под {}", exp, act)
             }
+            (Msg::LockCorrupt(ref n, ref p, ref n2), Lang::En) => format!(
+                "Account '{}' has a pin that cannot be read: {}\n  Not \
+                 replacing it — a corrupted pin is how this protection gets \
+                 switched off unnoticed. Inspect it, then re-pin on purpose: \
+                 claude-acc lock {} --force",
+                n, p, n2
+            ),
+            (Msg::LockCorrupt(ref n, ref p, ref n2), Lang::Ru) => format!(
+                "У аккаунта '{}' закрепление не читается: {}\n  Не заменяю — \
+                 повреждённое закрепление это и есть способ незаметно \
+                 отключить защиту. Посмотрите файл, потом закрепите осознанно: \
+                 claude-acc lock {} --force",
+                n, p, n2
+            ),
+            (Msg::DoctorLockCorrupt, Lang::En) => {
+                s("⚠ pin unreadable — the drift check is off for this account")
+            }
+            (Msg::DoctorLockCorrupt, Lang::Ru) => {
+                s("⚠ закрепление не читается — проверка расхождений для этого аккаунта не работает")
+            }
             (Msg::DoctorLockUnknown, Lang::En) => s("pinned, but not signed in"),
             (Msg::DoctorLockUnknown, Lang::Ru) => s("закреплён, но вход не выполнен"),
             (Msg::DoctorDriftHint, Lang::En) => s(
@@ -1321,6 +1341,8 @@ pub enum Msg {
     LockWriteFailed(String),
     DoctorLockDrift(String, String),
     DoctorLockUnknown,
+    DoctorLockCorrupt,
+    LockCorrupt(String, String, String),
     DoctorDriftHint,
     VscodeWindowsUnsupported,
     VscodeNoEditors,

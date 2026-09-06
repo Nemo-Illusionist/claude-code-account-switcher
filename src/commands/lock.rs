@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use crate::config::{AppConfig, is_reserved_name, validate_name};
 use crate::i18n::{I18n, Msg};
-use crate::identity::{self, Identity, LockState};
+use crate::identity::{self, Identity, LockRead, LockState};
 
 /// Where an account's pin and its config dir live.
 ///
@@ -52,20 +52,33 @@ pub fn run(config: &AppConfig, i18n: &I18n, name: &str, force: bool) -> i32 {
 
     // An existing pin is not replaced silently: re-pinning is how a drift
     // warning gets switched off, and doing that by accident is the one
-    // outcome this command must not produce.
-    if let Some(existing) = identity::read_lock_at(&lock_path)
-        && !force
-    {
-        if existing.uuid == current.uuid {
-            i18n.print(Msg::LockAlready(name.to_string(), describe(&existing)));
-            return 0;
+    // outcome this command must not produce. A pin that cannot be read
+    // counts as existing — treating it as absent would let a corrupted file
+    // turn the protection off and report success doing it.
+    if !force {
+        match identity::read_lock_at(&lock_path) {
+            LockRead::Pinned(existing) if existing.uuid == current.uuid => {
+                i18n.print(Msg::LockAlready(name.to_string(), describe(&existing)));
+                return 0;
+            }
+            LockRead::Pinned(existing) => {
+                i18n.print(Msg::LockWouldReplace(
+                    name.to_string(),
+                    describe(&existing),
+                    describe(&current),
+                ));
+                return 1;
+            }
+            LockRead::Corrupt => {
+                i18n.print(Msg::LockCorrupt(
+                    name.to_string(),
+                    lock_path.display().to_string(),
+                    name.to_string(),
+                ));
+                return 1;
+            }
+            LockRead::None => {}
         }
-        i18n.print(Msg::LockWouldReplace(
-            name.to_string(),
-            describe(&existing),
-            describe(&current),
-        ));
-        return 1;
     }
 
     if let Err(e) = identity::write_lock_at(&lock_path, &current) {
@@ -86,7 +99,10 @@ pub fn write_after_login(config: &AppConfig, name: &str) {
     let Some((lock_path, config_dir)) = paths(config, name) else {
         return;
     };
-    if identity::read_lock_at(&lock_path).is_some() {
+    // Anything other than "no pin at all" is left alone, a corrupt one
+    // included: this runs unattended after a login and must never be the
+    // thing that quietly replaces a pin.
+    if !matches!(identity::read_lock_at(&lock_path), LockRead::None) {
         return;
     }
     if let Some(current) = identity::local_identity(&config_dir) {
@@ -114,11 +130,33 @@ pub fn state_marker(config: &AppConfig, name: &str, i18n: &I18n) -> String {
         // every other row says nothing at all.
         LockState::Ok | LockState::NoLock => String::new(),
         LockState::Unknown => format!("  {}", i18n.msg(Msg::DoctorLockUnknown)),
+        LockState::Corrupt => format!("  {}", i18n.msg(Msg::DoctorLockCorrupt)),
         LockState::Drift { expected, actual } => format!(
             "  {}",
             i18n.msg(Msg::DoctorLockDrift(describe(&expected), describe(&actual)))
         ),
     }
+}
+
+/// The pin state as a stable string for `--json`, plus the pinned uuid when
+/// there is one. Kept next to `state_marker` so the human and machine views
+/// cannot drift apart themselves.
+pub fn json_state(config: &AppConfig, name: &str) -> (&'static str, Option<String>) {
+    let Some((lock_path, config_dir)) = paths(config, name) else {
+        return ("none", None);
+    };
+    let pinned = match identity::read_lock_at(&lock_path) {
+        LockRead::Pinned(id) => Some(id.uuid),
+        _ => None,
+    };
+    let state = match identity::lock_state_at(&lock_path, &config_dir) {
+        LockState::Ok => "ok",
+        LockState::Drift { .. } => "drift",
+        LockState::NoLock => "none",
+        LockState::Unknown => "unknown",
+        LockState::Corrupt => "corrupt",
+    };
+    (state, pinned)
 }
 
 /// Whether this account is showing drift — `doctor` exits non-zero when any

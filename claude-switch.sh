@@ -109,6 +109,8 @@ _claude_msg_en=(
     doctor_lock_drift   "⚠ DRIFT: pinned to %s, signed in as %s"
     doctor_lock_drift_tag "DRIFT"
     doctor_lock_unknown "pinned, but not signed in"
+    lock_corrupt        "Account '%s' has a pin that cannot be read: %s\n  Not replacing it — a corrupted pin is how this protection gets switched off unnoticed. Inspect it, then re-pin on purpose: claude-acc lock %s --force"
+    doctor_lock_corrupt "⚠ pin unreadable — the drift check is off for this account"
     doctor_drift_hint   "Drift means this directory is signed in as an account it was not pinned to — work done here would go to the wrong one. Put it back with \`claude-acc login <name>\`, or accept the new identity with \`claude-acc lock <name> --force\`."
     help_lock           "Pin an account to its current identity"
     clone_settings_usage "Usage: claude-acc clone-settings <name>"
@@ -250,6 +252,8 @@ _claude_msg_ru=(
     doctor_lock_drift   "⚠ РАСХОЖДЕНИЕ: закреплён за %s, вход под %s"
     doctor_lock_drift_tag "РАСХОЖДЕНИЕ"
     doctor_lock_unknown "закреплён, но вход не выполнен"
+    lock_corrupt        "У аккаунта '%s' закрепление не читается: %s\n  Не заменяю — повреждённое закрепление это и есть способ незаметно отключить защиту. Посмотрите файл, потом закрепите осознанно: claude-acc lock %s --force"
+    doctor_lock_corrupt "⚠ закрепление не читается — проверка расхождений для этого аккаунта не работает"
     doctor_drift_hint   "Расхождение значит, что каталог залогинен под аккаунтом, за которым он не закреплён, — работа отсюда уйдёт не туда. Вернуть: \`claude-acc login <name>\`. Принять новую личность: \`claude-acc lock <name> --force\`."
     help_lock           "Закрепить аккаунт за его текущей личностью"
     clone_settings_usage "Использование: claude-acc clone-settings <name>"
@@ -1961,14 +1965,21 @@ _claude_acc_local_identity() {
     print -r -- "$out"
 }
 
+# Reads a pin. Exit 0 = pinned (prints "uuid<TAB>email"), 1 = no pin at all,
+# 2 = there is a pin and it cannot be read.
+#
+# The third case has to stay separate: a corrupted pin that reads as "no pin"
+# silently switches the drift check off for that account, and lets `lock`
+# overwrite it without --force. It is the one artefact the feature rests on.
 _claude_acc_read_lock() {
     local f="$1"
-    [[ -f "$f" ]] || return 1
+    [[ -e "$f" ]] || return 1
     local out
-    out=$(jq -r 'if (.uuid // "") == "" then empty else "\(.uuid)\t\(.email // "")" end' \
-        "$f" 2>/dev/null) || return 1
-    [[ -z "$out" ]] && return 1
+    out=$(jq -r 'if (.uuid | type) != "string" or .uuid == "" then empty
+                 else "\(.uuid)\t\(.email // "")" end' "$f" 2>/dev/null) || return 2
+    [[ -z "$out" ]] && return 2
     print -r -- "$out"
+    return 0
 }
 
 # "email (uuid)", or the bare uuid when no email was recorded.
@@ -2007,8 +2018,13 @@ _claude_acc_lock() {
     # An existing pin is never replaced silently: re-pinning is how a drift
     # warning gets switched off, and doing that by accident is the one outcome
     # this command must not produce.
-    local old_line
-    if old_line=$(_claude_acc_read_lock "$lock_file") && (( ! force )); then
+    local old_line rc
+    old_line=$(_claude_acc_read_lock "$lock_file"); rc=$?
+    if (( rc == 2 && ! force )); then
+        _msg lock_corrupt "$name" "$lock_file" "$name"
+        return 1
+    fi
+    if (( rc == 0 && ! force )); then
         local old_uuid="${old_line%%$'\t'*}" old_email="${old_line#*$'\t'}"
         local old_desc; old_desc=$(_claude_acc_describe_identity "$old_uuid" "$old_email")
         if [[ "$old_uuid" == "$cur_uuid" ]]; then
@@ -2022,7 +2038,8 @@ _claude_acc_lock() {
     local now; now=$(date +%s)
     if ! jq -n --arg uuid "$cur_uuid" --arg email "$cur_email" --argjson at "$now" \
         '{uuid: $uuid, email: (if $email == "" then null else $email end), locked_at: $at}' \
-        > "$lock_file" 2>/dev/null; then
+        > "$lock_file.tmp" 2>/dev/null && mv "$lock_file.tmp" "$lock_file"; then
+        rm -f "$lock_file.tmp"
         _msg lock_write_failed "$lock_file"
         return 1
     fi
@@ -2036,12 +2053,15 @@ _claude_acc_lock() {
 _claude_acc_lock_after_login() {
     local name="$1" lock_file id_file cur_line now
     { read -r lock_file; read -r id_file } < <(_claude_acc_lock_paths "$name")
-    _claude_acc_read_lock "$lock_file" >/dev/null && return 0
+    # Anything other than "no pin at all" is left alone, a corrupt one
+    # included: this runs unattended after a login and must never be the thing
+    # that quietly replaces a pin.
+    _claude_acc_read_lock "$lock_file" >/dev/null; (( $? != 1 )) && return 0
     cur_line=$(_claude_acc_local_identity "$id_file") || return 0
     now=$(date +%s)
     jq -n --arg uuid "${cur_line%%$'\t'*}" --arg email "${cur_line#*$'\t'}" --argjson at "$now" \
         '{uuid: $uuid, email: (if $email == "" then null else $email end), locked_at: $at}' \
-        > "$lock_file" 2>/dev/null
+        > "$lock_file.tmp" 2>/dev/null && mv "$lock_file.tmp" "$lock_file" || rm -f "$lock_file.tmp"
     return 0
 }
 
@@ -2049,7 +2069,13 @@ _claude_acc_lock_after_login() {
 _claude_acc_lock_marker() {
     local name="$1" lock_file id_file lock_line cur_line
     { read -r lock_file; read -r id_file } < <(_claude_acc_lock_paths "$name")
-    lock_line=$(_claude_acc_read_lock "$lock_file") || return 0
+    local rc
+    lock_line=$(_claude_acc_read_lock "$lock_file"); rc=$?
+    (( rc == 1 )) && return 0
+    if (( rc == 2 )); then
+        print -r -- "  $(_msg doctor_lock_corrupt)"
+        return 0
+    fi
     if ! cur_line=$(_claude_acc_local_identity "$id_file"); then
         print -r -- "  $(_msg doctor_lock_unknown)"
         return 0
@@ -2158,17 +2184,29 @@ _claude_acc_doctor() {
 
     # Pass 2 — render, annotating accounts that share a UUID. ('status' is a
     # read-only special parameter in zsh, so the row state lives in `st`.)
-    local healthy=0 drift=0 i label kind st plan_seg others nm
+    # `lock_seg` belongs here, not inside the loop: zsh's `typeset` echoes
+    # "name=value" to stdout when a `local` re-declares a name that already
+    # exists in the same scope — the same trap the comment above records for
+    # `acc`, and it only shows up with two or more rows.
+    local healthy=0 drift=0 i label kind st plan_seg others nm lock_seg acc_name
     local -a sib keep
     for (( i = 1; i <= ${#r_label}; i++ )); do
         label="${r_label[$i]}"; kind="${r_kind[$i]}"; st="${r_status[$i]}"
         email="${r_email[$i]}"; uuid="${r_uuid[$i]}"; plan="${r_plan[$i]}"
+        # The pin comparison reads a local file, so unlike the rest of this
+        # audit it still works with no token and no network — compute it for
+        # every row, not just the healthy ones, and take drift from what was
+        # actually printed so the hint can never appear without its row.
+        acc_name="$label"; [[ "$kind" == "standard" ]] && acc_name="default"
+        lock_seg=$(_claude_acc_lock_marker "$acc_name")
+        [[ "$lock_seg" == *"$(_msg doctor_lock_drift_tag)"* ]] && drift=1
         case "$st" in
             no_token)
-                printf "  ? %-${width}s  %s\n" "$label" "$(_msg doctor_no_token "$label")"
+                printf "  ? %-${width}s  %s%s\n" "$label" \
+                    "$(_msg doctor_no_token "$acc_name")" "$lock_seg"
                 ;;
             offline)
-                printf "  ? %-${width}s  %s\n" "$label" "$(_msg doctor_offline)"
+                printf "  ? %-${width}s  %s%s\n" "$label" "$(_msg doctor_offline)" "$lock_seg"
                 ;;
             ok)
                 (( healthy++ ))
@@ -2181,17 +2219,13 @@ _claude_acc_doctor() {
                     done
                     (( ${#keep} > 0 )) && others="  $(_msg doctor_shared_identity "${(j:, :)keep}")"
                 fi
-                local lock_seg
                 if [[ "$kind" == "standard" ]]; then
-                    lock_seg=$(_claude_acc_lock_marker "default")
                     printf "  ✓ %-${width}s  %s%s  uuid=%s  %s%s%s\n" \
                         "$label" "$email" "$plan_seg" "$uuid" "$(_msg list_standard)" "$others" "$lock_seg"
                 else
-                    lock_seg=$(_claude_acc_lock_marker "$label")
                     printf "  ✓ %-${width}s  %s%s  uuid=%s%s%s\n" \
                         "$label" "$email" "$plan_seg" "$uuid" "$others" "$lock_seg"
                 fi
-                [[ "$lock_seg" == *"$(_msg doctor_lock_drift_tag)"* ]] && drift=1
                 ;;
         esac
     done
@@ -2201,11 +2235,13 @@ _claude_acc_doctor() {
     # the wrong account", so it decides the exit code even when every account
     # audited fine.
     (( drift )) && _msg doctor_drift_hint
-    if (( healthy == total && drift == 0 )); then
+    # Exactly one summary line, always — see the Rust side.
+    if (( healthy == total )); then
         _msg doctor_all_ok
-        return 0
+    else
+        _msg doctor_partial "$healthy" "$total"
     fi
-    (( healthy != total )) && _msg doctor_partial "$healthy" "$total"
+    (( healthy == total && drift == 0 )) && return 0
     return 1
 }
 

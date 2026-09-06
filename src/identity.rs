@@ -125,15 +125,38 @@ pub fn default_lock_path(switch_dir: &Path) -> PathBuf {
     switch_dir.join("default.identity-lock.json")
 }
 
+/// What reading a pin found. "There is no pin" and "there is a pin I could
+/// not read" have to stay apart: collapsing them makes a corrupted pin look
+/// like an unpinned account, which silently switches the protection off on
+/// the one artefact the whole feature rests on.
+pub enum LockRead {
+    None,
+    Pinned(Identity),
+    Corrupt,
+}
+
 /// Read the pin at `path`. Callers pass the path rather than the account dir
 /// because the standard account keeps its pin outside `~/.claude/`.
-pub fn read_lock_at(path: &Path) -> Option<Identity> {
-    let raw = fs::read_to_string(path).ok()?;
-    let v: serde_json::Value = serde_json::from_str(&raw).ok()?;
-    Some(Identity {
-        uuid: v.get("uuid").and_then(|x| x.as_str()).map(String::from)?,
-        email: v.get("email").and_then(|x| x.as_str()).map(String::from),
-    })
+pub fn read_lock_at(path: &Path) -> LockRead {
+    let raw = match fs::read_to_string(path) {
+        Ok(raw) => raw,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return LockRead::None,
+        // Unreadable for any other reason — permissions, a partial write, not
+        // UTF-8 — is a pin we must not overwrite or ignore.
+        Err(_) => return LockRead::Corrupt,
+    };
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(&raw) else {
+        return LockRead::Corrupt;
+    };
+    match v.get("uuid").and_then(|x| x.as_str()) {
+        Some(uuid) => LockRead::Pinned(Identity {
+            uuid: uuid.to_string(),
+            email: v.get("email").and_then(|x| x.as_str()).map(String::from),
+        }),
+        // Parsed, but carries no uuid: a truncated or hand-edited pin, not an
+        // absent one.
+        None => LockRead::Corrupt,
+    }
 }
 
 /// Pin `path` to `identity`.
@@ -148,7 +171,19 @@ pub fn write_lock_at(path: &Path, identity: &Identity) -> std::io::Result<()> {
         "locked_at": now,
     });
     let serialized = serde_json::to_string_pretty(&body).map_err(std::io::Error::other)?;
-    fs::write(path, serialized)
+    // Sibling temp + rename, as `src/vscode.rs` does for settings.json. A
+    // plain write truncates first, and a pin that is briefly — or, after a
+    // crash, permanently — zero bytes is exactly the corrupt state that used
+    // to read as "unpinned".
+    let tmp = path.with_extension("json.tmp");
+    fs::write(&tmp, serialized)?;
+    match fs::rename(&tmp, path) {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            let _ = fs::remove_file(&tmp);
+            Err(e)
+        }
+    }
 }
 
 /// What the pin says about an account dir right now.
@@ -168,6 +203,10 @@ pub enum LockState {
     /// Pinned, but Claude Code has not recorded who is signed in. A directory
     /// that has never been logged in looks like this.
     Unknown,
+    /// There is a pin and it cannot be read. Reported rather than treated as
+    /// unpinned — a corrupted pin is the failure mode that would otherwise
+    /// disable the check without saying so.
+    Corrupt,
 }
 
 /// Value-in, value-out so the comparison can be checked without a filesystem.
@@ -176,12 +215,13 @@ pub enum LockState {
 /// accounts can share a display name; the uuid is the only stable identifier
 /// here, and comparing on anything softer would produce drift reports that
 /// are wrong in both directions.
-pub fn compare_lock(lock: Option<&Identity>, current: Option<&Identity>) -> LockState {
+pub fn compare_lock(lock: &LockRead, current: Option<&Identity>) -> LockState {
     match (lock, current) {
-        (None, _) => LockState::NoLock,
-        (Some(_), None) => LockState::Unknown,
-        (Some(l), Some(c)) if l.uuid == c.uuid => LockState::Ok,
-        (Some(l), Some(c)) => LockState::Drift {
+        (LockRead::Corrupt, _) => LockState::Corrupt,
+        (LockRead::None, _) => LockState::NoLock,
+        (LockRead::Pinned(_), None) => LockState::Unknown,
+        (LockRead::Pinned(l), Some(c)) if l.uuid == c.uuid => LockState::Ok,
+        (LockRead::Pinned(l), Some(c)) => LockState::Drift {
             expected: l.clone(),
             actual: c.clone(),
         },
@@ -192,7 +232,7 @@ pub fn compare_lock(lock: Option<&Identity>, current: Option<&Identity>) -> Lock
 /// separately so the standard account can keep its pin outside `~/.claude/`.
 pub fn lock_state_at(lock_path: &Path, config_dir: &Path) -> LockState {
     compare_lock(
-        read_lock_at(lock_path).as_ref(),
+        &read_lock_at(lock_path),
         local_identity(config_dir).as_ref(),
     )
 }
@@ -1059,7 +1099,10 @@ mod tests {
     #[test]
     fn a_pin_that_matches_the_signed_in_account_is_ok() {
         let same = id("u-1", Some("a@example.com"));
-        assert_eq!(compare_lock(Some(&same), Some(&same)), LockState::Ok);
+        assert_eq!(
+            compare_lock(&LockRead::Pinned(same.clone()), Some(&same)),
+            LockState::Ok
+        );
     }
 
     #[test]
@@ -1069,7 +1112,7 @@ mod tests {
         // without "and the right one is this".
         let pinned = id("u-1", Some("work@example.com"));
         let now = id("u-2", Some("personal@example.com"));
-        match compare_lock(Some(&pinned), Some(&now)) {
+        match compare_lock(&LockRead::Pinned(pinned.clone()), Some(&now)) {
             LockState::Drift { expected, actual } => {
                 assert_eq!(expected, pinned);
                 assert_eq!(actual, now);
@@ -1085,12 +1128,15 @@ mod tests {
         // drift reports that are wrong in both directions.
         let pinned = id("u-1", Some("old.address@example.com"));
         let renamed = id("u-1", Some("new.address@example.com"));
-        assert_eq!(compare_lock(Some(&pinned), Some(&renamed)), LockState::Ok);
+        assert_eq!(
+            compare_lock(&LockRead::Pinned(pinned.clone()), Some(&renamed)),
+            LockState::Ok
+        );
 
         let twins_a = id("u-1", Some("same@example.com"));
         let twins_b = id("u-2", Some("same@example.com"));
         assert!(matches!(
-            compare_lock(Some(&twins_a), Some(&twins_b)),
+            compare_lock(&LockRead::Pinned(twins_a.clone()), Some(&twins_b)),
             LockState::Drift { .. }
         ));
     }
@@ -1100,10 +1146,10 @@ mod tests {
         // Every account predating this feature is unpinned. Treating that as
         // a problem would bury the real one under noise.
         assert_eq!(
-            compare_lock(None, Some(&id("u-1", None))),
+            compare_lock(&LockRead::None, Some(&id("u-1", None))),
             LockState::NoLock
         );
-        assert_eq!(compare_lock(None, None), LockState::NoLock);
+        assert_eq!(compare_lock(&LockRead::None, None), LockState::NoLock);
     }
 
     #[test]
@@ -1111,7 +1157,7 @@ mod tests {
         // A directory that has never been logged in has no identity to
         // compare against. That is not the same as being on the wrong one.
         assert_eq!(
-            compare_lock(Some(&id("u-1", None)), None),
+            compare_lock(&LockRead::Pinned(id("u-1", None)), None),
             LockState::Unknown
         );
     }
@@ -1125,29 +1171,60 @@ mod tests {
 
         let original = id("u-1", Some("a@example.com"));
         write_lock_at(&path, &original).unwrap();
-        assert_eq!(read_lock_at(&path), Some(original));
+        assert!(matches!(read_lock_at(&path), LockRead::Pinned(p) if p == original));
 
         // A pin without an email still reads back — older pins and accounts
         // whose profile never carried one.
         let no_email = id("u-2", None);
         write_lock_at(&path, &no_email).unwrap();
-        assert_eq!(read_lock_at(&path), Some(no_email));
+        assert!(matches!(read_lock_at(&path), LockRead::Pinned(p) if p == no_email));
+
+        // The write goes via a sibling temp; it must not survive.
+        let leftovers: Vec<_> = fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .filter(|n| n != LOCK_FILE)
+            .collect();
+        assert!(leftovers.is_empty(), "left behind: {leftovers:?}");
 
         let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
-    fn an_absent_or_unreadable_pin_reads_as_no_pin() {
+    fn an_absent_pin_and_an_unreadable_one_are_not_the_same_thing() {
+        // Regression: both used to read as "no pin", so a truncated or
+        // hand-mangled pin silently disabled the drift check for that
+        // account — and `lock` would then overwrite it without --force and
+        // report success. The one artefact the feature rests on must fail
+        // loudly, not quietly.
         let dir = std::env::temp_dir().join(format!("cc-lock-bad-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(LOCK_FILE);
 
-        assert_eq!(read_lock_at(&dir.join(LOCK_FILE)), None);
-        // Garbage, and valid JSON that simply has no uuid: both mean "no
-        // usable pin", never a drift report against nothing.
-        for body in ["{ broken", "{}", r#"{"email": "a@example.com"}"#] {
-            fs::write(dir.join(LOCK_FILE), body).unwrap();
-            assert_eq!(read_lock_at(&dir.join(LOCK_FILE)), None, "{body}");
+        assert!(matches!(read_lock_at(&path), LockRead::None));
+
+        // Garbage, an empty file, valid JSON with no uuid, and a uuid of the
+        // wrong type: every one of these is a pin we cannot read, not an
+        // absent one.
+        for body in [
+            "{ broken",
+            "",
+            "{}",
+            r#"{"email": "a@example.com"}"#,
+            r#"{"uuid": 42}"#,
+        ] {
+            fs::write(&path, body).unwrap();
+            assert!(
+                matches!(read_lock_at(&path), LockRead::Corrupt),
+                "{body:?} should read as corrupt"
+            );
+            assert_eq!(
+                compare_lock(&read_lock_at(&path), Some(&id("u-1", None))),
+                LockState::Corrupt,
+                "{body:?}"
+            );
         }
 
         let _ = fs::remove_dir_all(&dir);
