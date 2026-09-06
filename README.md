@@ -120,7 +120,7 @@ Short version: **cswap** if you want one active account plus automatic rotation 
 | `claude-acc` | Help |
 | `claude-acc list` | List all accounts |
 | `claude-acc add <name>` | Add account (runs `claude login`); add `-s` / `--seed` to seed from `~/.claude/` |
-| `claude-acc clone-settings <name>` | Copy `settings.json` / `CLAUDE.md` / `agents/` / etc. from `~/.claude/` into an existing account |
+| `claude-acc clone-settings <name>` | Copy `settings.json` / `CLAUDE.md` / `agents/` / `plugins/` / etc. from `~/.claude/` into an existing account |
 | `claude-acc import <name> <path>` | Adopt an existing config dir as an account (no re-login); `--move` to relocate |
 | `claude-acc login <name>` | Re-login to an account |
 | `claude-acc remove <name>` | Remove account |
@@ -303,13 +303,31 @@ Both copy a curated set of files from `~/.claude/`:
 - `settings.json` (env vars, permissions, hooks references, statusline, plugins, language)
 - `CLAUDE.md` (global memory)
 - `agents/`, `commands/`, `output-styles/`, `skills/` (custom assets)
+- `plugins/` — the installed plugins and the marketplaces they came from
 
 **Not copied** (per-account state — would defeat the isolation):
 - `.credentials.json` (auth token — re-acquired via `claude auth login`)
 - `settings.local.json` (per-machine local overrides)
 - `projects/`, `todos/`, `statsig/` (sessions, runtime state, telemetry)
-- `hooks/`, `plugins/` (settings.json references these by absolute path; copying duplicates files for nothing)
+- `hooks/` (settings.json references these by absolute path; copying duplicates files for nothing)
 - `.account-info.json` (the doctor cache)
+
+### About plugins
+
+Claude Code keeps its plugin registry **per config dir**, so a new account
+starts with none — which is why they are seeded rather than left out.
+
+They cannot simply be copied, though: the registry records absolute paths
+into the config dir it was written for. A plain copy would leave the new
+account loading the old one's plugin cache — working by accident, and broken
+the moment that account is removed. So `installPath` and `installLocation`
+are rewritten to point at the new account. A marketplace sourced from outside
+the config dir — one checked into a project, say — keeps its path exactly as
+it was, which is why the rewrite matches on those fields and that prefix
+rather than substituting text.
+
+An account that has already installed plugins of its own is left alone.
+Seeding is not a merge, and what you installed there is yours.
 
 Existing files in the target are skipped — `clone-settings` is a one-shot seed, not a sync.
 

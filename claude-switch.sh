@@ -898,7 +898,77 @@ _claude_acc_seed_from_default() {
         fi
     done
 
+    local plugin_count
+    if plugin_count=$(_claude_acc_seed_plugins "$target"); then
+        local plural=""
+        (( plugin_count != 1 )) && plural="s"
+        _msg seed_copied "plugins/ ($plugin_count file$plural)"
+        any=1
+    fi
+
     (( any == 0 )) && _msg seed_nothing
+    return 0
+}
+
+# Whether a plugins/ dir has anything installed. An unparseable registry
+# counts as "yes" so we leave it alone rather than copying over something we
+# could not read.
+_claude_acc_registry_has_plugins() {
+    local f="$1/installed_plugins.json"
+    [[ -f "$f" ]] || return 1
+    local n
+    n=$(jq -r 'if (.plugins? | type) == "object" then (.plugins | length) else 0 end' "$f" 2>/dev/null) \
+        || return 0
+    [[ -z "$n" ]] && return 0
+    (( n > 0 ))
+}
+
+# Copy ~/.claude/plugins into the account and repoint the registry at it.
+#
+# Claude Code keeps a plugin registry per config dir, so a fresh account
+# starts with none — and the registry records absolute paths into the config
+# dir it was written for. Copying without rewriting them would leave the new
+# account loading the old one's cache: working by accident, and broken the
+# moment that account is removed.
+#
+# The rewrite is keyed on the two path fields and prefix-matched, not a text
+# substitution: a marketplace can be sourced from a directory outside the
+# config dir — one checked into a project, say — and those paths must survive
+# verbatim. Prints the file count and returns 0 when something was copied.
+_claude_acc_seed_plugins() {
+    local target="$1"
+    local src="$HOME/.claude/plugins" dst="$target/plugins"
+
+    [[ -d "$src" ]] || return 1
+    _claude_acc_registry_has_plugins "$src" || return 1
+    # Seeding is not a merge: an account that has installed plugins keeps
+    # exactly what it installed.
+    _claude_acc_registry_has_plugins "$dst" && return 1
+
+    local count
+    count=$(find "$src" \( -type f -o -type l \) 2>/dev/null | wc -l | tr -d ' ')
+    cp -R "$src" "$dst" || return 1
+
+    local f tmp
+    for f in installed_plugins.json known_marketplaces.json; do
+        [[ -f "$dst/$f" ]] || continue
+        tmp="$dst/$f.claude-acc-tmp"
+        if jq --arg old "$src" --arg new "$dst" '
+                walk(if type == "object"
+                     then with_entries(
+                         if (.key == "installPath" or .key == "installLocation")
+                            and (.value | type == "string")
+                            and (.value | startswith($old))
+                         then .value = $new + (.value | ltrimstr($old))
+                         else . end)
+                     else . end)' "$dst/$f" > "$tmp" 2>/dev/null; then
+            mv "$tmp" "$dst/$f"
+        else
+            rm -f "$tmp"
+        fi
+    done
+
+    echo "$count"
     return 0
 }
 
