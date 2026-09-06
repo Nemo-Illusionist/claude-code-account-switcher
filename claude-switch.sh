@@ -107,7 +107,6 @@ _claude_msg_en=(
     lock_no_identity    "Account '%s' has no signed-in identity to pin. Log in first: claude-acc login %s"
     lock_write_failed   "Could not write the pin: %s"
     doctor_lock_drift   "⚠ DRIFT: pinned to %s, signed in as %s"
-    doctor_lock_drift_tag "DRIFT"
     doctor_lock_unknown "pinned, but not signed in"
     lock_corrupt        "Account '%s' has a pin that cannot be read: %s\n  Not replacing it — a corrupted pin is how this protection gets switched off unnoticed. Inspect it, then re-pin on purpose: claude-acc lock %s --force"
     doctor_lock_corrupt "⚠ pin unreadable — the drift check is off for this account"
@@ -250,7 +249,6 @@ _claude_msg_ru=(
     lock_no_identity    "У аккаунта '%s' нет личности, которую можно закрепить — вход не выполнен. Сначала: claude-acc login %s"
     lock_write_failed   "Не удалось записать закрепление: %s"
     doctor_lock_drift   "⚠ РАСХОЖДЕНИЕ: закреплён за %s, вход под %s"
-    doctor_lock_drift_tag "РАСХОЖДЕНИЕ"
     doctor_lock_unknown "закреплён, но вход не выполнен"
     lock_corrupt        "У аккаунта '%s' закрепление не читается: %s\n  Не заменяю — повреждённое закрепление это и есть способ незаметно отключить защиту. Посмотрите файл, потом закрепите осознанно: claude-acc lock %s --force"
     doctor_lock_corrupt "⚠ закрепление не читается — проверка расхождений для этого аккаунта не работает"
@@ -2065,6 +2063,28 @@ _claude_acc_lock_after_login() {
     return 0
 }
 
+# The pin state as a stable word — never the translated marker text.
+#
+# doctor used to decide "is this drift?" by substring-matching the localized
+# tag, so changing a translation would have silently switched drift detection
+# off in this implementation while leaving it on in the Rust one.
+_claude_acc_lock_state() {
+    local name="$1" lock_file id_file lock_line cur_line rc
+    { read -r lock_file; read -r id_file } < <(_claude_acc_lock_paths "$name")
+    lock_line=$(_claude_acc_read_lock "$lock_file"); rc=$?
+    (( rc == 1 )) && { print -r -- "none"; return 0 }
+    (( rc == 2 )) && { print -r -- "corrupt"; return 0 }
+    if ! cur_line=$(_claude_acc_local_identity "$id_file"); then
+        print -r -- "unknown"
+        return 0
+    fi
+    if [[ "${lock_line%%$'\t'*}" == "${cur_line%%$'\t'*}" ]]; then
+        print -r -- "ok"
+    else
+        print -r -- "drift"
+    fi
+}
+
 # The marker doctor appends to a row: empty unless something needs attention.
 _claude_acc_lock_marker() {
     local name="$1" lock_file id_file lock_line cur_line
@@ -2199,7 +2219,7 @@ _claude_acc_doctor() {
         # actually printed so the hint can never appear without its row.
         acc_name="$label"; [[ "$kind" == "standard" ]] && acc_name="default"
         lock_seg=$(_claude_acc_lock_marker "$acc_name")
-        [[ "$lock_seg" == *"$(_msg doctor_lock_drift_tag)"* ]] && drift=1
+        [[ "$(_claude_acc_lock_state "$acc_name")" == "drift" ]] && drift=1
         case "$st" in
             no_token)
                 printf "  ? %-${width}s  %s%s\n" "$label" \
