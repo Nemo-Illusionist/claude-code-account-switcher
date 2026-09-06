@@ -885,8 +885,10 @@ _claude_acc_seed_from_default() {
 
     for d in "${dirs[@]}"; do
         if [[ -d "$source/$d" && ! -e "$target/$d" ]]; then
-            # Skip empty source dirs.
-            count=$(find "$source/$d" -type f 2>/dev/null | wc -l | tr -d ' ')
+            # Skip empty source dirs. Symlinks count as entries: a
+            # directory holding only a symlinked skill is not empty, and
+            # `cp -R` carries the link over as a link.
+            count=$(find "$source/$d" \( -type f -o -type l \) 2>/dev/null | wc -l | tr -d ' ')
             (( count == 0 )) && continue
             cp -R "$source/$d" "$target/$d"
             local plural=""
