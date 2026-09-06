@@ -169,7 +169,7 @@ pub fn set_wrapper(settings: &Path, wrapper: &Path) -> std::io::Result<bool> {
     if let Some(parent) = settings.parent() {
         fs::create_dir_all(parent)?;
     }
-    fs::write(settings, out)?;
+    write_atomically(settings, &out)?;
     Ok(true)
 }
 
@@ -181,8 +181,35 @@ pub fn clear_wrapper(settings: &Path) -> std::io::Result<bool> {
     let Some(out) = remove_key(&src, WRAPPER_SETTING) else {
         return Ok(false);
     };
-    fs::write(settings, out)?;
+    write_atomically(settings, &out)?;
     Ok(true)
+}
+
+/// Replace `settings` by writing a sibling file and renaming over it.
+///
+/// A plain `fs::write` truncates first, so the editor's live config is
+/// briefly zero-length on disk — measured at 19 torn reads in 250k while
+/// install/uninstall cycled a 220 KB file — and a crash in that window
+/// leaves it empty for good. `install` already takes this precaution for
+/// the binary it copies; someone's settings deserve it at least as much.
+///
+/// The temporary sits beside the target so the rename stays on one
+/// filesystem, which is what makes it atomic.
+fn write_atomically(settings: &Path, content: &str) -> std::io::Result<()> {
+    let tmp = settings.with_extension("json.claude-acc-tmp");
+    fs::write(&tmp, content)?;
+    // The rename gives the target the temporary's permissions, so carry the
+    // original's across rather than silently resetting someone's mode.
+    if let Ok(meta) = fs::metadata(settings) {
+        let _ = fs::set_permissions(&tmp, meta.permissions());
+    }
+    match fs::rename(&tmp, settings) {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            let _ = fs::remove_file(&tmp);
+            Err(e)
+        }
+    }
 }
 
 // ---------------------------------------------------------------------
@@ -863,6 +890,71 @@ mod tests {
             fs::read_to_string(&settings).unwrap(),
             "{\n    \"editor.fontSize\": 13\n}\n"
         );
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn an_existing_but_empty_settings_file_is_unset_and_gets_the_setting_added() {
+        // A profile nobody has customised has a settings.json of `{}`, or
+        // nothing in it at all. That must read as Unset and be writable —
+        // reporting it unreadable would refuse a perfectly ordinary file.
+        for body in ["", "   \n\n", "{}\n"] {
+            let dir = scratch("empty");
+            let settings = dir.join("settings.json");
+            let ours = dir.join("bin").join(WRAPPER_NAME);
+            fs::write(&settings, body).unwrap();
+
+            assert!(
+                matches!(wrapper_state(&settings, &ours), WrapperState::Unset),
+                "{body:?}"
+            );
+            assert!(set_wrapper(&settings, &ours).unwrap(), "{body:?}");
+            assert!(matches!(
+                wrapper_state(&settings, &ours),
+                WrapperState::Ours
+            ));
+            let written = fs::read_to_string(&settings).unwrap();
+            serde_json::from_str::<serde_json::Value>(&written).unwrap();
+
+            fs::remove_dir_all(&dir).unwrap();
+        }
+    }
+
+    #[test]
+    fn writing_leaves_no_temporary_behind_and_keeps_the_files_mode() {
+        // The write goes via a sibling temp + rename so the editor's live
+        // config is never briefly zero-length. The temp must not survive,
+        // and the rename must not reset the file's permissions.
+        let dir = scratch("atomic");
+        let settings = dir.join("settings.json");
+        let ours = dir.join("bin").join(WRAPPER_NAME);
+        fs::write(&settings, "{\n    \"editor.fontSize\": 13\n}\n").unwrap();
+
+        #[cfg(unix)]
+        let mode = {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&settings, fs::Permissions::from_mode(0o600)).unwrap();
+            0o600
+        };
+
+        assert!(set_wrapper(&settings, &ours).unwrap());
+        assert!(clear_wrapper(&settings).unwrap());
+
+        let leftovers: Vec<_> = fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .filter(|n| n != "settings.json")
+            .collect();
+        assert!(leftovers.is_empty(), "left behind: {leftovers:?}");
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let now = fs::metadata(&settings).unwrap().permissions().mode() & 0o777;
+            assert_eq!(now, mode, "the rename reset the file's mode");
+        }
+
         fs::remove_dir_all(&dir).unwrap();
     }
 

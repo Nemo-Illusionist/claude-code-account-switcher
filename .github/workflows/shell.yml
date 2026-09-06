@@ -38,6 +38,15 @@ jobs:
           zsh -n shell/init.zsh
           bash -n shell/init.bash
           bash -n shell/claude-wrapper.sh
+          bash -n shell/claude-vscode-wrapper.sh
+
+      # Both wrappers declare `#!/bin/sh`, so they have to hold up under a
+      # POSIX shell too — `bash -n` alone would wave through a bashism that
+      # breaks on a system where /bin/sh is dash.
+      - name: Syntax-check the wrappers as POSIX sh
+        run: |
+          sh -n shell/claude-wrapper.sh
+          sh -n shell/claude-vscode-wrapper.sh
 
       # init.ps1 is `eval`'d by PowerShell users' profiles, so a syntax error
       # there breaks their shell startup. pwsh is preinstalled on the runner.

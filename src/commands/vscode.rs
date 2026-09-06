@@ -2,6 +2,49 @@ use crate::config::AppConfig;
 use crate::i18n::{I18n, Msg};
 use crate::vscode::{self, WrapperState};
 
+/// What `install` does with one editor, given what its settings.json says.
+/// Split out from the loop so the policy can be checked without a
+/// filesystem, an editor, or a terminal to print to.
+#[derive(Debug, PartialEq)]
+enum InstallAction {
+    Write,
+    AlreadySetUp,
+    /// Someone else's launcher. Replaced only with `--force`.
+    RefuseForeign(String),
+    /// Never overwritten, `--force` or not: forcing is for replacing a
+    /// wrapper, not for writing over a file we could not read.
+    RefuseUnreadable,
+}
+
+fn plan_install(state: &WrapperState, force: bool) -> InstallAction {
+    match state {
+        WrapperState::Unreadable => InstallAction::RefuseUnreadable,
+        _ if force => InstallAction::Write,
+        WrapperState::Ours => InstallAction::AlreadySetUp,
+        WrapperState::Foreign(other) => InstallAction::RefuseForeign(other.clone()),
+        WrapperState::Unset => InstallAction::Write,
+    }
+}
+
+/// What `uninstall` does with one editor. There is no `--force` here: a
+/// launcher that isn't ours is not ours to remove.
+#[derive(Debug, PartialEq)]
+enum UninstallAction {
+    Clear,
+    KeepForeign(String),
+    RefuseUnreadable,
+}
+
+fn plan_uninstall(state: &WrapperState) -> UninstallAction {
+    match state {
+        WrapperState::Foreign(other) => UninstallAction::KeepForeign(other.clone()),
+        // Report it as unreadable rather than letting `clear_wrapper`
+        // surface a read error as a write failure.
+        WrapperState::Unreadable => UninstallAction::RefuseUnreadable,
+        WrapperState::Ours | WrapperState::Unset => UninstallAction::Clear,
+    }
+}
+
 /// Point every installed VS Code-family editor's
 /// `claudeCode.claudeProcessWrapper` at our launcher, so the extension's
 /// native UI resolves the account from the workspace folder like the
@@ -41,17 +84,17 @@ pub fn install(config: &AppConfig, i18n: &I18n, force: bool) -> i32 {
     let mut wrote = 0;
     let mut failed = false;
     for ed in &editors {
-        match vscode::wrapper_state(&ed.settings, &wrapper) {
-            WrapperState::Ours if !force => {
+        match plan_install(&vscode::wrapper_state(&ed.settings, &wrapper), force) {
+            InstallAction::AlreadySetUp => {
                 i18n.print(Msg::VscodeAlready(ed.label.to_string()));
                 continue;
             }
-            WrapperState::Foreign(other) if !force => {
+            InstallAction::RefuseForeign(other) => {
                 i18n.print(Msg::VscodeForeign(ed.label.to_string(), other));
                 failed = true;
                 continue;
             }
-            WrapperState::Unreadable => {
+            InstallAction::RefuseUnreadable => {
                 i18n.print(Msg::VscodeUnreadable(
                     ed.label.to_string(),
                     ed.settings.display().to_string(),
@@ -59,7 +102,7 @@ pub fn install(config: &AppConfig, i18n: &I18n, force: bool) -> i32 {
                 failed = true;
                 continue;
             }
-            _ => {}
+            InstallAction::Write => {}
         }
         match vscode::set_wrapper(&ed.settings, &wrapper) {
             Ok(true) => {
@@ -103,16 +146,12 @@ pub fn uninstall(config: &AppConfig, i18n: &I18n) -> i32 {
     let mut removed = 0;
     let mut failed = false;
     for ed in &editors {
-        match vscode::wrapper_state(&ed.settings, &wrapper) {
-            // Only ever remove our own. A path someone set by hand, or
-            // another tool's, is theirs to remove.
-            WrapperState::Foreign(other) => {
+        match plan_uninstall(&vscode::wrapper_state(&ed.settings, &wrapper)) {
+            UninstallAction::KeepForeign(other) => {
                 i18n.print(Msg::VscodeForeignKept(ed.label.to_string(), other));
                 continue;
             }
-            // Report it as unreadable rather than letting `clear_wrapper`
-            // surface the read error as a write failure.
-            WrapperState::Unreadable => {
+            UninstallAction::RefuseUnreadable => {
                 i18n.print(Msg::VscodeUnreadable(
                     ed.label.to_string(),
                     ed.settings.display().to_string(),
@@ -120,7 +159,7 @@ pub fn uninstall(config: &AppConfig, i18n: &I18n) -> i32 {
                 failed = true;
                 continue;
             }
-            _ => {}
+            UninstallAction::Clear => {}
         }
         match vscode::clear_wrapper(&ed.settings) {
             Ok(true) => {
@@ -160,7 +199,12 @@ pub fn status(config: &AppConfig, i18n: &I18n) -> i32 {
         };
         println!("    {:<18} {}", ed.label, line);
     }
-    if editors.iter().any(|e| {
+    // Don't point at `vscode install` on Windows, where it refuses. Say why
+    // instead. (`uninstall` stays available there — taking the setting back
+    // out has to work wherever it can be set.)
+    if cfg!(windows) {
+        i18n.print(Msg::VscodeWindowsUnsupported);
+    } else if editors.iter().any(|e| {
         matches!(
             vscode::wrapper_state(&e.settings, &wrapper),
             WrapperState::Unset
@@ -211,4 +255,81 @@ fn install_wrapper(
     // Unreachable: `install` returns early on Windows. Kept so the module
     // compiles there.
     Ok(vscode::wrapper_path(&config.base_dir))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn foreign() -> WrapperState {
+        WrapperState::Foreign("/opt/other/launcher".to_string())
+    }
+
+    #[test]
+    fn install_writes_where_nothing_is_set_and_skips_what_is_already_ours() {
+        assert_eq!(
+            plan_install(&WrapperState::Unset, false),
+            InstallAction::Write
+        );
+        assert_eq!(
+            plan_install(&WrapperState::Ours, false),
+            InstallAction::AlreadySetUp
+        );
+    }
+
+    #[test]
+    fn install_refuses_a_foreign_wrapper_until_forced() {
+        // Regression guard: inverting this condition would silently replace
+        // another tool's launcher and break it, with nothing said.
+        assert_eq!(
+            plan_install(&foreign(), false),
+            InstallAction::RefuseForeign("/opt/other/launcher".to_string())
+        );
+        assert_eq!(plan_install(&foreign(), true), InstallAction::Write);
+    }
+
+    #[test]
+    fn force_rewrites_our_own_wrapper_rather_than_reporting_it_set_up() {
+        // `--force` after the wrapper path moved has to actually rewrite it.
+        assert_eq!(
+            plan_install(&WrapperState::Ours, true),
+            InstallAction::Write
+        );
+    }
+
+    #[test]
+    fn force_never_writes_over_a_file_that_could_not_be_read() {
+        // Forcing replaces a wrapper. It is not permission to overwrite a
+        // settings.json we failed to parse or failed to read at all — that
+        // is how the whole file gets lost.
+        for force in [false, true] {
+            assert_eq!(
+                plan_install(&WrapperState::Unreadable, force),
+                InstallAction::RefuseUnreadable,
+                "force={force}"
+            );
+        }
+    }
+
+    #[test]
+    fn uninstall_clears_ours_and_does_nothing_where_nothing_is_set() {
+        assert_eq!(plan_uninstall(&WrapperState::Ours), UninstallAction::Clear);
+        assert_eq!(plan_uninstall(&WrapperState::Unset), UninstallAction::Clear);
+    }
+
+    #[test]
+    fn uninstall_leaves_a_foreign_wrapper_alone() {
+        assert_eq!(
+            plan_uninstall(&foreign()),
+            UninstallAction::KeepForeign("/opt/other/launcher".to_string())
+        );
+    }
+
+    #[test]
+    fn uninstall_reports_an_unreadable_file_instead_of_a_write_failure() {
+        assert_eq!(
+            plan_uninstall(&WrapperState::Unreadable),
+            UninstallAction::RefuseUnreadable
+        );
+    }
 }
