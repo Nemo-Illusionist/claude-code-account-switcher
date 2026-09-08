@@ -1110,13 +1110,35 @@ _claude_acc_desktop_signed_in() {
 # The account uuid sits in plaintext in config.json — enough to tell two
 # profiles apart without touching the keychain. The email needs the token
 # decrypted, which is Rust-only; see desktop_usage_rust.
+# accountUuid<TAB>email for every account this tool manages, from each config
+# dir's own .claude.json. A Desktop profile records the uuid it signed in as
+# but not the email; the CLI side has both, so matching them names the
+# profile without a keychain prompt or a network call.
+_claude_acc_cli_identities() {
+    local acc line
+    for acc in "$CLAUDE_SWITCH_ACCOUNTS_DIR"/*(N:t) default; do
+        line=$(_claude_acc_local_identity "$(_claude_acc_lock_paths "$acc" | tail -1)") || continue
+        [[ "${line#*$'\t'}" == "" ]] || print -r -- "$line"
+    done
+}
+
+# "  <email>" when the profile's account is one of ours, "  uuid…" when it is
+# not, empty when the profile records no account at all. Compared
+# case-insensitively: two programs write those two files, and nothing
+# promises they agree on case.
 _claude_acc_desktop_uuid() {
-    local profile="$1" uuid
+    local profile="$1" uuid line
     [[ -f "$profile/config.json" ]] || return
-    if command -v jq >/dev/null 2>&1; then
-        uuid=$(jq -r '.lastKnownAccountUuid // empty' "$profile/config.json" 2>/dev/null)
-        [[ -n "$uuid" ]] && echo "  ${uuid:0:8}…"
-    fi
+    command -v jq >/dev/null 2>&1 || return
+    uuid=$(jq -r '.lastKnownAccountUuid // empty' "$profile/config.json" 2>/dev/null)
+    [[ -n "$uuid" ]] || return
+    for line in ${(f)"$(_claude_acc_cli_identities)"}; do
+        if [[ "${(L)line%%$'\t'*}" == "${(L)uuid}" ]]; then
+            echo "  <${line#*$'\t'}>"
+            return
+        fi
+    done
+    echo "  ${uuid:0:8}…"
 }
 
 # Signing in only works with no other Claude open: the claude:// callback

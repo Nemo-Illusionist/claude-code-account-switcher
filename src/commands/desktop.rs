@@ -2,6 +2,7 @@ use crate::config::{AppConfig, is_reserved_name, validate_name};
 use crate::desktop;
 use crate::i18n::{I18n, Msg};
 use crate::identity;
+use std::collections::HashMap;
 use std::fs;
 use std::io::{self, Write};
 use std::path::PathBuf;
@@ -310,18 +311,26 @@ pub fn list(config: &AppConfig, i18n: &I18n) -> i32 {
     }
 
     i18n.print(Msg::DesktopListHeader);
+    let known = cli_identities(config);
     let mut any_unknown = false;
     for name in &profiles {
         let profile = desktop::profile_path(config, name);
         // Cached identity where we have one, otherwise just whether the
         // profile holds a credential. Nothing here reads the Keychain or the
         // network — `desktop usage` is where that happens.
-        let suffix = identity_suffix(&profile);
+        let suffix = identity_suffix(&profile, &known);
         let state = if desktop::is_signed_in(&profile) {
             // The hint is about the *email*, so a uuid-only row still needs
-            // it — that is precisely the row it exists for.
+            // it — that is precisely the row it exists for. A row named from
+            // a matching account here does not: it already shows the email
+            // the hint would send someone to `usage` for.
             any_unknown |= identity::read_cache(&profile)
                 .and_then(|c| c.email)
+                .is_none()
+                && borrowed_email(
+                    crate::desktop_auth::last_known_account_uuid(&profile).as_deref(),
+                    &known,
+                )
                 .is_none();
             i18n.msg(Msg::DesktopSignedIn)
         } else {
@@ -347,18 +356,60 @@ pub fn list(config: &AppConfig, i18n: &I18n) -> i32 {
     0
 }
 
+/// `accountUuid` -> email for every account this tool manages, read from each
+/// config dir's own `.claude.json`.
+///
+/// A Desktop profile records the uuid it last signed in as, but not the
+/// email; the CLI side has both. When the same person is signed into a
+/// profile and into an account here, matching the two is enough to name the
+/// profile — a couple of local JSON reads, no Keychain prompt and no network,
+/// which is the whole reason it belongs in `list` rather than in `usage`.
+fn cli_identities(config: &AppConfig) -> HashMap<String, String> {
+    let mut known = HashMap::new();
+    let dirs = config
+        .list_accounts()
+        .unwrap_or_default()
+        .iter()
+        .map(|a| config.account_path(a))
+        .chain(identity::standard_token_dir())
+        .collect::<Vec<_>>();
+    for dir in dirs {
+        if let Some(id) = identity::local_identity(&dir)
+            && let Some(email) = id.email
+        {
+            known.insert(id.uuid.to_lowercase(), email);
+        }
+    }
+    known
+}
+
+/// The email of the account `uuid` belongs to, if this tool manages it.
+///
+/// Compared case-insensitively: Claude Desktop writes the uuid into its
+/// `config.json` and Claude Code writes it into `.claude.json`, and nothing
+/// promises the two agree on case.
+fn borrowed_email<'a>(uuid: Option<&str>, known: &'a HashMap<String, String>) -> Option<&'a str> {
+    known.get(&uuid?.to_lowercase()).map(String::as_str)
+}
+
 /// `"  <email>  Max 20x"` for a profile whose identity we know, `"  aa6c22d5-…"`
 /// when only the plaintext uuid is available, `""` when neither.
 ///
 /// The uuid fallback is deliberately shown truncated and unadorned: it says
 /// "these two profiles are different accounts" without pretending to be an
 /// identity anyone recognises.
-fn identity_suffix(profile: &std::path::Path) -> String {
+fn identity_suffix(profile: &std::path::Path, known: &HashMap<String, String>) -> String {
     let cached = crate::commands::usage::label_suffix(identity::read_cache(profile));
     if !cached.is_empty() {
         return cached;
     }
-    match crate::desktop_auth::last_known_account_uuid(profile) {
+    let uuid = crate::desktop_auth::last_known_account_uuid(profile);
+    // No plan next to the email here: the plan comes from the profile API,
+    // and this row was resolved without asking anyone anything.
+    if let Some(email) = borrowed_email(uuid.as_deref(), known) {
+        return format!("  <{}>", email);
+    }
+    match uuid {
         Some(uuid) => format!("  {}…", uuid.chars().take(8).collect::<String>()),
         None => String::new(),
     }
@@ -386,6 +437,7 @@ pub fn usage(config: &AppConfig, i18n: &I18n) -> i32 {
     println!();
     i18n.print(Msg::DesktopUsageHeader);
 
+    let known = cli_identities(config);
     for name in &profiles {
         let profile = desktop::profile_path(config, name);
         match crate::desktop_auth::profile_token(&profile) {
@@ -400,14 +452,14 @@ pub fn usage(config: &AppConfig, i18n: &I18n) -> i32 {
                         &token,
                     );
                 }
-                println!("    {}{}", name, identity_suffix(&profile));
+                println!("    {}{}", name, identity_suffix(&profile, &known));
                 match identity::fetch_usage(&token) {
                     Some(u) => crate::commands::usage::print_usage(&u, i18n),
                     None => println!("      {}", i18n.msg(Msg::DoctorOffline)),
                 }
             }
             other => {
-                println!("    {}{}", name, identity_suffix(&profile));
+                println!("    {}{}", name, identity_suffix(&profile, &known));
                 println!("      {}", i18n.msg(reason(other)));
             }
         }
@@ -504,7 +556,7 @@ mod tests {
     #[test]
     fn a_profile_we_know_nothing_about_gets_no_suffix() {
         let dir = scratch("suffix-none");
-        assert_eq!(identity_suffix(&dir), "");
+        assert_eq!(identity_suffix(&dir, &HashMap::new()), "");
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -517,7 +569,7 @@ mod tests {
             r#"{"lastKnownAccountUuid":"aa6c22d5-f7d1-4ac1-bb29-22abc90481c1"}"#,
         )
         .unwrap();
-        assert_eq!(identity_suffix(&dir), "  aa6c22d5…");
+        assert_eq!(identity_suffix(&dir, &HashMap::new()), "  aa6c22d5…");
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -534,8 +586,82 @@ mod tests {
             r#"{"email":"a@b.com","plan":"Max 20x"}"#,
         )
         .unwrap();
-        assert_eq!(identity_suffix(&dir), "  <a@b.com>  Max 20x");
+        assert_eq!(
+            identity_suffix(
+                &dir,
+                &known("aa6c22d5-f7d1-4ac1-bb29-22abc90481c1", "other@b.com")
+            ),
+            "  <a@b.com>  Max 20x",
+            "the profile's own cache outranks a match found here"
+        );
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    fn known(uuid: &str, email: &str) -> HashMap<String, String> {
+        HashMap::from([(uuid.to_string(), email.to_string())])
+    }
+
+    #[test]
+    fn a_profile_is_named_from_an_account_this_tool_manages() {
+        // The point of the whole lookup: no Keychain, no network, and the
+        // row still says who it is.
+        let dir = scratch("suffix-borrowed");
+        fs::write(
+            dir.join("config.json"),
+            r#"{"lastKnownAccountUuid":"aa6c22d5-f7d1-4ac1-bb29-22abc90481c1"}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            identity_suffix(
+                &dir,
+                &known("aa6c22d5-f7d1-4ac1-bb29-22abc90481c1", "a@b.com")
+            ),
+            "  <a@b.com>"
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_account_we_do_not_manage_still_shows_only_its_uuid() {
+        let dir = scratch("suffix-unmanaged");
+        fs::write(
+            dir.join("config.json"),
+            r#"{"lastKnownAccountUuid":"aa6c22d5-f7d1-4ac1-bb29-22abc90481c1"}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            identity_suffix(
+                &dir,
+                &known("ffffffff-0000-0000-0000-000000000000", "a@b.com")
+            ),
+            "  aa6c22d5…"
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_uuid_match_ignores_case() {
+        // Two different files written by two different programs; nothing
+        // promises they agree on case.
+        let map = known("aa6c22d5-f7d1-4ac1-bb29-22abc90481c1", "a@b.com");
+        assert_eq!(
+            borrowed_email(Some("AA6C22D5-F7D1-4AC1-BB29-22ABC90481C1"), &map),
+            Some("a@b.com")
+        );
+    }
+
+    #[test]
+    fn nothing_to_match_borrows_nothing() {
+        let map = known("aa6c22d5-f7d1-4ac1-bb29-22abc90481c1", "a@b.com");
+        assert_eq!(borrowed_email(None, &map), None);
+        assert_eq!(borrowed_email(Some("aa6c22d5"), &map), None);
+        assert_eq!(
+            borrowed_email(
+                Some("aa6c22d5-f7d1-4ac1-bb29-22abc90481c1"),
+                &HashMap::new()
+            ),
+            None
+        );
     }
 
     #[test]

@@ -746,7 +746,18 @@ Claude Desktop profiles:
 
 **About that keychain prompt.** The desktop app stores its token the way every Chromium app does on macOS: encrypted with a key kept in the keychain entry `Claude Safe Storage`, whose access list names only the app itself. Reading it therefore asks you for your login keychain password — once, if you pick "Always Allow". That is a real thing to be asked for, so `desktop usage` says what it is about to do *before* the dialog appears rather than after, and nothing else in this tool ever touches that entry. Decline and you lose this one listing; everything else keeps working.
 
-Without it, a profile still shows its account **uuid**, which sits in plaintext in the profile's own `config.json`:
+**Often you will not need it.** When the account a profile is signed into is also one of the accounts this tool manages, `desktop list` names it from that account's own `.claude.json` — a uuid match between two local files, no keychain prompt and no network:
+
+```
+$ claude-acc desktop list
+Claude Desktop profiles:
+    work  <work@company.com>  (signed in)
+    ~/Library/…/Claude/  (the app's own profile)
+```
+
+No plan beside the email there: the plan comes from the profile API, and this row was answered without asking anyone anything.
+
+When neither applies — nothing cached, and no account here signed in as that uuid — a profile shows the **uuid** itself, which sits in plaintext in the profile's own `config.json`:
 
 ```
 $ claude-acc desktop list
