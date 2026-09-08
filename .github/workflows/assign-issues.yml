@@ -1,0 +1,33 @@
+name: Assign issues
+
+# Every issue in this repo belongs to the same person, and an unassigned
+# issue is invisible in the "assigned to me" views that person actually
+# reads. So assign on open — and on reopen, because closing an issue does
+# not clear the assignee but a reopened issue is worth landing in those
+# views again anyway if it lost one.
+
+on:
+  issues:
+    types: [opened, reopened]
+
+permissions:
+  # `gh issue edit --add-assignee` writes to the issue and nothing else.
+  issues: write
+
+jobs:
+  assign:
+    # Only assign what is still unowned. Someone who deliberately assigned
+    # the issue to another account while filing it meant it.
+    if: github.event.issue.assignees[0] == null
+    runs-on: ubuntu-latest
+    steps:
+      - name: Assign to the repository owner
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # `github.repository_owner` rather than a hard-coded login, so a
+          # fork does not try to assign issues to somebody else's account —
+          # GITHUB_TOKEN can only assign users with read access, and that
+          # attempt would fail the job on every fork.
+          OWNER: ${{ github.repository_owner }}
+          ISSUE: ${{ github.event.issue.html_url }}
+        run: gh issue edit "$ISSUE" --add-assignee "$OWNER"
