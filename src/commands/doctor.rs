@@ -39,6 +39,38 @@ fn shared_seg(
     )
 }
 
+/// The browser-bridge block: who is currently holding a pairing socket, and
+/// under which config directory.
+///
+/// Advisory only — it never touches the exit code. The sharing it reports is
+/// a permanent property of how Claude Code names that directory, present on
+/// every machine with more than one account, so failing on it would make
+/// `doctor` exit 1 forever and teach everyone to ignore it. What it is for is
+/// the moment someone stares at "Browser extension is not connected" and has
+/// no way to see that the host answering belongs to another account.
+fn report_bridge(i18n: &I18n) {
+    let Some(user) = crate::browser::os_user() else {
+        return;
+    };
+    let hosts = crate::browser::hosts(&user);
+    if hosts.is_empty() {
+        return;
+    }
+    println!();
+    i18n.print(Msg::BridgeHeader(
+        crate::browser::bridge_dir(&user),
+        hosts.len(),
+    ));
+    for h in &hosts {
+        let owner = match &h.config_dir {
+            Some(d) => d.clone(),
+            None => i18n.msg(Msg::ListStandard),
+        };
+        println!("    {:>7}  {}  {}", h.pid, owner, h.exe);
+    }
+    i18n.print(Msg::BridgeHint);
+}
+
 pub fn run(config: &AppConfig, i18n: &I18n, json: bool) -> i32 {
     let accounts = match config.list_accounts() {
         Ok(v) => v,
@@ -207,6 +239,8 @@ fn run_human(config: &AppConfig, i18n: &I18n, accounts: &[String], standard_pres
     // the wrong account", so it decides the exit code even when every account
     // audited fine. It is accumulated from the rows actually printed, so the
     // hint below can never appear without a row explaining it.
+    report_bridge(i18n);
+
     println!();
     if drift {
         i18n.print(Msg::DoctorDriftHint);
@@ -231,9 +265,13 @@ fn run_human(config: &AppConfig, i18n: &I18n, accounts: &[String], standard_pres
 ///     {"name": "work", "status": "ok", "email": "...", "uuid": "...", "plan": "Max 20x", "default": true},
 ///     {"name": "personal", "status": "no_token", "email": null, "uuid": null, "plan": null, "default": false}
 ///   ],
-///   "standard": {"status": "ok", "email": "...", "uuid": "...", "plan": "..."} | null
+///   "standard": {"status": "ok", "email": "...", "uuid": "...", "plan": "..."} | null,
+///   "browser_bridge": {"dir": "/tmp/...", "hosts": [{"pid": 31672, "config_dir": null, "exe": "..."}]} | null
 /// }
 /// ```
+///
+/// `browser_bridge` is advisory and never affects the exit code — see
+/// `report_bridge`.
 ///
 /// Each entry also carries `"lock"`: `"ok"`, `"drift"`, `"none"`, `"unknown"`
 /// or `"corrupt"`, plus `"pinned_uuid"` when there is a pin. The human form
@@ -295,10 +333,36 @@ fn run_json(config: &AppConfig, accounts: &[String], standard_present: bool) -> 
     let doc = serde_json::json!({
         "accounts": entries,
         "standard": standard,
+        "browser_bridge": bridge_json(),
     });
     println!("{}", serde_json::to_string_pretty(&doc).unwrap_or_default());
 
     if any_problem { 1 } else { 0 }
+}
+
+/// `browser_bridge` for `--json`: the pairing directory and who is holding a
+/// socket in it, or `null` when nothing is. Advisory, exactly as in the human
+/// form — it deliberately does not feed `any_problem`, because a shared
+/// directory is how this always looks, not a fault of the setup.
+fn bridge_json() -> serde_json::Value {
+    let Some(user) = crate::browser::os_user() else {
+        return serde_json::Value::Null;
+    };
+    let hosts = crate::browser::hosts(&user);
+    if hosts.is_empty() {
+        return serde_json::Value::Null;
+    }
+    serde_json::json!({
+        "dir": crate::browser::bridge_dir(&user),
+        "hosts": hosts
+            .iter()
+            .map(|h| serde_json::json!({
+                "pid": h.pid,
+                "config_dir": h.config_dir,
+                "exe": h.exe,
+            }))
+            .collect::<Vec<_>>(),
+    })
 }
 
 /// Add `lock` and `pinned_uuid` to an entry. Separate from `build_entry`

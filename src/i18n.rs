@@ -1056,6 +1056,32 @@ impl I18n {
                  Вернуть: `claude-acc login <name>`. Принять новую личность: \
                  `claude-acc lock <name> --force`.",
             ),
+            (Msg::BridgeHeader(dir, n), Lang::En) => format!(
+                "Browser bridge — {} native host(s) in {}, one directory for \
+                 every account:",
+                n, dir
+            ),
+            (Msg::BridgeHeader(dir, n), Lang::Ru) => format!(
+                "Браузерный мост — native-host(ов): {}, каталог {}, общий для \
+                 всех аккаунтов:",
+                n, dir
+            ),
+            (Msg::BridgeHint, Lang::En) => s(
+                "A session on any account connects to whichever of these it \
+                 finds — the directory is named after the OS user and nothing \
+                 else, so it cannot be scoped per account from here. If \
+                 browser tools drive the wrong window, or the extension is \
+                 reported as belonging to a different claude.ai account, quit \
+                 the hosts above that you did not mean to pair with.",
+            ),
+            (Msg::BridgeHint, Lang::Ru) => s(
+                "Сессия на любом аккаунте подключится к любому из них — имя \
+                 каталога состоит только из имени пользователя ОС, и снаружи \
+                 его под аккаунт не развести. Если браузерные инструменты \
+                 управляют не тем окном или расширение числится за другим \
+                 аккаунтом claude.ai — закройте те хосты выше, с которыми \
+                 связываться не собирались.",
+            ),
             (Msg::VscodeWindowsUnsupported, Lang::En) => s(
                 "Not on Windows yet: the wrapper is a shell script, and a .cmd \
                  or .exe shim the extension can spawn hasn't been built. \
@@ -1344,6 +1370,8 @@ pub enum Msg {
     DoctorLockCorrupt,
     LockCorrupt(String, String, String),
     DoctorDriftHint,
+    BridgeHeader(String, usize),
+    BridgeHint,
     VscodeWindowsUnsupported,
     VscodeNoEditors,
     VscodeWrapperFailed(String),

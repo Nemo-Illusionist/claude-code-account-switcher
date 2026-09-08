@@ -489,6 +489,28 @@ All accounts healthy.
 
 This is just a note, never an error — both accounts share the login (and therefore the same usage limits), only their local config differs.
 
+### The browser bridge is shared
+
+Claude Code pairs a session with the browser extension over a unix socket in a directory it names after the OS user and nothing else — `/tmp/claude-mcp-browser-bridge-<user>`. `CLAUDE_CONFIG_DIR` is not part of that path, so **every account shares one rendezvous point**, and a session on one account can be served by a native host paired with another. The other half of the same connection *is* per-account (it authenticates as the config directory's OAuth identity), so the two can disagree — which surfaces as "the OAuth token Claude Code is using belongs to a different claude.ai account".
+
+Nothing here can change that: the path is computed inside the `claude` binary from the OS user name, with no environment input to hook. What `doctor` does is show you the collision instead of leaving you with an unexplained "Browser extension is not connected":
+
+```
+$ claude-acc doctor
+Auditing 2 account(s):
+  ✓ work        alice@corp.example  uuid=a72fe3df-…
+  ✓ ~/.claude/  alice@anthropic.com  Max 20x  uuid=aa6c22d5-…  (standard)
+
+Browser bridge — 2 native host(s) in /tmp/claude-mcp-browser-bridge-me, one directory for every account:
+      31672  (standard)  /Applications/Claude.app/Contents/Helpers/chrome-native-host
+      33985  (standard)  /Applications/Claude.app/Contents/Helpers/chrome-native-host
+A session on any account connects to whichever of these it finds — the directory is named after the OS user and nothing else, so it cannot be scoped per account from here. If browser tools drive the wrong window, or the extension is reported as belonging to a different claude.ai account, quit the hosts above that you did not mean to pair with.
+
+All accounts healthy.
+```
+
+Above: a session on `work` would be answered by hosts running on the standard account. This is advisory — it never changes `doctor`'s exit code, since the directory is shared on every machine that has more than one account, and exiting non-zero forever would only teach you to ignore it. `--json` carries the same under `browser_bridge`.
+
 > **macOS only for now.** The Keychain hashing scheme is reverse-engineered from Claude Code's internals, so non-macOS platforms (where Claude Code uses libsecret / Credential Manager) aren't covered yet.
 
 ## Usage tracking (`usage`)

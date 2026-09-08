@@ -129,6 +129,8 @@ _claude_msg_en=(
     doctor_partial      "%d of %d accounts healthy."
     doctor_shared_identity "↔ same identity as %s"
     doctor_missing_dep  "claude-acc doctor needs '%s' on PATH."
+    doctor_bridge_header "Browser bridge — %d native host(s) in %s, one directory for every account:"
+    doctor_bridge_hint  "A session on any account connects to whichever of these it finds — the directory is named after the OS user and nothing else, so it cannot be scoped per account from here. If browser tools drive the wrong window, or the extension is reported as belonging to a different claude.ai account, quit the hosts above that you did not mean to pair with."
     unlink_none         "No link for the current directory."
     unlink_done         "Unlinked %s. Default account will be used."
     status_active       "Active account: %s %s"
@@ -271,6 +273,8 @@ _claude_msg_ru=(
     doctor_partial      "%d из %d аккаунтов в порядке."
     doctor_shared_identity "↔ та же личность, что и %s"
     doctor_missing_dep  "claude-acc doctor требует '%s' в PATH."
+    doctor_bridge_header "Браузерный мост — native-host(ов): %d, каталог %s, общий для всех аккаунтов:"
+    doctor_bridge_hint  "Сессия на любом аккаунте подключится к любому из них — имя каталога состоит только из имени пользователя ОС, и снаружи его под аккаунт не развести. Если браузерные инструменты управляют не тем окном или расширение числится за другим аккаунтом claude.ai — закройте те хосты выше, с которыми связываться не собирались."
     unlink_none         "Нет привязки для текущей директории."
     unlink_done         "Привязка убрана для %s. Будет использован дефолтный аккаунт."
     status_active       "Активный аккаунт: %s %s"
@@ -2107,6 +2111,57 @@ _claude_acc_lock_marker() {
         "$(_claude_acc_describe_identity "$cu" "${cur_line#*$'\t'}")")"
 }
 
+# The browser bridge: who currently holds a pairing socket, and under which
+# config directory.
+#
+# Claude Code names the rendezvous directory after the OS user and nothing
+# else — /tmp/claude-mcp-browser-bridge-<user> — so every account shares it,
+# and a session on one can be served by a native host paired with another.
+# The path is computed inside the `claude` binary with no environment input,
+# so this reports the situation rather than fixing it. Advisory only: it never
+# touches doctor's exit code, because a shared directory is how this always
+# looks and failing on it would make `doctor` exit 1 forever.
+_claude_acc_report_bridge() {
+    local user="${USER:-}"
+    [[ -n "$user" ]] || return 0
+    local dir="/tmp/claude-mcp-browser-bridge-$user"
+    [[ -d "$dir" ]] || return 0
+
+    local f pid line rest exe owner tok
+    local -a pids args
+    for f in "$dir"/*.sock(N); do
+        pid="${${f:t}%.sock}"
+        [[ "$pid" == <-> ]] && pids+=("$pid")
+    done
+    (( ${#pids} > 0 )) || return 0
+    for pid in "${(@on)pids}"; do args+=(-p "$pid"); done
+
+    local -a lines
+    lines=("${(@f)$(ps -E -o pid=,command= "${args[@]}" 2>/dev/null)}")
+    local -a rows
+    for line in "${lines[@]}"; do
+        [[ -n "$line" ]] || continue
+        read -r pid rest <<< "$line"
+        [[ "$pid" == <-> && -n "$rest" ]] || continue
+        exe="${rest%% *}"
+        # `ps` prints arguments first and the environment after them, so the
+        # last match is the environment's — an argument that merely looks like
+        # it cannot shadow the real value.
+        owner=""
+        for tok in ${=rest}; do
+            [[ "$tok" == CLAUDE_CONFIG_DIR=* ]] && owner="${tok#CLAUDE_CONFIG_DIR=}"
+        done
+        [[ -n "$owner" ]] || owner="$(_msg list_standard)"
+        rows+=("$(printf "    %7s  %s  %s" "$pid" "$owner" "$exe")")
+    done
+    (( ${#rows} > 0 )) || return 0
+
+    echo ""
+    _msg doctor_bridge_header "${#rows}" "$dir"
+    printf "%s\n" "${rows[@]}"
+    _msg doctor_bridge_hint
+}
+
 _claude_acc_doctor() {
     local json=0
     if [[ "$1" == "--json" ]]; then
@@ -2249,6 +2304,8 @@ _claude_acc_doctor() {
                 ;;
         esac
     done
+
+    _claude_acc_report_bridge
 
     echo ""
     # Drift is the one thing here that means "you are about to do work under
