@@ -48,6 +48,20 @@ jobs:
           sh -n shell/claude-wrapper.sh
           sh -n shell/claude-vscode-wrapper.sh
 
+      # Syntax is not where the bugs were. #118 was a grep pattern that
+      # parsed fine and matched nothing on any real profile, so `desktop
+      # list` called every signed-in profile signed out and `desktop run`
+      # refused to launch one. These run the functions and check answers.
+      #
+      # The job name stays "zsh -n / bash -n" because the branch ruleset
+      # requires that exact check; renaming it would silently stop gating.
+      - name: Behaviour tests
+        run: |
+          for t in tests/shell/*.zsh; do
+            echo "--- $t"
+            zsh "$t"
+          done
+
       # init.ps1 is `eval`'d by PowerShell users' profiles, so a syntax error
       # there breaks their shell startup. pwsh is preinstalled on the runner.
       - name: Syntax-check the PowerShell template

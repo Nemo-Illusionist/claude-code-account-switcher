@@ -1104,7 +1104,14 @@ _claude_acc_desktop_launch() {
 # key survives the migration as an empty string, hence the non-empty match.
 _claude_acc_desktop_signed_in() {
     local profile="$1"
-    grep -q '"oauth:tokenCache\(V2\)\?":"[^"]' "$profile/config.json" 2>/dev/null
+    # Claude Desktop pretty-prints config.json, so the value sits a space
+    # away from its key — `"oauth:tokenCacheV2": "djEw…"`. The pattern used
+    # to demand a quote immediately after the colon and so matched nothing
+    # on any real profile (#118). `"[^"]` still keeps the empty placeholder
+    # the V2 migration leaves behind from counting as a token, matching what
+    # `desktop::is_signed_in` decides on the Rust side.
+    grep -qE '"oauth:tokenCache(V2)?"[[:space:]]*:[[:space:]]*"[^"]' \
+        "$profile/config.json" 2>/dev/null
 }
 
 # The account uuid sits in plaintext in config.json — enough to tell two
