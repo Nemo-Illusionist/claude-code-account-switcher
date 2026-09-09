@@ -38,6 +38,19 @@ workflow also syntax-checks them — `zsh -n` on `claude-switch.sh` and
 over the two wrappers since they declare `#!/bin/sh`, and a PowerShell parse
 of `shell/init.ps1`. A new shell file is not covered until it is added there.
 
+It also runs every `tests/shell/*.zsh` — behaviour tests that source
+`claude-switch.sh` and check what its functions answer. Syntax checking is
+not enough on its own: #118 was a `grep` pattern that parsed fine and matched
+nothing on any real profile, and it shipped. Run them locally the same way:
+
+```sh
+for t in tests/shell/*.zsh; do zsh "$t"; done
+```
+
+A shell fix belongs there whenever the behaviour can be pinned to a file the
+test writes — which is most of them, since these functions read JSON and
+directories rather than talking to the network.
+
 ## Actions are pinned to a commit SHA
 
 Every `uses:` in `.github/workflows/` names a commit, with the tag it came
