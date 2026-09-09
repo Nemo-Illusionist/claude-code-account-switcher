@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.18.0](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.17.0...v0.18.0) (2026-09-09)
+
+
+### Features
+
+* name a desktop profile from the cli account with the same uuid ([#117](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/117)) ([5450000](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/5450000b7f476e394e211c8d0f703654ded3968b))
+* resume and copy a session by the name of a live session ([#120](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/120)) ([740067c](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/740067ce623dc4045a27f761f8b00255a96a5459))
+
 ## [0.17.0](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.16.1...v0.17.0) (2026-09-06)
 
 
