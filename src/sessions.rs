@@ -156,16 +156,82 @@ pub fn list_all(config: &AppConfig, slug: Option<&str>) -> Vec<SessionRef> {
     found
 }
 
-/// Every copy of one session id, across every account, newest first. More
-/// than one result means the transcript has been copied around and the copies
-/// have since drifted apart.
-pub fn find_by_id(config: &AppConfig, id: &str) -> Vec<SessionRef> {
-    let mut found: Vec<SessionRef> = list_all(config, None)
-        .into_iter()
-        .filter(|s| s.id == id)
-        .collect();
+/// `(name, session id)` from one `<config-dir>/sessions/<pid>.json`.
+///
+/// That registry is the only place a session *name* exists. It is written
+/// while the session runs and removed when it exits — grep an account
+/// directory for a name and `sessions/` is the single hit, and every entry
+/// found on a real machine belonged to a live process. So a name resolves
+/// for a running session and for nothing else, which is the honest limit of
+/// everything below.
+pub fn parse_live_name(raw: &str) -> Option<(String, String)> {
+    let v: serde_json::Value = serde_json::from_str(raw).ok()?;
+    let field = |k: &str| {
+        v.get(k)
+            .and_then(|x| x.as_str())
+            .filter(|x| !x.is_empty())
+            .map(String::from)
+    };
+    Some((field("name")?, field("sessionId")?))
+}
+
+/// Every named live session in one account's registry.
+pub fn live_named_sessions(config_dir: &Path) -> Vec<(String, String)> {
+    let Ok(entries) = fs::read_dir(config_dir.join("sessions")) else {
+        return Vec::new();
+    };
+    entries
+        .flatten()
+        // The registry keeps a `.key` file beside each `.json`; parsing one
+        // as JSON would fail on every call.
+        .filter(|e| e.path().extension().is_some_and(|x| x == "json"))
+        .filter_map(|e| fs::read_to_string(e.path()).ok())
+        .filter_map(|raw| parse_live_name(&raw))
+        .collect()
+}
+
+/// Every named live session across every account.
+pub fn live_named_all(config: &AppConfig) -> Vec<(String, String)> {
+    account_config_dirs(config)
+        .iter()
+        .flat_map(|(_, dir)| live_named_sessions(dir))
+        .collect()
+}
+
+/// Which sessions the user's argument selects, newest first. Pure, so the
+/// precedence rule below is testable without a filesystem.
+///
+/// A uuid wins over a name. It is unambiguous and durable, so a name that
+/// happened to equal one must not shadow it. Only when no transcript carries
+/// the argument as its id is `live` consulted, and then case-insensitively:
+/// names are generated lowercase, but nothing stops someone typing one back
+/// with capitals, and refusing that would be a puzzle rather than a
+/// safeguard.
+pub fn select(arg: &str, all: &[SessionRef], live: &[(String, String)]) -> Vec<SessionRef> {
+    let mut found: Vec<SessionRef> = all.iter().filter(|s| s.id == arg).cloned().collect();
+    if found.is_empty() {
+        let want = arg.to_lowercase();
+        let ids: Vec<&str> = live
+            .iter()
+            .filter(|(name, _)| name.to_lowercase() == want)
+            .map(|(_, id)| id.as_str())
+            .collect();
+        found = all
+            .iter()
+            .filter(|s| ids.contains(&s.id.as_str()))
+            .cloned()
+            .collect();
+    }
     sort_newest_first(&mut found);
     found
+}
+
+/// Every copy of the session the user asked for, across every account,
+/// newest first — whether they typed its uuid or the name of a live session.
+/// More than one result means the transcript has been copied around and the
+/// copies have since drifted apart.
+pub fn find_by_id_or_name(config: &AppConfig, arg: &str) -> Vec<SessionRef> {
+    select(arg, &list_all(config, None), &live_named_all(config))
 }
 
 /// Where `src` would land inside `dest_config_dir`. The project slug is
@@ -349,6 +415,151 @@ mod tests {
         sort_newest_first(&mut v);
         assert_eq!(v[0].id, "a");
         assert_eq!(v[1].id, "x");
+    }
+
+    #[test]
+    fn a_uuid_outranks_a_name_that_happens_to_equal_it() {
+        // A durable, unambiguous id must never be shadowed by a live
+        // session that took the same string as its name.
+        let all = vec![session("dup", "work", 10), session("other", "personal", 20)];
+        let live = vec![("dup".to_string(), "other".to_string())];
+        let got = select("dup", &all, &live);
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].id, "dup");
+        assert_eq!(got[0].account, "work");
+    }
+
+    #[test]
+    fn a_name_resolves_when_no_transcript_carries_it_as_an_id() {
+        let all = vec![session("7710617f", "work", 10)];
+        let live = vec![("work-8c".to_string(), "7710617f".to_string())];
+        assert_eq!(select("work-8c", &all, &live)[0].id, "7710617f");
+    }
+
+    #[test]
+    fn a_name_matches_whatever_case_it_is_typed_in() {
+        let all = vec![session("7710617f", "work", 10)];
+        let live = vec![("work-8c".to_string(), "7710617f".to_string())];
+        assert_eq!(select("WORK-8C", &all, &live).len(), 1);
+    }
+
+    #[test]
+    fn one_name_held_in_two_accounts_offers_both_newest_first() {
+        // Each account keeps its own registry, so nothing stops two live
+        // sessions sharing a name. Both are candidates; the caller asks.
+        let all = vec![session("aaa", "work", 10), session("bbb", "personal", 20)];
+        let live = vec![
+            ("shared".to_string(), "aaa".to_string()),
+            ("shared".to_string(), "bbb".to_string()),
+        ];
+        let got = select("shared", &all, &live);
+        assert_eq!(got.len(), 2);
+        assert_eq!(got[0].id, "bbb", "newest first");
+    }
+
+    #[test]
+    fn an_argument_matching_nothing_selects_nothing() {
+        let all = vec![session("aaa", "work", 10)];
+        let live = vec![("work-8c".to_string(), "bbb".to_string())];
+        assert!(select("zzz", &all, &live).is_empty());
+        // A name whose session has no transcript in any account is not a hit
+        // either — resolving it would hand the caller an id it cannot copy.
+        assert!(select("work-8c", &all, &live).is_empty());
+    }
+
+    /// An account directory holding one transcript and one live-registry
+    /// entry naming it, under a scratch `AppConfig`.
+    fn account_with_named_session(tag: &str, name: &str, id: &str) -> AppConfig {
+        let base = std::env::temp_dir().join(format!("cc-named-{}-{}", tag, std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let acc = base.join("accounts").join("work");
+        fs::create_dir_all(acc.join("projects").join("-tmp-p")).unwrap();
+        fs::write(
+            acc.join("projects")
+                .join("-tmp-p")
+                .join(format!("{id}.jsonl")),
+            b"{}\n",
+        )
+        .unwrap();
+        fs::create_dir_all(acc.join("sessions")).unwrap();
+        fs::write(
+            acc.join("sessions").join("4242.json"),
+            format!(r#"{{"pid":4242,"name":"{name}","sessionId":"{id}"}}"#),
+        )
+        .unwrap();
+        AppConfig { base_dir: base }
+    }
+
+    #[test]
+    fn the_lookup_the_commands_call_resolves_a_live_name() {
+        // The whole point, wired end to end: `session copy` and the resume
+        // preflight both go through `find_by_id_or_name`, and every unit
+        // test above still passed while that composition was broken.
+        let id = "cc00ffee-0000-4000-8000-000000000001";
+        let config = account_with_named_session("hit", "scratch-name-9z", id);
+
+        let by_name = find_by_id_or_name(&config, "scratch-name-9z");
+        assert_eq!(by_name.len(), 1, "{by_name:?}");
+        assert_eq!(by_name[0].id, id);
+        assert_eq!(by_name[0].account, "work");
+
+        // The uuid keeps working, and an unknown string still finds nothing.
+        assert_eq!(find_by_id_or_name(&config, id).len(), 1);
+        assert!(find_by_id_or_name(&config, "scratch-name-absent").is_empty());
+
+        let _ = fs::remove_dir_all(&config.base_dir);
+    }
+
+    #[test]
+    fn a_registry_entry_yields_its_name_and_session() {
+        let (name, id) = parse_live_name(
+            r#"{"pid":34976,"sessionId":"7710617f-8218-4457-aeff-516b434cf700",
+                "name":"approvalmax-product-am-39324-8c","nameSource":"derived"}"#,
+        )
+        .unwrap();
+        assert_eq!(name, "approvalmax-product-am-39324-8c");
+        assert_eq!(id, "7710617f-8218-4457-aeff-516b434cf700");
+    }
+
+    #[test]
+    fn a_registry_entry_missing_either_half_is_no_entry() {
+        // Both halves are needed to resolve anything, and half an answer
+        // here would resolve a name to nothing while looking like a hit.
+        assert!(parse_live_name(r#"{"sessionId":"7710617f"}"#).is_none());
+        assert!(parse_live_name(r#"{"name":"a-b"}"#).is_none());
+        assert!(parse_live_name(r#"{"name":"","sessionId":"7710617f"}"#).is_none());
+        assert!(parse_live_name(r#"{"name":"a-b","sessionId":""}"#).is_none());
+        assert!(parse_live_name("{not json").is_none());
+    }
+
+    #[test]
+    fn an_account_with_no_registry_has_no_names() {
+        let dir = std::env::temp_dir().join(format!("cc-live-none-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        assert!(live_named_sessions(&dir).is_empty());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn only_json_entries_in_the_registry_are_read() {
+        // The registry holds a `.key` file beside each `.json`; reading one
+        // as JSON would be an error on every single call.
+        let dir = std::env::temp_dir().join(format!("cc-live-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let reg = dir.join("sessions");
+        fs::create_dir_all(&reg).unwrap();
+        fs::write(
+            reg.join("34976.json"),
+            r#"{"name":"work-8c","sessionId":"7710617f"}"#,
+        )
+        .unwrap();
+        fs::write(reg.join("34976.abcdef.key"), b"not json").unwrap();
+        assert_eq!(
+            live_named_sessions(&dir),
+            vec![("work-8c".to_string(), "7710617f".to_string())]
+        );
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

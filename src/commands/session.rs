@@ -31,7 +31,9 @@ pub fn copy(
         return 1;
     };
 
-    let copies = sessions::find_by_id(config, id);
+    // `id` may be a session uuid or the name of a live session; the
+    // messages below echo whichever the user typed.
+    let copies = sessions::find_by_id_or_name(config, id);
     if copies.is_empty() {
         i18n.print(Msg::SessionNotFound(id.to_string()));
         return 1;
@@ -153,7 +155,7 @@ pub fn preflight_resume(
     let Some(id) = resume_id(args) else {
         return;
     };
-    let found = sessions::find_by_id(config, id);
+    let found = sessions::find_by_id_or_name(config, id);
     let chosen = match plan_resume(&found, target) {
         ResumePlan::Proceed => return,
         ResumePlan::Copy(i) => {
@@ -467,6 +469,50 @@ mod tests {
 
     fn args(v: &[&str]) -> Vec<String> {
         v.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn copy_takes_the_name_of_a_live_session_where_it_takes_an_id() {
+        // Regression: the resolution rule had tests, but nothing proved the
+        // commands used it — reverting these call sites to a uuid-only
+        // lookup left the whole suite green while the reported bug was back.
+        use std::fs;
+        let base = std::env::temp_dir().join(format!("cc-sesscopy-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let id = "cc00ffee-0000-4000-8000-000000000002";
+        let src = base.join("accounts").join("work");
+        let dest = base.join("accounts").join("personal");
+        fs::create_dir_all(src.join("projects").join("-tmp-p")).unwrap();
+        fs::create_dir_all(dest.join("projects")).unwrap();
+        fs::create_dir_all(src.join("sessions")).unwrap();
+        fs::write(
+            src.join("projects")
+                .join("-tmp-p")
+                .join(format!("{id}.jsonl")),
+            b"{}\n",
+        )
+        .unwrap();
+        fs::write(
+            src.join("sessions").join("4243.json"),
+            format!(r#"{{"pid":4243,"name":"scratch-copy-7q","sessionId":"{id}"}}"#),
+        )
+        .unwrap();
+
+        let config = AppConfig {
+            base_dir: base.clone(),
+        };
+        let i18n = I18n { lang: Lang::En };
+        let code = copy(&config, &i18n, "scratch-copy-7q", "personal", None, true);
+
+        assert_eq!(code, 0);
+        assert!(
+            dest.join("projects")
+                .join("-tmp-p")
+                .join(format!("{id}.jsonl"))
+                .is_file(),
+            "the transcript the name pointed at should have landed"
+        );
+        let _ = fs::remove_dir_all(&base);
     }
 
     #[test]

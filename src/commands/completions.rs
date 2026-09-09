@@ -13,8 +13,8 @@ pub fn run(config: &AppConfig, what: &str) {
             }
         }
         "sessions" => {
-            for id in session_ids(config) {
-                println!("{}", id);
+            for candidate in session_candidates(config) {
+                println!("{}", candidate);
             }
         }
         "desktop" => {
@@ -24,6 +24,26 @@ pub fn run(config: &AppConfig, what: &str) {
         }
         _ => {}
     }
+}
+
+/// What `session copy` and `--resume` accept, in the order worth offering:
+/// the names of live sessions first, then this directory's session ids.
+///
+/// Names come first because there are only ever a handful of them and they
+/// are the half a person can recognise. They are not scoped to the current
+/// project — a live session is worth offering wherever you are typing, and
+/// there are too few to crowd anything out.
+fn session_candidates(config: &AppConfig) -> Vec<String> {
+    let names = sessions::live_named_all(config)
+        .into_iter()
+        .map(|(n, _)| n)
+        .collect();
+    candidates(names, session_ids(config))
+}
+
+/// The order itself, kept separate from where the two lists come from.
+fn candidates(names: Vec<String>, ids: Vec<String>) -> Vec<String> {
+    dedup_keeping_order(names.into_iter().chain(ids))
 }
 
 /// Session ids for the current directory, newest first, each listed once
@@ -76,6 +96,28 @@ mod tests {
         assert_eq!(
             ids(&["newest", "older", "oldest"]),
             vec!["newest", "older", "oldest"]
+        );
+    }
+
+    #[test]
+    fn names_are_offered_before_ids() {
+        // A live session's name is short and recognisable; a uuid is
+        // neither, so burying the names under a page of them would waste
+        // the menu.
+        assert_eq!(
+            candidates(
+                vec!["work-8c".to_string()],
+                vec!["0266a566".to_string(), "7710617f".to_string()]
+            ),
+            vec!["work-8c", "0266a566", "7710617f"]
+        );
+    }
+
+    #[test]
+    fn a_name_equal_to_an_id_is_offered_once() {
+        assert_eq!(
+            candidates(vec!["dup".to_string()], vec!["dup".to_string()]),
+            vec!["dup"]
         );
     }
 
