@@ -132,7 +132,7 @@ Short version: **cswap** if you want one active account plus automatic rotation 
 | `claude-acc status` | Show active account |
 | `claude-acc usage` | Show 5h / 7d rate-limit usage for every account |
 | `claude-acc sessions [--all]` | List Claude Code sessions across accounts (current directory by default) |
-| `claude-acc session copy <id> --to <name>` | Copy a session into another account so `claude --resume` can see it |
+| `claude-acc session copy <id\|name> --to <name>` | Copy a session into another account so `claude --resume` can see it |
 | `claude-acc resume-hook [on\|off]` | Show/set whether plain `claude --resume <id>` gets the same check |
 | `claude-acc desktop add\|list\|run\|remove [<name>]` | Claude Desktop profiles — separate app profiles that run side by side |
 | `claude-acc desktop clone-config <name>` | Copy MCP servers and preferences into a desktop profile (`--from`, `--force`) |
@@ -251,11 +251,11 @@ It covers VS Code, VS Code Insiders, VSCodium and Cursor — whichever are insta
 
 ## Shell completions
 
-`claude-acc install` also wires up Tab completion for zsh, bash and PowerShell. It covers every command and its arguments — account names (with `default` where the command accepts it), `session copy` ids for the current directory, `desktop` profile names, `vscode install|uninstall|status`, `resume-hook on|off`, `import`'s path, and each command's flags:
+`claude-acc install` also wires up Tab completion for zsh, bash and PowerShell. It covers every command and its arguments — account names (with `default` where the command accepts it), `session copy` names of live sessions and ids for the current directory, `desktop` profile names, `vscode install|uninstall|status`, `resume-hook on|off`, `import`'s path, and each command's flags:
 
 ```
 $ claude-acc session copy <TAB>
-363edaeb-e81c-4021-94f4-7fe7d91815f4  0266a566-0336-4055-8f05-c553d368528e
+notes-api-3f  363edaeb-e81c-4021-94f4-7fe7d91815f4  0266a566-0336-4055-8f05-c553d368528e
 
 $ claude-acc session copy 0266a566-… --to <TAB>
 default  personal  work
@@ -598,6 +598,26 @@ Number (Enter to cancel):
 Picking this account's copy (or pressing Enter) leaves everything alone. Picking another copies it in first.
 
 Anything else is claude's ordinary behaviour, untouched: an id no other account has, and a bare `--resume` with no id — that opens claude's own session picker, and getting in front of it would only be in the way.
+
+### …and by name, not only by id
+
+`claude` gives every running session a name — derived from its directory, or set with `--name` — and `--resume` takes one in place of an id. Names work here too, across accounts, exactly the same way:
+
+```
+$ claude-acc run default --resume notes-api-3f
+
+Session notes-api-3f isn't in account 'default', but another account has it:
+  work          15m ago       5.1 MB
+
+Note: the prompt cache is per-account, so the first message after resuming
+under another account re-sends the whole transcript — slower and more expensive
+than a normal turn.
+Copy it from 'work' into 'default' and resume? [y/N]
+```
+
+`claude-acc session copy notes-api-3f --to default` takes a name too.
+
+Two things worth knowing. A uuid always wins: if a live session took a name that happens to equal some transcript's id, the id is what resolves. And **a name only exists while its session runs** — claude keeps it in `<config-dir>/sessions/<pid>.json` and drops the entry when the process exits, recording it nowhere else. For a session that has already finished, use its id from `claude-acc sessions --all`.
 
 ### The same check for plain `claude --resume`
 

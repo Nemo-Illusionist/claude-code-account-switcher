@@ -31,7 +31,9 @@ pub fn copy(
         return 1;
     };
 
-    let copies = sessions::find_by_id(config, id);
+    // `id` may be a session uuid or the name of a live session; the
+    // messages below echo whichever the user typed.
+    let copies = sessions::find_by_id_or_name(config, id);
     if copies.is_empty() {
         i18n.print(Msg::SessionNotFound(id.to_string()));
         return 1;
@@ -153,7 +155,7 @@ pub fn preflight_resume(
     let Some(id) = resume_id(args) else {
         return;
     };
-    let found = sessions::find_by_id(config, id);
+    let found = sessions::find_by_id_or_name(config, id);
     let chosen = match plan_resume(&found, target) {
         ResumePlan::Proceed => return,
         ResumePlan::Copy(i) => {
