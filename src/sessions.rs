@@ -467,6 +467,49 @@ mod tests {
         assert!(select("work-8c", &all, &live).is_empty());
     }
 
+    /// An account directory holding one transcript and one live-registry
+    /// entry naming it, under a scratch `AppConfig`.
+    fn account_with_named_session(tag: &str, name: &str, id: &str) -> AppConfig {
+        let base = std::env::temp_dir().join(format!("cc-named-{}-{}", tag, std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let acc = base.join("accounts").join("work");
+        fs::create_dir_all(acc.join("projects").join("-tmp-p")).unwrap();
+        fs::write(
+            acc.join("projects")
+                .join("-tmp-p")
+                .join(format!("{id}.jsonl")),
+            b"{}\n",
+        )
+        .unwrap();
+        fs::create_dir_all(acc.join("sessions")).unwrap();
+        fs::write(
+            acc.join("sessions").join("4242.json"),
+            format!(r#"{{"pid":4242,"name":"{name}","sessionId":"{id}"}}"#),
+        )
+        .unwrap();
+        AppConfig { base_dir: base }
+    }
+
+    #[test]
+    fn the_lookup_the_commands_call_resolves_a_live_name() {
+        // The whole point, wired end to end: `session copy` and the resume
+        // preflight both go through `find_by_id_or_name`, and every unit
+        // test above still passed while that composition was broken.
+        let id = "cc00ffee-0000-4000-8000-000000000001";
+        let config = account_with_named_session("hit", "scratch-name-9z", id);
+
+        let by_name = find_by_id_or_name(&config, "scratch-name-9z");
+        assert_eq!(by_name.len(), 1, "{by_name:?}");
+        assert_eq!(by_name[0].id, id);
+        assert_eq!(by_name[0].account, "work");
+
+        // The uuid keeps working, and an unknown string still finds nothing.
+        assert_eq!(find_by_id_or_name(&config, id).len(), 1);
+        assert!(find_by_id_or_name(&config, "scratch-name-absent").is_empty());
+
+        let _ = fs::remove_dir_all(&config.base_dir);
+    }
+
     #[test]
     fn a_registry_entry_yields_its_name_and_session() {
         let (name, id) = parse_live_name(

@@ -472,6 +472,50 @@ mod tests {
     }
 
     #[test]
+    fn copy_takes_the_name_of_a_live_session_where_it_takes_an_id() {
+        // Regression: the resolution rule had tests, but nothing proved the
+        // commands used it — reverting these call sites to a uuid-only
+        // lookup left the whole suite green while the reported bug was back.
+        use std::fs;
+        let base = std::env::temp_dir().join(format!("cc-sesscopy-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let id = "cc00ffee-0000-4000-8000-000000000002";
+        let src = base.join("accounts").join("work");
+        let dest = base.join("accounts").join("personal");
+        fs::create_dir_all(src.join("projects").join("-tmp-p")).unwrap();
+        fs::create_dir_all(dest.join("projects")).unwrap();
+        fs::create_dir_all(src.join("sessions")).unwrap();
+        fs::write(
+            src.join("projects")
+                .join("-tmp-p")
+                .join(format!("{id}.jsonl")),
+            b"{}\n",
+        )
+        .unwrap();
+        fs::write(
+            src.join("sessions").join("4243.json"),
+            format!(r#"{{"pid":4243,"name":"scratch-copy-7q","sessionId":"{id}"}}"#),
+        )
+        .unwrap();
+
+        let config = AppConfig {
+            base_dir: base.clone(),
+        };
+        let i18n = I18n { lang: Lang::En };
+        let code = copy(&config, &i18n, "scratch-copy-7q", "personal", None, true);
+
+        assert_eq!(code, 0);
+        assert!(
+            dest.join("projects")
+                .join("-tmp-p")
+                .join(format!("{id}.jsonl"))
+                .is_file(),
+            "the transcript the name pointed at should have landed"
+        );
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
     fn resume_id_reads_the_value_after_the_flag() {
         assert_eq!(resume_id(&args(&["--resume", "abc"])), Some("abc"));
         assert_eq!(resume_id(&args(&["-r", "abc"])), Some("abc"));
