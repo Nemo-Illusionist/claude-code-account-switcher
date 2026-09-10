@@ -8,7 +8,7 @@ Claude Code stores a conversation as a transcript inside the config directory it
 <CLAUDE_CONFIG_DIR>/projects/<slugified-cwd>/<session-id>.jsonl
 ```
 
-Because every account here gets its own `CLAUDE_CONFIG_DIR`, every account also gets its own `projects/` tree. That has a consequence worth knowing: **`claude --resume <id>` only ever sees sessions that belong to the account it runs under.** Start a conversation on `work`, hit a limit, switch to `personal`, and `--resume` won't list it — the transcript is still there, just in the other account's directory.
+Because every account here gets its own `CLAUDE_CONFIG_DIR`, every account also gets its own `projects/` tree. That has a consequence: **`claude --resume <id>` only ever sees sessions that belong to the account it runs under.** Start a conversation on `work`, hit a limit, switch to `personal`, and `--resume` won't list it — the transcript is still there, just in the other account's directory.
 
 `claude-acc sessions` shows the whole picture. By default it lists the current directory's sessions across every account; `--all` covers every project:
 
@@ -55,7 +55,7 @@ Prompts you'll see, and how to skip them:
 
 - **Which copy?** — if several accounts already hold this id, you get a numbered pick showing each copy's account, how long ago it was touched, and its size. `--from <account>` answers it up front. This is the one prompt `--force` can't skip: with copies that have drifted apart, guessing risks overwriting the version you wanted.
 - **Overwrite?** — if the destination already holds a copy, both are shown side by side (marked `← copying this one` / `← will be replaced`) before you confirm.
-- **The cost note** — the prompt cache is per-account, so the first turn after the move re-sends the whole transcript. On a large conversation that is slow and not cheap. Worth knowing before, not after.
+- **The cost note** above the confirmation — the prompt cache is per-account, so the first turn after the move re-sends the whole transcript. On a large conversation that is slow and not cheap.
 
 `--force` skips the confirmations for scripting.
 
@@ -109,7 +109,7 @@ Copy it from 'work' into 'default' and resume? [y/N]
 
 `claude-acc session copy notes-api-3f --to default` takes a name too.
 
-Two things worth knowing. A uuid always wins: if a live session took a name that happens to equal some transcript's id, the id is what resolves. And **a name only exists while its session runs** — claude keeps it in `<config-dir>/sessions/<pid>.json` and drops the entry when the process exits, recording it nowhere else. For a session that has already finished, use its id from `claude-acc sessions --all`.
+A uuid always wins: if a live session took a name that happens to equal some transcript's id, the id is what resolves. And **a name only exists while its session runs** — claude keeps it in `<config-dir>/sessions/<pid>.json` and drops the entry when the process exits, recording it nowhere else. For a session that has already finished, use its id from `claude-acc sessions --all`.
 
 ### The same check for plain `claude --resume`
 
