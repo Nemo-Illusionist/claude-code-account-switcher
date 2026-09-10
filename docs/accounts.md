@@ -55,7 +55,7 @@ Both copy a curated set of files from `~/.claude/`:
 - `hooks/` (settings.json references these by absolute path; copying duplicates files for nothing)
 - `.account-info.json` (the doctor cache)
 
-### About plugins
+### What happens to plugins
 
 Claude Code keeps its plugin registry **per config dir**, so a new account
 starts with none — which is why they are seeded rather than left out.

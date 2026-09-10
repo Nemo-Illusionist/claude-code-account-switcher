@@ -5,7 +5,7 @@
 Which Anthropic account is actually behind each config dir, how to pin it,
 and how much of its rate limit is gone.
 
-## Auditing identities (`doctor`)
+## Which account a config dir is signed in as (`doctor`)
 
 `claude-acc add` and `claude-acc login` both run `claude auth login` under a per-account `CLAUDE_CONFIG_DIR`. Whatever Anthropic account you sign in with becomes the identity for that directory — and there's no built-in surface to see which account is actually behind a given config dir. If you accidentally log in with the wrong identity (browser auto-fill, a stale tab), the switch is silent: rate limits, conversation history, and billing leak across what you thought were isolated accounts.
 
@@ -127,7 +127,7 @@ except the standard account's, which goes to
 `~/.claude-switch/default.identity-lock.json` rather than inside `~/.claude/`,
 which belongs to Claude Code.
 
-## Usage tracking (`usage`)
+## How much rate limit is left (`usage`)
 
 `claude-acc usage` shows how much of each account's rate limit you've burned, so you can pick a fresh account before you hit a wall. For every account (and the standard `~/.claude/` if logged in) it reads the OAuth token, calls `https://api.anthropic.com/api/oauth/usage`, and renders the **5-hour** and **7-day** windows with a bar, a percentage, and the time until each resets:
 

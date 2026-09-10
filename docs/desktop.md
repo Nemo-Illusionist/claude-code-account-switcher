@@ -51,7 +51,7 @@ The last row is the app's own profile — the one you get when you open Claude f
 
 Your main instance is never quit, never touched, and never has its signed-in state copied around. That is the whole reason this approach is worth having: the alternative — quitting the app and swapping profile data on disk — mixes authentication state and triggers server-side re-authentication, which is exactly what the Windows tools in this space keep running into.
 
-**Trade-offs, stated plainly:**
+### Trade-offs
 
 - **Disk.** Isolation is total, so a profile would re-download its whole ~10.5 GB runtime. `clone-runtime` makes that free on APFS — see below. Caches (~1.5 GB) are still per-profile.
 - **MCP servers are per-profile.** A new profile starts with none — `-s` or `clone-config` brings them over, see below.
@@ -95,14 +95,12 @@ $ claude-acc desktop clone-config work
 This profile already has a claude_desktop_config.json. Replace it with --force.
 ```
 
-Two things worth knowing:
-
 - **Definitions, not sessions.** An MCP server that authenticates on its own will ask for that again in the new profile — as it should, since the point of a separate profile is a separate identity.
 - The file can hold server credentials, so it is copied with its mode intact (`0600` in the app's own profile) and via a staging file, so an interrupted copy can't leave half a config behind.
 
 ### Which account each profile is signed in as (`desktop usage`)
 
-`desktop list` reads nothing but files, so it can only say whether a profile holds a credential. `desktop usage` goes further — it decrypts the profile's token and asks the API, giving you the email, the plan, and the same 5h / 7d bars [`usage`](identity.md#usage-tracking-usage) shows for CLI accounts:
+`desktop list` reads nothing but files, so it can only say whether a profile holds a credential. `desktop usage` goes further — it decrypts the profile's token and asks the API, giving you the email, the plan, and the same 5h / 7d bars [`usage`](identity.md#how-much-rate-limit-is-left-usage) shows for CLI accounts:
 
 ```
 $ claude-acc desktop usage
