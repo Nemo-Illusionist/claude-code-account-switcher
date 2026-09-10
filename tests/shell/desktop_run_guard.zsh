@@ -14,11 +14,18 @@
 emulate -L zsh
 set -u
 
-source "${0:A:h:h:h}/claude-switch.sh" >/dev/null 2>&1
-
 typeset -i failures=0
 scratch=$(mktemp -d)
 trap 'rm -rf "$scratch"' EXIT
+
+# Sourcing the script runs its init, which creates ~/.claude-switch/ and
+# regenerates the `claude` wrapper inside it. On a machine running the Rust
+# CLI that silently replaces its wrapper with the zsh one, so running the
+# tests breaks the installation. A scratch HOME keeps the real one out of it.
+export HOME="$scratch/home"
+mkdir -p "$HOME"
+
+source "${0:A:h:h:h}/claude-switch.sh" >/dev/null 2>&1
 
 # Point the script at a scratch profile tree, and replace everything past
 # the decision: the guard reports that it ran and refuses, the launcher
