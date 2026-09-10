@@ -1,5 +1,7 @@
 # Claude Code Account Switcher
 
+[English version](README.md)
+
 Привязка разных аккаунтов Claude Code к разным директориям.
 При `cd` автоматически подхватывается нужный аккаунт.
 
@@ -47,8 +49,7 @@ claude-acc add work
 cd ~/work
 claude-acc link work
 
-# Готово! При cd в ~/work или любую вложенную папку
-# используется рабочий аккаунт.
+# Готово! cd в ~/work или любую вложенную папку — рабочий аккаунт.
 # Всё остальное работает через стандартный ~/.claude/
 ```
 
@@ -83,9 +84,9 @@ claude-acc link work
 | `claude-acc sessions [--all]` | Список сессий Claude Code по всем аккаунтам (по умолчанию — для текущей директории) |
 | `claude-acc session copy <id\|имя> --to <имя>` | Скопировать сессию в другой аккаунт, чтобы `claude --resume` её увидел |
 | `claude-acc resume-hook [on\|off]` | Показать/задать, действует ли та же проверка для голого `claude --resume <id>` |
-| `claude-acc desktop add\|list\|run\|remove [<name>]` | Профили Claude Desktop — отдельные профили приложения, работают одновременно |
-| `claude-acc desktop clone-config <name>` | Перенести MCP-серверы и настройки в профиль десктопа (`--from`, `--force`) |
-| `claude-acc desktop clone-runtime <name>` | Склонировать скачанный рантайм в профиль, copy-on-write (macOS/APFS) |
+| `claude-acc desktop add\|list\|run\|remove [<имя>]` | Профили Claude Desktop — отдельные профили приложения, работают одновременно |
+| `claude-acc desktop clone-config <имя>` | Перенести MCP-серверы и настройки в профиль десктопа (`--from`, `--force`) |
+| `claude-acc desktop clone-runtime <имя>` | Склонировать скачанный рантайм в профиль, copy-on-write (macOS/APFS) |
 | `claude-acc desktop usage` | Аккаунт, план и расход 5ч / 7д по каждому профилю десктопа (macOS) |
 | `claude-acc vscode install\|uninstall\|status` | Подключить нативный UI расширения VS Code к аккаунтам, привязанным к каталогам |
 | `claude-acc statusline [--install]` | Отрисовать (или установить) статус-панель Claude Code с активным аккаунтом |
