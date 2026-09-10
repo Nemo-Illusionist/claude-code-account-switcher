@@ -100,7 +100,7 @@ This profile already has a claude_desktop_config.json. Replace it with --force.
 
 ### Which account each profile is signed in as (`desktop usage`)
 
-`desktop list` reads nothing but files, so it can only say whether a profile holds a credential. `desktop usage` goes further — it decrypts the profile's token and asks the API, giving you the email, the plan, and the same 5h / 7d bars [`usage`](identity.md#usage-tracking-usage) shows for CLI accounts:
+`desktop list` reads nothing but files, so it can only say whether a profile holds a credential. `desktop usage` goes further — it decrypts the profile's token and asks the API, giving you the email, the plan, and the same 5h / 7d bars [`usage`](identity.md#how-much-rate-limit-is-left-usage) shows for CLI accounts:
 
 ```
 $ claude-acc desktop usage

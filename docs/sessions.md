@@ -59,7 +59,7 @@ Prompts you'll see, and how to skip them:
 
 `--force` skips the confirmations for scripting.
 
-### `run --resume` checks for you
+### Resuming a session another account holds (`run --resume`)
 
 You don't have to remember any of this up front. When `claude-acc run <account> --resume <id>` names a session that account doesn't have, it says so before starting claude — which would otherwise just report an unknown session, with no hint that the transcript is sitting one account over:
 
@@ -91,7 +91,7 @@ Picking this account's copy (or pressing Enter) leaves everything alone. Picking
 
 Anything else is claude's ordinary behaviour, untouched: an id no other account has, and a bare `--resume` with no id — that opens claude's own session picker, and getting in front of it would only be in the way.
 
-### …and by name, not only by id
+### Resuming by name, not only by id
 
 `claude` gives every running session a name — derived from its directory, or set with `--name` — and `--resume` takes one in place of an id. Names work here too, across accounts, exactly the same way:
 
@@ -111,7 +111,7 @@ Copy it from 'work' into 'default' and resume? [y/N]
 
 A uuid always wins: if a live session took a name that happens to equal some transcript's id, the id is what resolves. And **a name only exists while its session runs** — claude keeps it in `<config-dir>/sessions/<pid>.json` and drops the entry when the process exits, recording it nowhere else. For a session that has already finished, use its id from `claude-acc sessions --all`.
 
-### The same check for plain `claude --resume`
+### The same check for plain `claude --resume` (`resume-hook`)
 
 `claude` on your PATH is this tool's wrapper (see [IDE integration](ide.md)), so the check doesn't have to be limited to `claude-acc run`. With the hook on — the default — a plain `claude --resume <id>` gets exactly the prompts above:
 
