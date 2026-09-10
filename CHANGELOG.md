@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.18.2](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.18.1...v0.18.2) (2026-09-10)
+
+
+### Documentation
+
+* link the Russian README back to the English one ([#128](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/128)) ([d540683](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/d540683dd6e5bab51c344e4d77179e1787c4ba21))
+* split the README into an overview and topic guides ([#125](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/125)) ([b35abd9](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/b35abd9d60b8bfd901b07de4153c1c8472ac999a))
+* tighten the guides — drop the throat-clearing, title sections by task ([#127](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/127)) ([6505c50](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/6505c50dbda41dbec94c01725fa42244a2549ae6))
+
 ## [0.18.1](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.18.0...v0.18.1) (2026-09-10)
 
 
