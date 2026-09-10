@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.18.1](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.18.0...v0.18.1) (2026-09-10)
+
+
+### Bug Fixes
+
+* keep the account chosen by run in the zsh wrapper ([#124](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/124)) ([1ee308e](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/1ee308e300d554c318f1cec89987e325eb63510f))
+* recognise a signed-in desktop profile in the zsh script ([#121](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/121)) ([26985ae](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/26985aed668b8790388570a99b57556d67af0c5f))
+
 ## [0.18.0](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.17.0...v0.18.0) (2026-09-09)
 
 
