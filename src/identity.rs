@@ -394,7 +394,7 @@ pub fn copy_keychain_entry(from_dir: &Path, to_dir: &Path) -> std::io::Result<bo
     if !cfg!(target_os = "macos") {
         return Ok(false);
     }
-    let Some(blob) = keychain_blob(from_dir) else {
+    let Some(blob) = source_keychain_blob(from_dir) else {
         return Ok(false);
     };
     let (Some(to_service), Some(user)) = (keychain_service(to_dir), whoami_short()) else {
@@ -402,6 +402,33 @@ pub fn copy_keychain_entry(from_dir: &Path, to_dir: &Path) -> std::io::Result<bo
     };
     write_keychain_blob(&to_service, &user, &blob)?;
     Ok(true)
+}
+
+/// The credential blob to carry to a new location when importing `from_dir`,
+/// looked up the way `read_token` looks one up: the dir's own scoped entry
+/// first, then — for the standard account only — the bare legacy service.
+///
+/// Importing `~/.claude` is the case that needs the second one. That account
+/// runs with no `CLAUDE_CONFIG_DIR`, so Claude Code keeps its token under the
+/// unscoped service and there may be no scoped entry at all; without this the
+/// import would land a config dir whose token was left behind.
+fn source_keychain_blob(from_dir: &Path) -> Option<String> {
+    let user = whoami_short()?;
+    source_keychain_services(from_dir)
+        .into_iter()
+        .find_map(|service| read_keychain_blob(&service, &user))
+}
+
+/// Services to try for `from_dir`, in order. The legacy one is offered only
+/// for the standard account, for the reason spelled out in `read_token`: the
+/// bare entry belongs to whichever account logged in last, so reading it for
+/// a managed dir could carry a *different* identity into the new account.
+fn source_keychain_services(from_dir: &Path) -> Vec<String> {
+    let mut services: Vec<String> = keychain_service(from_dir).into_iter().collect();
+    if should_try_legacy_keychain_fallback(from_dir) {
+        services.push(LEGACY_KEYCHAIN_SERVICE.to_string());
+    }
+    services
 }
 
 /// Keychain service names a `claude auth login` run can write to as a side
@@ -833,6 +860,42 @@ mod tests {
         assert!(!should_try_legacy_keychain_fallback(
             standard_dir.parent().expect("home dir has a parent")
         ));
+    }
+
+    #[test]
+    fn importing_the_standard_account_may_read_the_bare_service() {
+        // Regression: `import` copied the Keychain entry by scoped name only,
+        // so importing ~/.claude — which has no CLAUDE_CONFIG_DIR to scope by,
+        // and whose token therefore lives under the bare service — landed a
+        // config dir with its token left behind.
+        let standard_dir = standard_token_dir().expect("home dir should resolve in CI");
+        let services = source_keychain_services(&standard_dir);
+
+        assert_eq!(
+            services.last(),
+            Some(&"Claude Code-credentials".to_string()),
+            "the bare service must be tried, and only after the scoped one: {services:?}"
+        );
+        assert_eq!(
+            services.first(),
+            keychain_service(&standard_dir).as_ref(),
+            "the dir's own scoped entry still comes first: {services:?}"
+        );
+    }
+
+    #[test]
+    fn importing_a_managed_account_never_reads_the_bare_service() {
+        // The bare entry belongs to whichever account logged in last, so
+        // carrying it into an import would attribute another identity to the
+        // new account.
+        let services = source_keychain_services(Path::new("/tmp/some-managed-account"));
+        assert_eq!(
+            services,
+            keychain_service(Path::new("/tmp/some-managed-account"))
+                .into_iter()
+                .collect::<Vec<_>>()
+        );
+        assert!(!services.contains(&"Claude Code-credentials".to_string()));
     }
 
     #[test]
