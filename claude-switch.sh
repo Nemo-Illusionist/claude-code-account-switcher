@@ -1546,16 +1546,46 @@ _claude_acc_desktop() {
 # fallback), calls /api/oauth/profile, prints email + UUID. Doesn't change
 # anything. Requires: security, curl, jq, shasum.
 
+# The pre-2.1 unscoped Keychain service name. Claude Code 2.1+ scopes
+# credentials per config dir, but keeps this bare entry for the standard
+# ~/.claude account, which runs with no CLAUDE_CONFIG_DIR and therefore has
+# no hash to scope by. Mirrors LEGACY_KEYCHAIN_SERVICE in src/identity.rs.
+CLAUDE_ACC_LEGACY_KEYCHAIN_SERVICE="Claude Code-credentials"
+
+# Whether a missed scoped lookup for this dir should retry the bare service.
+# Only the standard account: a managed account falling back to the shared
+# entry could report *another* account's identity as its own, which is worse
+# than reporting no token at all.
+_claude_acc_legacy_keychain_ok() {
+    [[ "$1" == "$(_claude_acc_default_token_dir)" ]]
+}
+
+_claude_acc_keychain_token() {
+    local service="$1" blob
+    blob=$(security find-generic-password -s "$service" -a "$(id -un)" -w 2>/dev/null)
+    [[ -z "$blob" ]] && return 1
+    printf '%s' "$blob" | jq -r '.claudeAiOauth.accessToken // empty' 2>/dev/null
+}
+
 _claude_acc_token() {
-    local acc_dir="$1" hash service token
+    local acc_dir="$1" hash token
     hash=$(printf '%s' "$acc_dir" | shasum -a 256 2>/dev/null | cut -c1-8)
     [[ -z "$hash" ]] && return 1
-    service="Claude Code-credentials-${hash}"
-    token=$(security find-generic-password -s "$service" -a "$(id -un)" -w 2>/dev/null)
+
+    token=$(_claude_acc_keychain_token "Claude Code-credentials-${hash}")
     if [[ -n "$token" ]]; then
-        printf '%s' "$token" | jq -r '.claudeAiOauth.accessToken // empty' 2>/dev/null
+        printf '%s' "$token"
         return 0
     fi
+
+    if _claude_acc_legacy_keychain_ok "$acc_dir"; then
+        token=$(_claude_acc_keychain_token "$CLAUDE_ACC_LEGACY_KEYCHAIN_SERVICE")
+        if [[ -n "$token" ]]; then
+            printf '%s' "$token"
+            return 0
+        fi
+    fi
+
     jq -r '.claudeAiOauth.accessToken // empty' "$acc_dir/.credentials.json" 2>/dev/null
 }
 
