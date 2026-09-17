@@ -1958,7 +1958,15 @@ _claude_acc_rekey_keychain() {
     user=$(id -un)
     fromhash=$(printf '%s' "$from" | shasum -a 256 | cut -c1-8)
     tohash=$(printf '%s' "$to" | shasum -a 256 | cut -c1-8)
-    blob=$(security find-generic-password -s "Claude Code-credentials-${fromhash}" -a "$user" -w 2>/dev/null) || return 1
+    blob=$(security find-generic-password -s "Claude Code-credentials-${fromhash}" -a "$user" -w 2>/dev/null)
+    # Importing ~/.claude is the case the scoped name alone can't serve: that
+    # account runs with no CLAUDE_CONFIG_DIR, so its token lives under the bare
+    # service and there may be no scoped entry at all. Same guard as
+    # _claude_acc_token — a managed dir must never read the bare entry, which
+    # belongs to whoever logged in last.
+    if [[ -z "$blob" ]] && _claude_acc_legacy_keychain_ok "$from"; then
+        blob=$(security find-generic-password -s "$CLAUDE_ACC_LEGACY_KEYCHAIN_SERVICE" -a "$user" -w 2>/dev/null)
+    fi
     [[ -z "$blob" ]] && return 1
     security add-generic-password -U -s "Claude Code-credentials-${tohash}" -a "$user" -w "$blob" 2>/dev/null
 }
