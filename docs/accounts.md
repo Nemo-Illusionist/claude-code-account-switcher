@@ -74,6 +74,33 @@ Seeding is not a merge, and what you installed there is yours.
 
 Existing files in the target are skipped — `clone-settings` is a one-shot seed, not a sync.
 
+### Features you switch on once per account
+
+Seeding copies files. It deliberately never touches `.claude.json` — the file that also holds `oauthAccount`, where a wrong value would hand an account somebody else's identity. A few user-facing features are recorded exactly there, so they start out unset in every new account.
+
+**Claude in Chrome** is the one you are most likely to meet. Claude Code wires that MCP server per config dir, from `claudeInChromeDefaultEnabled`. A new account has never said yes, so the browser tools are simply absent — which reads as "this machine has no extension" rather than "this account never enabled it". Run `/chrome` once inside the account and it sticks:
+
+```bash
+claude-acc run work        # then /chrome, once
+```
+
+`doctor` says so when it sees the mismatch — the extension known to this machine, the switch off in some account:
+
+```
+$ claude-acc doctor
+Auditing 1 account(s):
+  ? work  no token (run: claude-acc login work)
+
+Claude in Chrome is off in: work. Claude Code keeps that switch per config dir, so the browser tools stay missing there until you run `/chrome` once inside that account.
+0 of 1 accounts healthy.
+```
+
+It stays quiet when no account here has ever met the extension: off on a machine that never installed it is the correct state, not a finding. And it never affects the exit code — nothing about a browser feature is a wrong identity, which is the only thing that exit code means.
+
+The extension itself is installed once per browser, and the native messaging host it talks through carries no account binding at all, so it serves every account. Only the switch is per config dir.
+
+**Computer use is a different case, and not fixable here.** Claude Code gates it on the subscription — `max` or `pro`. An account on a `team` or `enterprise` plan does not get it, in a managed account and in a plain `~/.claude/` alike. Nothing in this tool changes that, so `doctor` says nothing about it.
+
 ## Per-project settings
 
 Each account gets its own `~/.claude-switch/accounts/<name>/` directory, which acts as `CLAUDE_CONFIG_DIR`. This means each account has its own `settings.json`, credentials, and project history.
