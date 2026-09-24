@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use crate::chrome;
 use crate::config::AppConfig;
 use crate::i18n::{I18n, Msg};
 use crate::identity::{self, AuditResult, Profile};
@@ -37,6 +38,49 @@ fn shared_seg(
         "  {}",
         i18n.msg(Msg::DoctorSharedIdentity(others.join(", ")))
     )
+}
+
+/// The audited accounts that have Claude in Chrome switched off, named the way
+/// `claude-acc run` takes them, or `None` when there is nothing to say.
+///
+/// Claude Code keeps that switch per config dir, so a new account starts
+/// without the browser tools and offers no explanation — the tools are just
+/// absent. We only speak up when this machine has actually met the extension
+/// somewhere, because off on a machine that never installed it is the correct
+/// state and none of our business.
+///
+/// This is a hint, never a failure: it does not touch `doctor`'s exit code.
+/// Nothing here is a wrong identity, which is the one thing that exit code
+/// means, and a script gating on it must not start failing over a browser
+/// feature somebody chose not to turn on.
+fn chrome_off(
+    config: &AppConfig,
+    rows: &[(String, AuditResult)],
+    standard_label: &str,
+) -> Option<String> {
+    let dirs: Vec<(&str, std::path::PathBuf)> = rows
+        .iter()
+        .filter_map(|(label, _)| {
+            if label == standard_label {
+                identity::standard_token_dir().map(|d| ("default", d))
+            } else {
+                Some((label.as_str(), config.account_path(label)))
+            }
+        })
+        .collect();
+
+    if !dirs.iter().any(|(_, dir)| chrome::extension_seen(dir)) {
+        return None;
+    }
+    let off: Vec<&str> = dirs
+        .iter()
+        .filter(|(_, dir)| chrome::enabled(dir) == Some(false))
+        .map(|(name, _)| *name)
+        .collect();
+    if off.is_empty() {
+        return None;
+    }
+    Some(off.join(", "))
 }
 
 pub fn run(config: &AppConfig, i18n: &I18n, json: bool) -> i32 {
@@ -211,6 +255,9 @@ fn run_human(config: &AppConfig, i18n: &I18n, accounts: &[String], standard_pres
     if drift {
         i18n.print(Msg::DoctorDriftHint);
     }
+    if let Some(names) = chrome_off(config, &rows, standard_label) {
+        i18n.print(Msg::DoctorChromeOff(names));
+    }
     // Exactly one summary line, always — a script grepping for either of
     // these must not find silence just because drift showed up alongside a
     // clean audit.
@@ -361,5 +408,104 @@ mod tests {
     fn shared_seg_empty_without_uuid() {
         let by_uuid = HashMap::new();
         assert_eq!(shared_seg(None, "work", &by_uuid, &en()), "");
+    }
+
+    fn chrome_scratch(name: &str) -> AppConfig {
+        let dir =
+            std::env::temp_dir().join(format!("cc-doctor-chrome-{}-{}", name, std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        AppConfig { base_dir: dir }
+    }
+
+    /// Give an account a `.claude.json` and put it in the row list. Only
+    /// managed rows: the standard row's config dir is the real `~/.claude`,
+    /// which a test must not read.
+    fn account(config: &AppConfig, name: &str, body: &str) -> (String, AuditResult) {
+        let dir = config.account_path(name);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(".claude.json"), body).unwrap();
+        (name.to_string(), AuditResult::NoToken)
+    }
+
+    #[test]
+    fn chrome_off_names_the_accounts_that_never_said_yes() {
+        let config = chrome_scratch("off");
+        let rows = vec![
+            account(
+                &config,
+                "work",
+                r#"{"claudeInChromeDefaultEnabled": null, "cachedChromeExtensionInstalled": true}"#,
+            ),
+            account(
+                &config,
+                "personal",
+                r#"{"claudeInChromeDefaultEnabled": true}"#,
+            ),
+        ];
+        assert_eq!(
+            chrome_off(&config, &rows, "~/.claude/"),
+            Some("work".into())
+        );
+    }
+
+    // The gate that keeps this quiet for everyone who does not use the
+    // feature: without evidence the extension exists somewhere, an account
+    // with it switched off is in the correct state, not a finding.
+    #[test]
+    fn chrome_off_stays_quiet_when_no_account_has_met_the_extension() {
+        let config = chrome_scratch("unseen");
+        let rows = vec![account(
+            &config,
+            "work",
+            r#"{"claudeInChromeDefaultEnabled": null}"#,
+        )];
+        assert_eq!(chrome_off(&config, &rows, "~/.claude/"), None);
+    }
+
+    // Evidence from any one account is enough — the extension is installed
+    // per browser, not per config dir.
+    #[test]
+    fn chrome_off_counts_evidence_from_a_sibling_account() {
+        let config = chrome_scratch("sibling");
+        let rows = vec![
+            account(&config, "work", r#"{"claudeInChromeDefaultEnabled": null}"#),
+            account(
+                &config,
+                "personal",
+                r#"{"claudeInChromeDefaultEnabled": true, "chromeExtension": {"pairedDeviceId": "d1"}}"#,
+            ),
+        ];
+        assert_eq!(
+            chrome_off(&config, &rows, "~/.claude/"),
+            Some("work".into())
+        );
+    }
+
+    #[test]
+    fn chrome_off_is_silent_when_every_account_has_it_on() {
+        let config = chrome_scratch("allon");
+        let rows = vec![account(
+            &config,
+            "work",
+            r#"{"claudeInChromeDefaultEnabled": true, "cachedChromeExtensionInstalled": true}"#,
+        )];
+        assert_eq!(chrome_off(&config, &rows, "~/.claude/"), None);
+    }
+
+    // An account dir Claude Code has never written has no answer, so it is
+    // not reported — otherwise every freshly created account would arrive
+    // carrying a finding.
+    #[test]
+    fn chrome_off_skips_an_account_with_no_config_yet() {
+        let config = chrome_scratch("fresh");
+        let mut rows = vec![account(
+            &config,
+            "personal",
+            r#"{"claudeInChromeDefaultEnabled": true, "cachedChromeExtensionInstalled": true}"#,
+        )];
+        std::fs::create_dir_all(config.account_path("fresh")).unwrap();
+        rows.push(("fresh".to_string(), AuditResult::NoToken));
+        assert_eq!(chrome_off(&config, &rows, "~/.claude/"), None);
     }
 }

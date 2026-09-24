@@ -1056,6 +1056,19 @@ impl I18n {
                  Вернуть: `claude-acc login <name>`. Принять новую личность: \
                  `claude-acc lock <name> --force`.",
             ),
+            (Msg::DoctorChromeOff(ref names), Lang::En) => format!(
+                "Claude in Chrome is off in: {}. Claude Code keeps that switch \
+                 per config dir, so the browser tools stay missing there until \
+                 you run `/chrome` once inside that account.",
+                names
+            ),
+            (Msg::DoctorChromeOff(ref names), Lang::Ru) => format!(
+                "Claude in Chrome выключен в: {}. Claude Code хранит этот \
+                 переключатель отдельно для каждой config-папки, поэтому \
+                 браузерные инструменты там не появятся, пока вы один раз не \
+                 выполните `/chrome` внутри этого аккаунта.",
+                names
+            ),
             (Msg::VscodeWindowsUnsupported, Lang::En) => s(
                 "Not on Windows yet: the wrapper is a shell script, and a .cmd \
                  or .exe shim the extension can spawn hasn't been built. \
@@ -1344,6 +1357,7 @@ pub enum Msg {
     DoctorLockCorrupt,
     LockCorrupt(String, String, String),
     DoctorDriftHint,
+    DoctorChromeOff(String),
     VscodeWindowsUnsupported,
     VscodeNoEditors,
     VscodeWrapperFailed(String),
