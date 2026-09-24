@@ -1,3 +1,4 @@
+mod chrome;
 mod commands;
 mod config;
 mod desktop;

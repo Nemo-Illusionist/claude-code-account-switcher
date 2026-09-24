@@ -111,6 +111,7 @@ _claude_msg_en=(
     lock_corrupt        "Account '%s' has a pin that cannot be read: %s\n  Not replacing it — a corrupted pin is how this protection gets switched off unnoticed. Inspect it, then re-pin on purpose: claude-acc lock %s --force"
     doctor_lock_corrupt "⚠ pin unreadable — the drift check is off for this account"
     doctor_drift_hint   "Drift means this directory is signed in as an account it was not pinned to — work done here would go to the wrong one. Put it back with \`claude-acc login <name>\`, or accept the new identity with \`claude-acc lock <name> --force\`."
+    doctor_chrome_off   "Claude in Chrome is off in: %s. Claude Code keeps that switch per config dir, so the browser tools stay missing there until you run \`/chrome\` once inside that account."
     help_lock           "Pin an account to its current identity"
     clone_settings_usage "Usage: claude-acc clone-settings <name>"
     import_usage        "Usage: claude-acc import <name> <path> [--move]"
@@ -253,6 +254,7 @@ _claude_msg_ru=(
     lock_corrupt        "У аккаунта '%s' закрепление не читается: %s\n  Не заменяю — повреждённое закрепление это и есть способ незаметно отключить защиту. Посмотрите файл, потом закрепите осознанно: claude-acc lock %s --force"
     doctor_lock_corrupt "⚠ закрепление не читается — проверка расхождений для этого аккаунта не работает"
     doctor_drift_hint   "Расхождение значит, что каталог залогинен под аккаунтом, за которым он не закреплён, — работа отсюда уйдёт не туда. Вернуть: \`claude-acc login <name>\`. Принять новую личность: \`claude-acc lock <name> --force\`."
+    doctor_chrome_off   "Claude in Chrome выключен в: %s. Claude Code хранит этот переключатель отдельно для каждой config-папки, поэтому браузерные инструменты там не появятся, пока вы один раз не выполните \`/chrome\` внутри этого аккаунта."
     help_lock           "Закрепить аккаунт за его текущей личностью"
     clone_settings_usage "Использование: claude-acc clone-settings <name>"
     import_usage        "Использование: claude-acc import <name> <путь> [--move]"
@@ -2047,6 +2049,54 @@ _claude_acc_local_identity() {
     print -r -- "$out"
 }
 
+# Where Claude Code keeps its own config for an account — the second path
+# `_claude_acc_lock_paths` reports, kept in one place so the standard
+# account's odd location is decided once.
+_claude_acc_config_json() {
+    local paths
+    paths=("${(@f)$(_claude_acc_lock_paths "$1")}")
+    print -r -- "${paths[2]}"
+}
+
+# Whether Claude in Chrome is switched on for a config dir. Mirrors
+# src/chrome.rs.
+#
+# Claude Code wires the claude-in-chrome MCP server per config dir, from
+# `claudeInChromeDefaultEnabled` in that dir's own .claude.json. A value that
+# is present but not `true` also takes the account off Claude Code's
+# auto-enable path, which only fires when the key is absent — so such an
+# account never offers to turn it on by itself, and the browser tools are
+# just missing with nothing to say why.
+#
+# Exit 0 = on, 1 = off, 2 = no answer (no file yet, or it does not parse).
+# A config dir Claude Code has never written is a brand-new account, not an
+# account that said no, so it must not be reported as off.
+_claude_acc_chrome_enabled() {
+    local f="$1"
+    [[ -f "$f" ]] || return 2
+    local out
+    out=$(jq -r 'if .claudeInChromeDefaultEnabled == true then "on" else "off" end' \
+        "$f" 2>/dev/null) || return 2
+    [[ -z "$out" ]] && return 2
+    [[ "$out" == "on" ]] && return 0
+    return 1
+}
+
+# Whether a config dir has ever met the Chrome extension: Claude Code caches
+# that it found one installed, and records a device once one pairs. Either is
+# evidence the feature is in use, which is what separates "off because you
+# don't use this" from "off although you do". Exit 0 = seen.
+_claude_acc_chrome_seen() {
+    local f="$1"
+    [[ -f "$f" ]] || return 1
+    local out
+    out=$(jq -r '
+        if .cachedChromeExtensionInstalled == true then "yes"
+        elif (.chromeExtension.pairedDeviceId // "") != "" then "yes"
+        else "no" end' "$f" 2>/dev/null) || return 1
+    [[ "$out" == "yes" ]]
+}
+
 # Reads a pin. Exit 0 = pinned (prints "uuid<TAB>email"), 1 = no pin at all,
 # 2 = there is a pin and it cannot be read.
 #
@@ -2339,6 +2389,25 @@ _claude_acc_doctor() {
     # the wrong account", so it decides the exit code even when every account
     # audited fine.
     (( drift )) && _msg doctor_drift_hint
+    # A hint, never a failure: it stays out of the exit code below. Nothing
+    # here is a wrong identity, which is the one thing that exit code means.
+    local -a chrome_off
+    local chrome_seen=0 cj
+    for (( i = 1; i <= ${#r_label}; i++ )); do
+        if [[ "${r_kind[$i]}" == "standard" ]]; then
+            acc_name="default"
+        else
+            acc_name="${r_label[$i]}"
+        fi
+        cj=$(_claude_acc_config_json "$acc_name")
+        _claude_acc_chrome_seen "$cj" && chrome_seen=1
+        _claude_acc_chrome_enabled "$cj"
+        case $? in
+            1) chrome_off+=("$acc_name") ;;
+        esac
+    done
+    (( chrome_seen && ${#chrome_off} > 0 )) && \
+        _msg doctor_chrome_off "${(j:, :)chrome_off}"
     # Exactly one summary line, always — see the Rust side.
     if (( healthy == total )); then
         _msg doctor_all_ok
