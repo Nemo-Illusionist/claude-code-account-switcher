@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.19.0](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.18.2...v0.19.0) (2026-09-24)
+
+
+### Features
+
+* report accounts where Claude in Chrome was never switched on ([#133](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/133)) ([e11743c](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/e11743ce5f385d52d4a82aa81e3350e6b2ee1926))
+
 ## [0.18.2](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.18.1...v0.18.2) (2026-09-17)
 
 
