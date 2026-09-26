@@ -49,6 +49,10 @@ fn print_result(result: UsageResult, i18n: &I18n, name: &str) {
         UsageResult::NoToken => {
             println!("      {}", i18n.msg(Msg::DoctorNoToken(name.to_string())));
         }
+        UsageResult::Cached(usage, age) => {
+            println!("      {}", i18n.msg(Msg::UsageFromCache(age)));
+            print_cached_usage(&usage, i18n);
+        }
         UsageResult::Offline => {
             println!("      {}", i18n.msg(Msg::DoctorOffline));
         }
@@ -62,6 +66,34 @@ pub fn print_usage(usage: &Usage, i18n: &I18n) {
     if let Some(w) = &usage.seven_day {
         print_window("7d", w, i18n);
     }
+}
+
+/// The same two windows, rendered from a reading that is no longer live.
+///
+/// A window whose reset has already gone by gets no bar at all. Claude Code
+/// only measures while a session is running, so the figure it last wrote sits
+/// there unchanged across the reset — which is how a limit that has actually
+/// started over comes to look like one that is still full. A bar is read
+/// before any caveat printed beside it, so the honest thing is not to draw
+/// one.
+fn print_cached_usage(usage: &Usage, i18n: &I18n) {
+    for (label, w) in [("5h", &usage.five_hour), ("7d", &usage.seven_day)] {
+        let Some(w) = w else { continue };
+        if has_reset(w) {
+            println!("      {}  {}", label, i18n.msg(Msg::UsageWindowHasReset));
+        } else {
+            print_window(label, w, i18n);
+        }
+    }
+}
+
+/// Whether this window's reset moment has already passed, making its
+/// utilization the spend of a window that has ended.
+fn has_reset(w: &UsageWindow) -> bool {
+    w.resets_at
+        .as_deref()
+        .and_then(identity::seconds_until)
+        .is_some_and(|secs| secs <= 0)
 }
 
 fn print_window(label: &str, w: &UsageWindow, i18n: &I18n) {
@@ -175,5 +207,33 @@ mod tests {
     fn label_suffix_empty_without_cache_or_email() {
         assert_eq!(label_suffix(None), "");
         assert_eq!(label_suffix(Some(cache(None, Some("Max 20x")))), "");
+    }
+
+    fn window(resets_at: Option<&str>) -> UsageWindow {
+        UsageWindow {
+            utilization: 97.0,
+            resets_at: resets_at.map(String::from),
+        }
+    }
+
+    // A saved reading whose reset has gone by is the spend of a window that
+    // has already started over — the case a bar would misreport as "still
+    // full", so `print_cached_usage` draws none.
+    #[test]
+    fn a_window_whose_reset_has_passed_is_recognised() {
+        assert!(has_reset(&window(Some("2020-01-01T00:00:00Z"))));
+    }
+
+    #[test]
+    fn a_window_still_running_is_not() {
+        assert!(!has_reset(&window(Some("2099-01-01T00:00:00Z"))));
+    }
+
+    // No reset timestamp, and one that does not parse, both mean "we cannot
+    // say it has reset" — the bar is drawn rather than suppressed on a guess.
+    #[test]
+    fn a_window_without_a_usable_reset_is_not_treated_as_reset() {
+        assert!(!has_reset(&window(None)));
+        assert!(!has_reset(&window(Some("not a timestamp"))));
     }
 }

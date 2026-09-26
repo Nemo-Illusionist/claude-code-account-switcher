@@ -700,8 +700,63 @@ pub struct Usage {
 
 pub enum UsageResult {
     Ok(Usage),
+    /// The API could not be reached, but Claude Code's own last reading was
+    /// still on disk. Carries how many seconds ago it was taken, because a
+    /// stale utilization figure is only safe to show next to its age.
+    Cached(Usage, u64),
     NoToken,
     Offline,
+}
+
+/// Claude Code's own last usage reading for a config dir, and its age in
+/// seconds.
+///
+/// It caches what `/usage` fetched in `cachedUsageUtilization` inside that
+/// dir's `.claude.json` — the same body the API returns, under `utilization`,
+/// plus the moment it was taken. Reading it costs a local JSON parse: no
+/// token, no keychain, no network. That is the whole point, since this is
+/// reached only when the network already failed.
+///
+/// **The reading is refused unless it belongs to the account signed in
+/// there.** Claude Code stamps the cache with `accountUuid` and throws it away
+/// itself on a mismatch; a config dir that has since been logged in as someone
+/// else would otherwise report another identity's spend as its own, which is
+/// the one mistake this tool must never make.
+pub fn cached_usage(config_dir: &Path) -> Option<(Usage, u64)> {
+    let path = local_identity_path(config_dir)?;
+    let raw = fs::read_to_string(path).ok()?;
+    let v: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    let cached = v.get("cachedUsageUtilization")?;
+
+    // Both sides absent is a match (an account Claude Code never stamped);
+    // anything else has to agree exactly.
+    let stamped = cached.get("accountUuid").and_then(|x| x.as_str());
+    let signed_in = v
+        .get("oauthAccount")
+        .and_then(|a| a.get("accountUuid"))
+        .and_then(|x| x.as_str());
+    if stamped != signed_in {
+        return None;
+    }
+
+    let util = cached.get("utilization")?;
+    let usage = Usage {
+        five_hour: parse_window(util.get("five_hour")),
+        seven_day: parse_window(util.get("seven_day")),
+    };
+    if usage.five_hour.is_none() && usage.seven_day.is_none() {
+        return None;
+    }
+
+    let fetched_ms = cached.get("fetchedAtMs").and_then(|x| x.as_f64())?;
+    let now_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .ok()?
+        .as_millis() as f64;
+    // A clock that has gone backwards since the write would make this
+    // negative; report it as fresh rather than as an absurd age.
+    let age = ((now_ms - fetched_ms).max(0.0) / 1000.0) as u64;
+    Some((usage, age))
 }
 
 /// Read the token for `token_dir` (a managed account dir or `~/.claude/`) and
@@ -714,7 +769,13 @@ pub fn fetch_account_usage(token_dir: &Path) -> UsageResult {
     };
     match fetch_usage(&token) {
         Some(u) => UsageResult::Ok(u),
-        None => UsageResult::Offline,
+        // Live figures are what this command is for, so the cache is a last
+        // resort and never a shortcut: it is consulted only once the request
+        // has actually failed.
+        None => match cached_usage(token_dir) {
+            Some((u, age)) => UsageResult::Cached(u, age),
+            None => UsageResult::Offline,
+        },
     }
 }
 
@@ -1350,5 +1411,140 @@ mod tests {
 
         let _ = fs::remove_dir_all(&new_dir);
         assert_eq!(result, None);
+    }
+
+    // --- cached usage (the offline fallback) ---
+
+    fn cached_usage_dir(name: &str) -> PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("cc-cached-usage-{}-{}", name, std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn now_ms() -> f64 {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as f64
+    }
+
+    /// A `.claude.json` carrying a reading taken `age_secs` ago, stamped with
+    /// `stamped_uuid` and signed in as `signed_in_uuid` (either may be absent).
+    fn write_cached(
+        dir: &Path,
+        age_secs: f64,
+        stamped_uuid: Option<&str>,
+        signed_in_uuid: Option<&str>,
+    ) {
+        let mut cached = serde_json::json!({
+            "fetchedAtMs": now_ms() - age_secs * 1000.0,
+            "utilization": {
+                "five_hour": {"utilization": 32.0, "resets_at": "2099-01-01T00:00:00Z"},
+                "seven_day": {"utilization": 40.0, "resets_at": "2099-01-01T00:00:00Z"},
+            },
+        });
+        if let Some(u) = stamped_uuid {
+            cached["accountUuid"] = serde_json::Value::String(u.to_string());
+        }
+        let mut root = serde_json::json!({"cachedUsageUtilization": cached});
+        if let Some(u) = signed_in_uuid {
+            root["oauthAccount"] = serde_json::json!({"accountUuid": u});
+        }
+        fs::write(dir.join(".claude.json"), root.to_string()).unwrap();
+    }
+
+    #[test]
+    fn a_cached_reading_is_returned_with_its_age() {
+        let dir = cached_usage_dir("ok");
+        write_cached(&dir, 600.0, Some("u-1"), Some("u-1"));
+
+        let (usage, age) = cached_usage(&dir).expect("a stamped, matching reading is usable");
+        assert_eq!(usage.five_hour.unwrap().utilization, 32.0);
+        assert_eq!(usage.seven_day.unwrap().utilization, 40.0);
+        // Ten minutes, give or take the time the test took to run.
+        assert!((599..=605).contains(&age), "age was {age}");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    // The guard that matters: a config dir signed in as somebody else must
+    // never report the previous account's spend as its own. Claude Code
+    // stamps the cache and throws it away itself on a mismatch.
+    #[test]
+    fn a_reading_stamped_for_another_account_is_refused() {
+        let dir = cached_usage_dir("mismatch");
+        write_cached(&dir, 60.0, Some("u-old"), Some("u-new"));
+        assert!(cached_usage(&dir).is_none());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_unstamped_reading_is_refused_once_an_account_is_signed_in() {
+        let dir = cached_usage_dir("unstamped");
+        write_cached(&dir, 60.0, None, Some("u-new"));
+        assert!(cached_usage(&dir).is_none());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    // Both sides absent still agree — a dir Claude Code never stamped, with
+    // nobody recorded as signed in, is not a mismatch.
+    #[test]
+    fn a_reading_is_usable_when_neither_side_names_an_account() {
+        let dir = cached_usage_dir("neither");
+        write_cached(&dir, 60.0, None, None);
+        assert!(cached_usage(&dir).is_some());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_file_with_no_reading_at_all_yields_nothing() {
+        let dir = cached_usage_dir("absent");
+        fs::write(
+            dir.join(".claude.json"),
+            r#"{"oauthAccount": {"accountUuid": "u-1"}}"#,
+        )
+        .unwrap();
+        assert!(cached_usage(&dir).is_none());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    // A reading whose windows are all null carries no information; returning
+    // it would print a heading with nothing under it.
+    #[test]
+    fn a_reading_with_no_windows_yields_nothing() {
+        let dir = cached_usage_dir("empty");
+        fs::write(
+            dir.join(".claude.json"),
+            serde_json::json!({
+                "cachedUsageUtilization": {
+                    "fetchedAtMs": now_ms(),
+                    "utilization": {"five_hour": null, "seven_day": null},
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+        assert!(cached_usage(&dir).is_none());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_missing_file_yields_nothing() {
+        let dir = cached_usage_dir("nofile");
+        assert!(cached_usage(&dir).is_none());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    // A clock that moved backwards since Claude Code wrote the stamp would
+    // make the age negative; it is reported as fresh, never as a huge number.
+    #[test]
+    fn a_stamp_from_the_future_reads_as_fresh() {
+        let dir = cached_usage_dir("future");
+        write_cached(&dir, -3600.0, Some("u-1"), Some("u-1"));
+        let (_, age) = cached_usage(&dir).unwrap();
+        assert_eq!(age, 0);
+        let _ = fs::remove_dir_all(&dir);
     }
 }

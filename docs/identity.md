@@ -142,4 +142,26 @@ Claude Code usage:
       7d  [░░░░░░░░░░░░░░░░░░░░]    0%  resets in 6d 3h
 ```
 
-Unlike `doctor`, the usage figures are always a live fetch — usage is volatile, so nothing is cached. The email/plan next to each account come from `doctor`'s cache, so run `claude-acc doctor` once to populate them. Accounts with no token show `no token (run: claude-acc login <name>)`; an unreachable API shows `token present, but API unreachable`. Same dependencies and platform caveat as `doctor` (`security`, `curl`, `jq`, `shasum`; macOS only for now).
+Unlike `doctor`, the usage figures are always a live fetch — usage is volatile, so we cache nothing of our own. The email/plan next to each account come from `doctor`'s cache, so run `claude-acc doctor` once to populate them. Accounts with no token show `no token (run: claude-acc login <name>)`. Same dependencies and platform caveat as `doctor` (`security`, `curl`, `jq`, `shasum`; macOS only for now).
+
+### When the API can't be reached
+
+Claude Code keeps its own last reading in `cachedUsageUtilization`, inside that config dir's `.claude.json`. Once the request has actually failed, `usage` falls back to it rather than printing nothing useful — a local JSON parse, no token, no keychain, no network:
+
+```
+$ claude-acc usage
+Claude Code usage:
+    work
+      API unreachable — showing Claude Code's own reading, taken 15m ago
+      5h  [██████░░░░░░░░░░░░░░]   32%  resets in 2h 0m
+      7d  window has reset since — the saved figure is the old one
+```
+
+It is a fallback and never a shortcut: the cache is consulted only after the live request fails, so a normal run is unchanged.
+
+Two things it is careful about:
+
+- **Whose reading it is.** Claude Code stamps the cache with `accountUuid` and discards it itself on a mismatch. So do we: a config dir since logged in as someone else would otherwise report another identity's spend as its own.
+- **A window that has already reset.** Claude Code only measures while a session is running, so the figure it last wrote sits there unchanged across the reset — which is how a limit that has actually started over comes to look like one that is still full. Those windows get the line above instead of a bar. A bar is read before any caveat printed beside it, so the honest thing is not to draw one.
+
+If there is no saved reading either, you get the old `token present, but API unreachable`.
