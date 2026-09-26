@@ -86,6 +86,7 @@ _claude_msg_en=(
     remove_confirm      "Remove account '%s'? [y/N] "
     remove_cancelled    "Cancelled."
     remove_deleted      "Account '%s' deleted."
+    remove_trashed      "Account '%s' moved to the Trash: %s\n  Nothing is gone yet — drag it back out to undo this."
     default_current     "Default: %s"
     default_standard    "Default: ~/.claude/"
     default_not_found   "Account '%s' not found. Available:"
@@ -231,6 +232,7 @@ _claude_msg_ru=(
     remove_confirm      "Удалить аккаунт '%s'? [y/N] "
     remove_cancelled    "Отменено."
     remove_deleted      "Аккаунт '%s' удалён."
+    remove_trashed      "Аккаунт '%s' перемещён в Корзину: %s\n  Пока ничего не пропало — чтобы отменить, достаньте его обратно."
     default_current     "По умолчанию: %s"
     default_standard    "По умолчанию: ~/.claude/"
     default_not_found   "Аккаунт '%s' не найден. Доступные:"
@@ -766,9 +768,49 @@ _claude_acc_remove() {
     # Drop links pointing at this account
     sed -i '' "/=$name$/d" "$CLAUDE_SWITCH_LINKS"
 
-    rm -rf "$acc_dir"
-    _msg remove_deleted "$name"
+    # To the Trash rather than gone: an account dir holds transcripts,
+    # settings and plugins that exist nowhere else, so getting this wrong
+    # should cost a drag back out, not a restore from backup. Mirrors
+    # src/trash.rs — this script is macOS-only, so ~/.Trash is the whole
+    # story here.
+    #
+    # `rm -rf` stays the fallback (a Trash on another filesystem, say),
+    # because the user asked for the account to go and a half-removal is
+    # worse than either outcome. Which of the two happened is said out loud.
+    local dest
+    if dest=$(_claude_acc_to_trash "$acc_dir"); then
+        _msg remove_trashed "$name" "$dest"
+    else
+        rm -rf "$acc_dir"
+        _msg remove_deleted "$name"
+    fi
     _claude_activate
+}
+
+# Move a directory into ~/.Trash, printing where it landed. Exit 1 if it
+# could not be moved — a rename across filesystems, most likely.
+#
+# A move, never a copy: duplicating the directory to "save" it would leave
+# two of them and free nothing.
+#
+# The Trash is flat and shared with everything else the user has thrown
+# away, so a name collision is ordinary — removing an account called `work`
+# twice is exactly the case. Numbered the way the Finder numbers them.
+_claude_acc_to_trash() {
+    local src="$1" trash="$HOME/.Trash" stem dest n
+    stem="${src:t}"
+    [[ -n "$stem" ]] || return 1
+    mkdir -p "$trash" 2>/dev/null || return 1
+
+    dest="$trash/$stem"
+    n=1
+    while [[ -e "$dest" ]]; do
+        (( n++ ))
+        dest="$trash/$stem $n"
+    done
+
+    mv "$src" "$dest" 2>/dev/null || return 1
+    print -r -- "$dest"
 }
 
 _claude_acc_default() {

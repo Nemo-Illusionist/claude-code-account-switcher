@@ -42,6 +42,22 @@ pub fn run(config: &AppConfig, i18n: &I18n, name: &str, force: bool) {
     // Remove links for this account
     config.remove_links_for_account(name).ok();
 
-    fs::remove_dir_all(&acc_dir).expect("Failed to remove account directory");
-    i18n.print(Msg::RemoveDeleted(name.to_string()));
+    // To the Trash rather than gone: an account dir holds transcripts,
+    // settings and plugins that exist nowhere else, so getting this wrong
+    // should cost a drag back out, not a restore from backup.
+    //
+    // Deleting outright stays the fallback — a trash on another filesystem,
+    // or a platform without one — because the user asked for the account to
+    // go and a half-removal is worse than either outcome. Which of the two
+    // happened is always said out loud.
+    match crate::trash::trash_dir(&acc_dir) {
+        Ok(dest) => i18n.print(Msg::RemoveTrashed(
+            name.to_string(),
+            dest.display().to_string(),
+        )),
+        Err(_) => {
+            fs::remove_dir_all(&acc_dir).expect("Failed to remove account directory");
+            i18n.print(Msg::RemoveDeleted(name.to_string()));
+        }
+    }
 }

@@ -135,6 +135,14 @@ impl I18n {
             (Msg::RemoveCancelled, Lang::Ru) => s("Отменено."),
             (Msg::RemoveDeleted(ref n), Lang::En) => format!("Account '{}' deleted.", n),
             (Msg::RemoveDeleted(ref n), Lang::Ru) => format!("Аккаунт '{}' удалён.", n),
+            (Msg::RemoveTrashed(ref n, ref dest), Lang::En) => format!(
+                "Account '{}' moved to the Trash: {}\n  Nothing is gone yet — drag it back out to undo this.",
+                n, dest
+            ),
+            (Msg::RemoveTrashed(ref n, ref dest), Lang::Ru) => format!(
+                "Аккаунт '{}' перемещён в Корзину: {}\n  Пока ничего не пропало — чтобы отменить, достаньте его обратно.",
+                n, dest
+            ),
 
             // default
             (Msg::DefaultCurrent(ref n), Lang::En) => format!("Default: {}", n),
@@ -1259,6 +1267,7 @@ pub enum Msg {
     RemoveConfirm(String),
     RemoveCancelled,
     RemoveDeleted(String),
+    RemoveTrashed(String, String),
     DefaultCurrent(String),
     DefaultStandard,
     DefaultNotFound(String),

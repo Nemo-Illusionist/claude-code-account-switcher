@@ -13,6 +13,7 @@ mod identity;
 mod resolve;
 mod seed;
 mod sessions;
+mod trash;
 mod vscode;
 mod windows_invocation;
 
