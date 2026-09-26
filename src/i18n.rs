@@ -1056,6 +1056,20 @@ impl I18n {
                  Вернуть: `claude-acc login <name>`. Принять новую личность: \
                  `claude-acc lock <name> --force`.",
             ),
+            (Msg::UsageFromCache(secs), Lang::En) => format!(
+                "API unreachable — showing Claude Code's own reading, taken {}",
+                relative_time(secs, Lang::En)
+            ),
+            (Msg::UsageFromCache(secs), Lang::Ru) => format!(
+                "API недоступен — показываем замер самого Claude Code, сделанный {}",
+                relative_time(secs, Lang::Ru)
+            ),
+            (Msg::UsageWindowHasReset, Lang::En) => {
+                s("window has reset since — the saved figure is the old one")
+            }
+            (Msg::UsageWindowHasReset, Lang::Ru) => {
+                s("окно с тех пор обнулилось — сохранённая цифра от прошлого")
+            }
             (Msg::DoctorChromeOff(ref names), Lang::En) => format!(
                 "Claude in Chrome is off in: {}. Claude Code keeps that switch \
                  per config dir, so the browser tools stay missing there until \
@@ -1358,6 +1372,8 @@ pub enum Msg {
     LockCorrupt(String, String, String),
     DoctorDriftHint,
     DoctorChromeOff(String),
+    UsageFromCache(u64),
+    UsageWindowHasReset,
     VscodeWindowsUnsupported,
     VscodeNoEditors,
     VscodeWrapperFailed(String),

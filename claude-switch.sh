@@ -139,6 +139,8 @@ _claude_msg_en=(
     usage_header        "Claude Code usage:"
     usage_resets_in     "resets in %s"
     usage_available_now "available now"
+    usage_from_cache   "API unreachable — showing Claude Code's own reading, taken %s"
+    usage_window_has_reset "window has reset since — the saved figure is the old one"
     usage_missing_dep   "claude-acc usage needs '%s' on PATH."
     update_fetching     "Fetching latest claude-switch.sh..."
     update_download_failed "Download failed."
@@ -282,6 +284,8 @@ _claude_msg_ru=(
     usage_header        "Использование Claude Code:"
     usage_resets_in     "сброс через %s"
     usage_available_now "доступно сейчас"
+    usage_from_cache   "API недоступен — показываем замер самого Claude Code, сделанный %s"
+    usage_window_has_reset "окно с тех пор обнулилось — сохранённая цифра от прошлого"
     usage_missing_dep   "claude-acc usage требует '%s' в PATH."
     update_fetching     "Скачиваю свежий claude-switch.sh..."
     update_download_failed "Не удалось скачать."
@@ -1838,9 +1842,60 @@ _claude_acc_usage_fetch() {
     ' 2>/dev/null
 }
 
+# Claude Code's own last usage reading for a config dir, and its age. Mirrors
+# identity::cached_usage.
+#
+# Claude Code caches what it fetched in `cachedUsageUtilization` — the same body
+# the API returns, under `utilization`, plus the moment it was taken. Reading it
+# costs a local JSON parse: no token, no keychain, no network. That is the
+# point, since this is reached only once the network has already failed.
+#
+# Prints the age in seconds on the first line, then one "key<TAB>pct<TAB>remain"
+# line per window — the same shape `_claude_acc_usage_fetch` prints, so the
+# renderer treats both alike. Exit 1 when there is nothing usable.
+#
+# The reading is refused unless it belongs to the account signed in there.
+# Claude Code stamps it with `accountUuid` and discards it itself on a
+# mismatch; a config dir since logged in as someone else would otherwise
+# report another identity's spend as its own.
+_claude_acc_usage_cached() {
+    local f="$1" now out
+    [[ -f "$f" ]] || return 1
+    now=$(date +%s)
+    out=$(jq -r --argjson now "$now" '
+        def remain(w):
+            if (w == null) or (w.resets_at == null) then ""
+            else ((w.resets_at
+                   | sub("\\.[0-9]+"; "")
+                   | sub("Z$"; "")
+                   | sub("[+-][0-9]{2}:[0-9]{2}$"; "")
+                   | strptime("%Y-%m-%dT%H:%M:%S") | mktime) - $now)
+            end;
+        def util(w): (w.utilization // 0 | round);
+        def line(name; w):
+            if w == null then empty
+            else "\(name)\t\(util(w))\t\(remain(w))" end;
+
+        .cachedUsageUtilization as $c
+        | select($c != null)
+        | select(($c.accountUuid // null) == (.oauthAccount.accountUuid // null))
+        | select(($c.fetchedAtMs // null) != null)
+        | $c.utilization as $u
+        | select(($u.five_hour // null) != null or ($u.seven_day // null) != null)
+        | ((($now - ($c.fetchedAtMs / 1000)) | if . < 0 then 0 else . end | floor) | tostring),
+          line("5h"; $u.five_hour),
+          line("7d"; $u.seven_day)
+    ' "$f" 2>/dev/null) || return 1
+    [[ -z "$out" ]] && return 1
+    print -r -- "$out"
+}
+
 # Print the per-window lines for one token dir (managed account or ~/.claude/).
+# `acc_name` is the name `_claude_acc_config_json` takes — "default" for the
+# standard account, whose config file sits beside ~/.claude/ rather than in it.
 _claude_acc_usage_render() {
-    local token_dir="$1" name="$2" token out key pct remain reset bar
+    local token_dir="$1" name="$2" acc_name="$3"
+    local token out key pct remain reset bar cached age
     token=$(_claude_acc_token "$token_dir")
     if [[ -z "$token" ]]; then
         printf "      %s\n" "$(_msg doctor_no_token "$name")"
@@ -1848,11 +1903,37 @@ _claude_acc_usage_render() {
     fi
     out=$(_claude_acc_usage_fetch "$token")
     if [[ -z "$out" ]]; then
-        printf "      %s\n" "$(_msg doctor_offline)"
+        # Live figures are what this command is for, so the cache is a last
+        # resort and never a shortcut: only once the request has failed.
+        cached=$(_claude_acc_usage_cached "$(_claude_acc_config_json "$acc_name")")
+        if [[ -z "$cached" ]]; then
+            printf "      %s\n" "$(_msg doctor_offline)"
+            return
+        fi
+        age="${cached%%$'\n'*}"
+        out="${cached#*$'\n'}"
+        printf "      %s\n" \
+            "$(_msg usage_from_cache "$(_claude_acc_relative_time "$age")")"
+        _claude_acc_usage_lines "$out" 1
         return
     fi
+    _claude_acc_usage_lines "$out" 0
+}
+
+# Render "key<TAB>pct<TAB>remain" lines. With `stale` set, a window whose reset
+# has already gone by gets no bar at all: Claude Code only measures while a
+# session is running, so the figure it last wrote sits there unchanged across
+# the reset — which is how a limit that has actually started over comes to look
+# like one that is still full. A bar is read before any caveat beside it, so
+# the honest thing is not to draw one.
+_claude_acc_usage_lines() {
+    local out="$1" stale="$2" key pct remain reset bar
     while IFS=$'\t' read -r key pct remain; do
         [[ -z "$key" ]] && continue
+        if (( stale )) && [[ -n "$remain" ]] && (( remain <= 0 )); then
+            printf "      %s  %s\n" "$key" "$(_msg usage_window_has_reset)"
+            continue
+        fi
         bar=$(_claude_acc_usage_bar "$pct")
         if [[ -z "$remain" ]]; then
             reset=""
@@ -1900,7 +1981,7 @@ _claude_acc_usage() {
         else
             printf "  %s %s\n" "$marker" "$acc"
         fi
-        _claude_acc_usage_render "$CLAUDE_SWITCH_ACCOUNTS_DIR/$acc" "$acc"
+        _claude_acc_usage_render "$CLAUDE_SWITCH_ACCOUNTS_DIR/$acc" "$acc" "$acc"
     done
 
     if (( standard_present )); then
@@ -1912,7 +1993,7 @@ _claude_acc_usage() {
         else
             printf "    ~/.claude/  %s\n" "$(_msg list_standard)"
         fi
-        _claude_acc_usage_render "$standard_dir" "~/.claude/"
+        _claude_acc_usage_render "$standard_dir" "~/.claude/" default
     fi
 }
 
