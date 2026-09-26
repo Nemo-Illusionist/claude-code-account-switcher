@@ -13,7 +13,7 @@
 #   claude-acc                     — help
 #   claude-acc list                — list accounts
 #   claude-acc add <name>          — add account (opens login)
-#   claude-acc remove <name>       — remove account
+#   claude-acc remove <name>       — remove account (to the Trash)
 #   claude-acc default [name]      — show/set default account
 #   claude-acc link <name>         — link account to current directory
 #   claude-acc unlink              — unlink current directory
@@ -51,7 +51,7 @@ _claude_msg_en=(
     help_list           "List accounts"
     help_add            "Add account"
     help_login          "Re-login to an account"
-    help_remove         "Remove account"
+    help_remove         "Remove account (to the Trash; --purge deletes outright)"
     help_default        "Show/set default account"
     help_reset          "Reset default to ~/.claude/"
     help_link           "Link account to current directory"
@@ -81,9 +81,10 @@ _claude_msg_en=(
     login_not_found     "Account '%s' not found."
     login_start         "Logging in to '%s'..."
     login_done          "Done."
-    remove_usage        "Usage: claude-acc remove <name>"
+    remove_usage        "Usage: claude-acc remove [-f] [--purge] <name>"
     remove_not_found    "Account '%s' not found."
-    remove_confirm      "Remove account '%s'? [y/N] "
+    remove_confirm      "Remove account '%s'? It goes to the Trash, so this is undoable. [y/N] "
+    remove_purge_confirm "Remove account '%s' permanently? This cannot be undone. [y/N] "
     remove_cancelled    "Cancelled."
     remove_deleted      "Account '%s' deleted."
     remove_trashed      "Account '%s' moved to the Trash: %s\n  Nothing is gone yet — drag it back out to undo this."
@@ -197,7 +198,7 @@ _claude_msg_ru=(
     help_list           "Список аккаунтов"
     help_add            "Добавить аккаунт"
     help_login          "Перелогиниться в аккаунт"
-    help_remove         "Удалить аккаунт"
+    help_remove         "Удалить аккаунт (в Корзину; --purge — насовсем)"
     help_default        "Показать/задать дефолтный аккаунт"
     help_reset          "Сбросить дефолт на ~/.claude/"
     help_link           "Привязать аккаунт к текущей директории"
@@ -227,9 +228,10 @@ _claude_msg_ru=(
     login_not_found     "Аккаунт '%s' не найден."
     login_start         "Вхожу в '%s'..."
     login_done          "Готово."
-    remove_usage        "Использование: claude-acc remove <name>"
+    remove_usage        "Использование: claude-acc remove [-f] [--purge] <name>"
     remove_not_found    "Аккаунт '%s' не найден."
-    remove_confirm      "Удалить аккаунт '%s'? [y/N] "
+    remove_confirm      "Удалить аккаунт '%s'? Он уйдёт в Корзину, это обратимо. [y/N] "
+    remove_purge_confirm "Удалить аккаунт '%s' навсегда? Это необратимо. [y/N] "
     remove_cancelled    "Отменено."
     remove_deleted      "Аккаунт '%s' удалён."
     remove_trashed      "Аккаунт '%s' перемещён в Корзину: %s\n  Пока ничего не пропало — чтобы отменить, достаньте его обратно."
@@ -723,11 +725,18 @@ _claude_acc_login() {
 }
 
 _claude_acc_remove() {
-    local force=false
-    if [[ "$1" == "-f" ]]; then
-        force=true
+    local force=false purge=false
+    while [[ "$1" == -* ]]; do
+        case "$1" in
+            -f|--force) force=true ;;
+            # An explicit request for the directory to be gone: the Trash
+            # keeps holding the disk space, and an account dir is the kind
+            # of thing someone may want off the machine rather than in a bin.
+            --purge)    purge=true ;;
+            *) break ;;
+        esac
         shift
-    fi
+    done
 
     local name="$1"
     if [[ -z "$name" ]]; then
@@ -749,7 +758,13 @@ _claude_acc_remove() {
     fi
 
     if [[ "$force" != true ]]; then
-        printf "$(_msg remove_confirm "$name")"
+        # The question names the outcome: the two are not equally
+        # recoverable, and that difference is the whole point of the flag.
+        if [[ "$purge" == true ]]; then
+            printf "$(_msg remove_purge_confirm "$name")"
+        else
+            printf "$(_msg remove_confirm "$name")"
+        fi
         local reply
         read -r reply
         if [[ "$reply" != [yYдД]* ]]; then
@@ -778,7 +793,10 @@ _claude_acc_remove() {
     # because the user asked for the account to go and a half-removal is
     # worse than either outcome. Which of the two happened is said out loud.
     local dest
-    if dest=$(_claude_acc_to_trash "$acc_dir"); then
+    if [[ "$purge" == true ]]; then
+        rm -rf "$acc_dir"
+        _msg remove_deleted "$name"
+    elif dest=$(_claude_acc_to_trash "$acc_dir"); then
         _msg remove_trashed "$name" "$dest"
     else
         rm -rf "$acc_dir"

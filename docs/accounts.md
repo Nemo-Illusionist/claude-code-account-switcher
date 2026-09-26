@@ -141,8 +141,9 @@ The catch it handles for you: on macOS, Claude Code stores the OAuth token in th
 ## Removing an account (`remove`)
 
 ```bash
-claude-acc remove work        # asks first
-claude-acc remove work -f     # …or doesn't
+claude-acc remove work            # asks first
+claude-acc remove work -f         # …or doesn't
+claude-acc remove work --purge    # delete outright instead of trashing
 ```
 
 It clears the configured default if it pointed here, drops any directory links to this account, and then **moves the directory to the Trash** rather than unlinking it:
@@ -162,5 +163,15 @@ An account directory holds transcripts, settings and installed plugins that exis
 | **Windows** | no Trash — the Recycle Bin needs a Win32 shell call this tool has no binding for, so the directory is deleted outright |
 
 It is a move, never a copy. If the Trash turns out to be on another filesystem the rename fails, and rather than duplicating the directory to "save" it, `remove` falls back to deleting outright — and says `Account 'work' deleted.` instead, so the two outcomes are never confused.
+
+**`--purge` deletes outright**, for when the account must actually be gone rather than sitting in a bin — the Trash keeps holding the disk space until you empty it. The confirmation names which one you are about to get, so a hasty `y` cannot cross the line by accident:
+
+```
+$ claude-acc remove work
+Remove account 'work'? It goes to the Trash, so this is undoable. [y/N]
+
+$ claude-acc remove work --purge
+Remove account 'work' permanently? This cannot be undone. [y/N]
+```
 
 **The Trash still holds the disk space** until you empty it, and the keychain entry is not moved with the directory. Restoring by dragging back gets you the files; run `claude-acc login <name>` afterwards if the token no longer resolves.

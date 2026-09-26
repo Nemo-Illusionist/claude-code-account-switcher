@@ -94,6 +94,42 @@ ok "the message says it is undoable" '[[ "$out" == *"drag it back out"* ]]'
 ok "and does not claim a deletion" '[[ "$out" != *"deleted."* ]]'
 
 print -r -- ""
+print -r -- "remove --purge:"
+
+# `--purge` is the explicit "actually gone" path: the Trash keeps holding
+# the disk space, so someone who means it needs a way to say so.
+acc="$CLAUDE_SWITCH_ACCOUNTS_DIR/throwaway"
+mkdir -p "$acc"
+print -r -- "secret" > "$acc/marker"
+
+out=$(_claude_acc_remove --purge -f throwaway 2>&1)
+
+ok "the account dir is gone" '[[ ! -e "$acc" ]]'
+ok "and did NOT land in the Trash" '[[ ! -e "$HOME/.Trash/throwaway" ]]'
+ok "the message says deleted" '[[ "$out" == *"deleted."* ]]'
+ok "and never mentions the Trash" '[[ "$out" != *"Trash"* ]]'
+
+# Flag order must not matter — `-f --purge` and `--purge -f` are the same
+# request, and getting it wrong would silently fall back to the Trash.
+acc="$CLAUDE_SWITCH_ACCOUNTS_DIR/throwaway2"
+mkdir -p "$acc"
+out=$(_claude_acc_remove -f --purge throwaway2 2>&1)
+ok "flag order does not matter" \
+    '[[ ! -e "$acc" && ! -e "$HOME/.Trash/throwaway2" && "$out" == *"deleted."* ]]'
+
+# Without --purge the prompt has to promise the Trash, because that promise
+# is what makes a hasty `y` safe.
+acc="$CLAUDE_SWITCH_ACCOUNTS_DIR/prompted"
+mkdir -p "$acc"
+out=$(print -r -- "n" | _claude_acc_remove prompted 2>&1)
+ok "the plain prompt promises the Trash" '[[ "$out" == *"goes to the Trash"* ]]'
+ok "and answering n keeps the account" '[[ -d "$acc" ]]'
+
+out=$(print -r -- "n" | _claude_acc_remove --purge prompted 2>&1)
+ok "the purge prompt warns it cannot be undone" '[[ "$out" == *"cannot be undone"* ]]'
+ok "and answering n still keeps the account" '[[ -d "$acc" ]]'
+
+print -r -- ""
 if (( failures )); then
     print -r -- "$failures check(s) failed"
     exit 1

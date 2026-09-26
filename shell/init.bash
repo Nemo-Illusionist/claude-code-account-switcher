@@ -61,7 +61,7 @@ _claude_acc_complete() {
     if [[ "$cur" == -* ]]; then
         case "$cmd" in
             add) COMPREPLY=($(compgen -W "--seed -s" -- "$cur")) ;;
-            remove) COMPREPLY=($(compgen -W "--force -f" -- "$cur")) ;;
+            remove) COMPREPLY=($(compgen -W "--force -f --purge" -- "$cur")) ;;
             lock) COMPREPLY=($(compgen -W "--force -f" -- "$cur")) ;;
             import) COMPREPLY=($(compgen -W "--move" -- "$cur")) ;;
             statusline) COMPREPLY=($(compgen -W "--install" -- "$cur")) ;;

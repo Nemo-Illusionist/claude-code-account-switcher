@@ -101,7 +101,7 @@ _claude_acc_completion() {
     if [[ "$cur" == -* ]]; then
         case "$cmd" in
             add) flags=('--seed:Seed the new account from ~/.claude/' '-s:Seed the new account from ~/.claude/') ;;
-            remove) flags=('--force:Skip confirmation' '-f:Skip confirmation') ;;
+            remove) flags=('--force:Skip confirmation' '-f:Skip confirmation' '--purge:Delete outright instead of moving to the Trash') ;;
             lock) flags=('--force:Re-pin to the identity signed in now' '-f:Re-pin to the identity signed in now') ;;
             import) flags=('--move:Move the directory instead of copying it') ;;
             statusline) flags=('--install:Write the statusLine config into settings.json') ;;
