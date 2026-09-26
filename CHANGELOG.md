@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.20.0](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.19.0...v0.20.0) (2026-09-26)
+
+
+### Features
+
+* fall back to Claude Code's own usage reading when the API is unreachable ([#135](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/135)) ([f80f08e](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/f80f08e7c13a3e94de85a3fb354ae0e40241d77d))
+
 ## [0.19.0](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.18.2...v0.19.0) (2026-09-24)
 
 
