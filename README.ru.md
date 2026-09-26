@@ -73,7 +73,7 @@ claude-acc link work
 | `claude-acc clone-settings <имя>` | Скопировать `settings.json` / `CLAUDE.md` / `agents/` / `plugins/` и т.д. из `~/.claude/` в существующий аккаунт |
 | `claude-acc import <имя> <путь>` | Усыновить существующую config-папку как аккаунт (без релогина); `--move` чтобы перенести |
 | `claude-acc login <имя>` | Перелогиниться в аккаунт |
-| `claude-acc remove <имя>` | Удалить аккаунт |
+| `claude-acc remove <имя>` | Удалить аккаунт — в Корзину, либо `--purge` насовсем |
 | `claude-acc default [имя]` | Показать/задать дефолтный аккаунт |
 | `claude-acc reset` | Сбросить дефолт на `~/.claude/` |
 | `claude-acc link <имя>` | Привязать аккаунт к текущей директории |

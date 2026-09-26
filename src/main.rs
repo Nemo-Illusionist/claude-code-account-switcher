@@ -13,6 +13,7 @@ mod identity;
 mod resolve;
 mod seed;
 mod sessions;
+mod trash;
 mod vscode;
 mod windows_invocation;
 
@@ -60,10 +61,17 @@ enum Commands {
     /// Re-login to an account
     Login { name: String },
     /// Remove account
+    ///
+    /// The directory goes to the Trash, so a mistyped name costs a drag back
+    /// out rather than a restore from backup. `--purge` deletes it outright
+    /// instead, for when it must actually be gone.
     Remove {
         /// Skip confirmation
         #[arg(short, long)]
         force: bool,
+        /// Delete outright instead of moving to the Trash
+        #[arg(long)]
+        purge: bool,
         name: String,
     },
     /// Pin an account to the identity it is signed in as
@@ -349,8 +357,8 @@ fn main() {
             &config, &i18n, &name, &source, move_into,
         )),
         Some(Commands::Login { name }) => commands::login::run(&config, &i18n, &name),
-        Some(Commands::Remove { force, name }) => {
-            commands::remove::run(&config, &i18n, &name, force)
+        Some(Commands::Remove { force, purge, name }) => {
+            commands::remove::run(&config, &i18n, &name, force, purge)
         }
         Some(Commands::Lock { name, force }) => {
             std::process::exit(commands::lock::run(&config, &i18n, &name, force))

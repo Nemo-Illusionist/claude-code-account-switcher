@@ -129,12 +129,33 @@ impl I18n {
             // remove
             (Msg::RemoveNotFound(ref n), Lang::En) => format!("Account '{}' not found.", n),
             (Msg::RemoveNotFound(ref n), Lang::Ru) => format!("Аккаунт '{}' не найден.", n),
-            (Msg::RemoveConfirm(ref n), Lang::En) => format!("Remove account '{}'? [y/N] ", n),
-            (Msg::RemoveConfirm(ref n), Lang::Ru) => format!("Удалить аккаунт '{}'? [y/N] ", n),
+            (Msg::RemoveConfirm(ref n), Lang::En) => format!(
+                "Remove account '{}'? It goes to the Trash, so this is undoable. [y/N] ",
+                n
+            ),
+            (Msg::RemoveConfirm(ref n), Lang::Ru) => format!(
+                "Удалить аккаунт '{}'? Он уйдёт в Корзину, это обратимо. [y/N] ",
+                n
+            ),
+            (Msg::RemovePurgeConfirm(ref n), Lang::En) => format!(
+                "Remove account '{}' permanently? This cannot be undone. [y/N] ",
+                n
+            ),
+            (Msg::RemovePurgeConfirm(ref n), Lang::Ru) => {
+                format!("Удалить аккаунт '{}' навсегда? Это необратимо. [y/N] ", n)
+            }
             (Msg::RemoveCancelled, Lang::En) => s("Cancelled."),
             (Msg::RemoveCancelled, Lang::Ru) => s("Отменено."),
             (Msg::RemoveDeleted(ref n), Lang::En) => format!("Account '{}' deleted.", n),
             (Msg::RemoveDeleted(ref n), Lang::Ru) => format!("Аккаунт '{}' удалён.", n),
+            (Msg::RemoveTrashed(ref n, ref dest), Lang::En) => format!(
+                "Account '{}' moved to the Trash: {}\n  Nothing is gone yet — drag it back out to undo this.",
+                n, dest
+            ),
+            (Msg::RemoveTrashed(ref n, ref dest), Lang::Ru) => format!(
+                "Аккаунт '{}' перемещён в Корзину: {}\n  Пока ничего не пропало — чтобы отменить, достаньте его обратно.",
+                n, dest
+            ),
 
             // default
             (Msg::DefaultCurrent(ref n), Lang::En) => format!("Default: {}", n),
@@ -1257,8 +1278,10 @@ pub enum Msg {
     LoginDone,
     RemoveNotFound(String),
     RemoveConfirm(String),
+    RemovePurgeConfirm(String),
     RemoveCancelled,
     RemoveDeleted(String),
+    RemoveTrashed(String, String),
     DefaultCurrent(String),
     DefaultStandard,
     DefaultNotFound(String),

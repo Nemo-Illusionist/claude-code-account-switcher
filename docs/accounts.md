@@ -137,3 +137,41 @@ claude-acc import work ~/.claude-work --move    # …or move it
 It copies (or moves) the directory into `~/.claude-switch/accounts/<name>/` and then verifies the identity, printing the email it resolved to.
 
 The catch it handles for you: on macOS, Claude Code stores the OAuth token in the Keychain under a key derived from the **absolute config-dir path**, so a plain copy would orphan the token at the new location. `import` re-keys the Keychain entry to the new path, so auth keeps working — no `claude login` needed. (If the token lives in a plaintext `.credentials.json` instead, it just travels with the directory.) If neither is present, `import` still succeeds and tells you to run `claude-acc login <name>`.
+
+## Removing an account (`remove`)
+
+```bash
+claude-acc remove work            # asks first
+claude-acc remove work -f         # …or doesn't
+claude-acc remove work --purge    # delete outright instead of trashing
+```
+
+It clears the configured default if it pointed here, drops any directory links to this account, and then **moves the directory to the Trash** rather than unlinking it:
+
+```
+$ claude-acc remove work -f
+Account 'work' moved to the Trash: /Users/alice/.Trash/work
+  Nothing is gone yet — drag it back out to undo this.
+```
+
+An account directory holds transcripts, settings and installed plugins that exist nowhere else, so a mistyped name should cost a drag back out, not a restore from backup. Removing the same name twice numbers the entries the way the Finder does — `work`, `work 2` — so the second removal never lands on top of the first.
+
+| | |
+|---|---|
+| **macOS** | `~/.Trash/<name>` |
+| **Linux** | `$XDG_DATA_HOME/Trash` (default `~/.local/share/Trash`), with the `.trashinfo` sidecar that makes a file manager offer "Restore" |
+| **Windows** | no Trash — the Recycle Bin needs a Win32 shell call this tool has no binding for, so the directory is deleted outright |
+
+It is a move, never a copy. If the Trash turns out to be on another filesystem the rename fails, and rather than duplicating the directory to "save" it, `remove` falls back to deleting outright — and says `Account 'work' deleted.` instead, so the two outcomes are never confused.
+
+**`--purge` deletes outright**, for when the account must actually be gone rather than sitting in a bin — the Trash keeps holding the disk space until you empty it. The confirmation names which one you are about to get, so a hasty `y` cannot cross the line by accident:
+
+```
+$ claude-acc remove work
+Remove account 'work'? It goes to the Trash, so this is undoable. [y/N]
+
+$ claude-acc remove work --purge
+Remove account 'work' permanently? This cannot be undone. [y/N]
+```
+
+**The Trash still holds the disk space** until you empty it, and the keychain entry is not moved with the directory. Restoring by dragging back gets you the files; run `claude-acc login <name>` afterwards if the token no longer resolves.

@@ -47,7 +47,7 @@ Register-ArgumentCompleter -CommandName claude-acc -ScriptBlock {
     } elseif ($wordToComplete -like '-*') {
         switch ($cmd) {
             'add'        { $candidates = @('--seed','-s') }
-            'remove'     { $candidates = @('--force','-f') }
+            'remove'     { $candidates = @('--force','-f','--purge') }
             'lock'       { $candidates = @('--force','-f') }
             'import'     { $candidates = @('--move') }
             'statusline' { $candidates = @('--install') }
