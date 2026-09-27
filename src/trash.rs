@@ -271,7 +271,12 @@ mod tests {
 
         let body = fs::read_to_string(base.join("info/work.trashinfo")).unwrap();
         assert!(body.starts_with("[Trash Info]\n"), "{body}");
-        assert!(body.contains("Path=/"), "{body}");
+        // Against the encoded source path rather than a literal prefix: a
+        // hardcoded `Path=/` passes on Unix and fails on Windows, where the
+        // scratch path starts `C:\` — which is how this test first went red
+        // on CI while every local check was green.
+        let expected = format!("Path={}", percent_encode(&src.to_string_lossy()));
+        assert!(body.contains(&expected), "{body} lacks {expected}");
         assert!(body.contains("DeletionDate=20"), "{body}");
         let _ = fs::remove_dir_all(&base);
     }
