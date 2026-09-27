@@ -13,6 +13,30 @@ cargo install --path .
 claude-acc install
 ```
 
+## Verifying a download
+
+Every release publishes `SHA256SUMS` beside the binaries. This tool handles
+your OAuth tokens, so a download is worth checking against it rather than
+trusting that nothing went wrong between GitHub and your disk:
+
+```bash
+gh release download --pattern 'claude-acc-*' --pattern SHA256SUMS   # latest
+shasum -a 256 -c SHA256SUMS      # macOS
+sha256sum   -c SHA256SUMS        # Linux
+```
+
+```
+claude-acc-macos-aarch64: OK
+```
+
+Verify only what you downloaded and the other lines report as missing, which
+is expected — `shasum -a 256 -c SHA256SUMS --ignore-missing` says so more
+quietly. On Windows: `Get-FileHash claude-acc-windows-x86_64.exe -Algorithm
+SHA256`, then compare against the matching line by eye.
+
+This proves the file is the one the release workflow built and uploaded. It is
+not a signature: it says the download is intact, not who produced it.
+
 ## Windows
 
 PowerShell on a fresh Windows install needs two extra steps before `claude-acc` works:

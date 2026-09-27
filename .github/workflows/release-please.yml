@@ -5,13 +5,17 @@ on:
     branches:
       - master
 
-permissions:
-  contents: write
-  pull-requests: write
+# Declared per job rather than here: only release-please opens pull requests,
+# and a token that can do it has no business being handed to a job that
+# compiles code and uploads what it produced.
+permissions: {}
 
 jobs:
   release-please:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name:        ${{ steps.release.outputs.tag_name }}
@@ -25,6 +29,8 @@ jobs:
   build:
     needs: release-please
     if: needs.release-please.outputs.release_created == 'true'
+    permissions:
+      contents: write
     strategy:
       matrix:
         include:
@@ -81,3 +87,41 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release upload "${{ needs.release-please.outputs.tag_name }}" "${{ matrix.name }}"
+
+  # Publish SHA256SUMS alongside the binaries.
+  #
+  # This tool handles other people's OAuth tokens, so "download a binary from
+  # GitHub and hope" is not good enough: without a published digest there is
+  # nothing to check a download against. Runs after the whole matrix, so every
+  # asset is already on the release.
+  checksums:
+    needs: [release-please, build]
+    if: needs.release-please.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      TAG: ${{ needs.release-please.outputs.tag_name }}
+    steps:
+      # No checkout: --repo names the repository, so this job never needs a
+      # copy of the source to publish a digest of the binaries.
+      - name: Download the published binaries
+        run: |
+          mkdir -p dist
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" \
+            --dir dist --pattern 'claude-acc-*'
+
+      - name: Checksum them
+        # Sorted so the file is byte-identical whatever order the downloads
+        # arrived in, and names only — a digest listing the runner's paths
+        # would not match what anyone verifies locally.
+        run: |
+          cd dist
+          sha256sum claude-acc-* | sort -k2 > ../SHA256SUMS
+          cat ../SHA256SUMS
+
+      - name: Upload it
+        # --clobber so re-running the job replaces the file instead of
+        # failing on one that is already there.
+        run: gh release upload "$TAG" SHA256SUMS --repo "$GITHUB_REPOSITORY" --clobber
