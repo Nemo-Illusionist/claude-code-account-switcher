@@ -150,6 +150,15 @@ fn context_segment(v: &Value) -> Option<String> {
     Some(usage_segment(used))
 }
 
+/// Label in front of the bar, so the number cannot be read as something it
+/// is not.
+///
+/// This is the context window, and this tool also has a `usage` command that
+/// prints rate-limit percentages. An unlabelled meter beside that invites
+/// exactly one question — why the two disagree — and they never will, because
+/// they measure different things (#140).
+const CONTEXT_LABEL: &str = "ctx";
+
 /// A colored 10-cell bar + percentage for a 0–100 used value. Color steps with
 /// proximity to the usable limit (matching the GSD statusline thresholds), with
 /// a blinking skull once compaction is imminent.
@@ -157,7 +166,12 @@ fn usage_segment(pct: f64) -> String {
     let p = pct.clamp(0.0, 100.0);
     let filled = ((p / 100.0) * BAR_WIDTH as f64).floor() as usize;
     let filled = filled.min(BAR_WIDTH);
-    let bar = format!("{}{}", "▓".repeat(filled), "░".repeat(BAR_WIDTH - filled));
+    let bar = format!(
+        "{} {}{}",
+        CONTEXT_LABEL,
+        "▓".repeat(filled),
+        "░".repeat(BAR_WIDTH - filled)
+    );
     let pct_txt = format!("{}%", p.round() as i64);
 
     if p >= 80.0 {
@@ -259,6 +273,20 @@ mod tests {
         let seg = usage_segment(32.4);
         assert!(seg.contains("32%"), "got {seg:?}");
         assert!(seg.contains('▓') && seg.contains('░'), "got {seg:?}");
+    }
+
+    // #140: the meter was a bare percentage, and this tool also has a `usage`
+    // command printing rate-limit percentages. A reader compared the two, saw
+    // them disagree and reported a bug — they measure different things, and
+    // the label is what says so.
+    #[test]
+    fn the_meter_says_which_quantity_it_is() {
+        unsafe { std::env::set_var("NO_COLOR", "1") };
+        assert!(usage_segment(32.4).starts_with("ctx "), "unlabelled meter");
+        assert!(
+            usage_segment(85.0).contains("ctx "),
+            "label lost near limit"
+        );
     }
 
     #[test]
