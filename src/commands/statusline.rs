@@ -132,27 +132,43 @@ fn context_segment(v: &Value) -> Option<String> {
     let remaining = v
         .pointer("/context_window/remaining_percentage")
         .and_then(Value::as_f64)?;
+    // `context_window_size`, not `total_tokens` — the latter has never been a
+    // field Claude Code sends, so this read always missed and silently fell
+    // back to the default below. Harmless until someone sets
+    // CLAUDE_CODE_AUTO_COMPACT_WINDOW, which is a *token count*: dividing it
+    // by a window five times too large made the reserve look five times too
+    // small, and the meter under-reported on every 200k session.
     let total = v
-        .pointer("/context_window/total_tokens")
+        .pointer("/context_window/context_window_size")
         .and_then(Value::as_f64)
         .filter(|t| *t > 0.0)
         .unwrap_or(1_000_000.0);
 
-    let buffer_pct = std::env::var("CLAUDE_CODE_AUTO_COMPACT_WINDOW")
+    let acw = std::env::var("CLAUDE_CODE_AUTO_COMPACT_WINDOW")
         .ok()
-        .and_then(|s| s.trim().parse::<f64>().ok())
-        .filter(|acw| *acw > 0.0)
-        .map(|acw| (acw / total * 100.0).min(100.0))
+        .and_then(|s| s.trim().parse::<f64>().ok());
+    Some(usage_segment(used_of_usable(remaining, total, acw)))
+}
+
+/// How much of the *usable* window is spent, 0–100.
+///
+/// `acw` is `CLAUDE_CODE_AUTO_COMPACT_WINDOW` as a token count, already read
+/// from the environment — passed in rather than read here so this can be
+/// asserted without touching process state the other tests in this file also
+/// mutate.
+fn used_of_usable(remaining: f64, total: f64, acw: Option<f64>) -> f64 {
+    let buffer_pct = acw
+        .filter(|a| *a > 0.0)
+        .map(|a| (a / total * 100.0).min(100.0))
         .unwrap_or(AUTO_COMPACT_BUFFER_PCT);
 
     let usable_remaining = (((remaining - buffer_pct) / (100.0 - buffer_pct)) * 100.0).max(0.0);
-    let used = (100.0 - usable_remaining).clamp(0.0, 100.0);
-    Some(usage_segment(used))
+    (100.0 - usable_remaining).clamp(0.0, 100.0)
 }
 
 /// A colored 10-cell bar + percentage for a 0–100 used value. Color steps with
 /// proximity to the usable limit (matching the GSD statusline thresholds), with
-/// a blinking skull once compaction is imminent.
+/// a skull once compaction is imminent.
 fn usage_segment(pct: f64) -> String {
     let p = pct.clamp(0.0, 100.0);
     let filled = ((p / 100.0) * BAR_WIDTH as f64).floor() as usize;
@@ -160,15 +176,32 @@ fn usage_segment(pct: f64) -> String {
     let bar = format!("{}{}", "▓".repeat(filled), "░".repeat(BAR_WIDTH - filled));
     let pct_txt = format!("{}%", p.round() as i64);
 
-    if p >= 80.0 {
-        // Blinking red + skull — compaction is about to kick in.
-        paint("5;31", &format!("💀 {} {}", bar, pct_txt))
-    } else if p >= 65.0 {
-        paint("38;5;208", &format!("{} {}", bar, pct_txt)) // orange
-    } else if p >= 50.0 {
-        paint("33", &format!("{} {}", bar, pct_txt)) // yellow
+    let body = if p >= 80.0 {
+        format!("💀 {} {}", bar, pct_txt)
     } else {
-        paint("32", &format!("{} {}", bar, pct_txt)) // green
+        format!("{} {}", bar, pct_txt)
+    };
+    paint(severity_code(p), &body)
+}
+
+/// The SGR code for a 0–100 used value.
+///
+/// Split from the rendering so the choice can be asserted without `NO_COLOR`,
+/// which the other tests here mutate.
+///
+/// The near-limit code is inverse, not blink. Claude Code parses SGR 5 and
+/// then discards it: the attributes it projects into its renderer are colour,
+/// dim, bold, italic, underline, strikethrough and inverse, and nothing else.
+/// The "blinking" skull this used to ask for never blinked.
+fn severity_code(pct: f64) -> &'static str {
+    if pct >= 80.0 {
+        "7;31" // inverse red — compaction is about to kick in
+    } else if pct >= 65.0 {
+        "38;5;208" // orange
+    } else if pct >= 50.0 {
+        "33" // yellow
+    } else {
+        "32" // green
     }
 }
 
@@ -261,6 +294,67 @@ mod tests {
         assert!(seg.contains('▓') && seg.contains('░'), "got {seg:?}");
     }
 
+    // The reserve is a token count, so it only converts to a percentage
+    // correctly against the real window size. We read `total_tokens`, which
+    // Claude Code has never sent — the read always missed and silently used
+    // the 1M default, making the reserve five times too small on a 200k
+    // session and the meter under-report.
+    #[test]
+    fn the_compact_reserve_is_measured_against_the_real_window_size() {
+        // 40k of a 200k window is a 20% reserve, and exactly that much
+        // remains — so the usable window is spent.
+        assert_eq!(used_of_usable(20.0, 200_000.0, Some(40_000.0)), 100.0);
+
+        // Against the 1M the old code fell back to, the same reserve reads as
+        // 4% and the window looks 5/6 spent. This is the bug, pinned.
+        let wrong = used_of_usable(20.0, 1_000_000.0, Some(40_000.0));
+        assert!((wrong - 83.33).abs() < 0.1, "got {wrong}");
+    }
+
+    #[test]
+    fn with_no_reserve_set_the_default_share_applies() {
+        // Remaining == the default 16.5% reserve: usable window fully spent.
+        assert_eq!(used_of_usable(16.5, 1_000_000.0, None), 100.0);
+        // An empty context reads as nothing used.
+        assert_eq!(used_of_usable(100.0, 1_000_000.0, None), 0.0);
+        // A zero or negative reserve is ignored rather than dividing by it.
+        assert_eq!(used_of_usable(16.5, 1_000_000.0, Some(0.0)), 100.0);
+    }
+
+    // Claude Code parses SGR 5 and then drops it — blink is not among the
+    // attributes it projects into its renderer, so a "blinking" warning was
+    // rendering as plain red. Inverse survives.
+    #[test]
+    fn the_near_limit_warning_uses_an_attribute_that_survives() {
+        assert_eq!(severity_code(85.0), "7;31");
+
+        // Every code this can emit, listed so a future edit that reintroduces
+        // blink fails here. Scanning for a "5" parameter would not do: the
+        // orange code is `38;5;208`, where the 5 selects the 256-colour
+        // palette and has nothing to do with blinking.
+        let emitted: std::collections::BTreeSet<&str> = [0.0, 50.0, 65.0, 80.0, 100.0]
+            .into_iter()
+            .map(severity_code)
+            .collect();
+        assert_eq!(
+            emitted,
+            ["32", "33", "38;5;208", "7;31"].into_iter().collect(),
+            "an unexpected SGR code appeared — check it survives Claude Code's \
+             projection, which keeps only colour, dim, bold, italic, underline, \
+             strikethrough and inverse"
+        );
+    }
+
+    #[test]
+    fn severity_steps_at_the_documented_thresholds() {
+        assert_eq!(severity_code(49.9), "32");
+        assert_eq!(severity_code(50.0), "33");
+        assert_eq!(severity_code(64.9), "33");
+        assert_eq!(severity_code(65.0), "38;5;208");
+        assert_eq!(severity_code(79.9), "38;5;208");
+        assert_eq!(severity_code(80.0), "7;31");
+    }
+
     #[test]
     fn usage_segment_skull_when_near_limit() {
         unsafe { std::env::set_var("NO_COLOR", "1") };
@@ -282,7 +376,7 @@ mod tests {
         }
         // remaining == buffer (16.5%) means the *usable* window is fully spent.
         let v = serde_json::json!({
-            "context_window": { "remaining_percentage": 16.5, "total_tokens": 1_000_000 }
+            "context_window": { "remaining_percentage": 16.5, "context_window_size": 1_000_000 }
         });
         assert!(
             context_segment(&v).unwrap().contains("100%"),
@@ -291,7 +385,7 @@ mod tests {
 
         // Empty context (100% remaining) reads ~0% used.
         let v = serde_json::json!({
-            "context_window": { "remaining_percentage": 100.0, "total_tokens": 1_000_000 }
+            "context_window": { "remaining_percentage": 100.0, "context_window_size": 1_000_000 }
         });
         assert!(
             context_segment(&v).unwrap().contains("0%"),
