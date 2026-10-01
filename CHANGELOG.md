@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.20.0](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.19.0...v0.20.0) (2026-10-01)
+
+
+### Features
+
+* fall back to Claude Code's own usage reading when the API is unreachable ([#135](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/135)) ([f80f08e](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/f80f08e7c13a3e94de85a3fb354ae0e40241d77d))
+* move a removed account to the Trash instead of deleting it ([#138](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/138)) ([d35b5dc](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/d35b5dcd75fc9bdbb6fa7b4fb1c71ff75b2009be))
+
+
+### Bug Fixes
+
+* read the context window size Claude Code actually sends, and drop blink ([#142](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/142)) ([21e4401](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/21e4401077154b0214a540a64685fb4191d79828))
+
 ## [0.19.0](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.18.2...v0.19.0) (2026-09-24)
 
 
