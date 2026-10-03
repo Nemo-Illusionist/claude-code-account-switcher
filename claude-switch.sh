@@ -34,9 +34,15 @@ CLAUDE_SWITCH_SCRIPT="${CLAUDE_SWITCH_SCRIPT:A}"
 # =============================================================
 
 _claude_acc_lang() {
-    if [[ -n "$CLAUDE_ACC_LANG" ]]; then
-        echo "$CLAUDE_ACC_LANG"
-    elif [[ "$LANG" == ru_* ]]; then
+    # Both expansions are defaulted: neither variable is ours, and under
+    # `setopt nounset` an unset one is a fatal error rather than an empty
+    # string. This function backs `_msg`, so without the defaults *every*
+    # message the script prints fails for anyone with nounset in their
+    # .zshrc — and $LANG really is absent in minimal non-interactive
+    # environments (#137).
+    if [[ -n "${CLAUDE_ACC_LANG:-}" ]]; then
+        echo "${CLAUDE_ACC_LANG}"
+    elif [[ "${LANG:-}" == ru_* ]]; then
         echo "ru"
     else
         echo "en"
@@ -679,7 +685,7 @@ _claude_acc_add() {
 }
 
 _claude_acc_login() {
-    local name="$1"
+    local name="${1:-}"
     if [[ -z "$name" ]]; then
         _msg login_usage
         return 1
@@ -726,7 +732,7 @@ _claude_acc_login() {
 
 _claude_acc_remove() {
     local force=false purge=false
-    while [[ "$1" == -* ]]; do
+    while [[ "${1:-}" == -* ]]; do
         case "$1" in
             -f|--force) force=true ;;
             # An explicit request for the directory to be gone: the Trash
@@ -738,7 +744,7 @@ _claude_acc_remove() {
         shift
     done
 
-    local name="$1"
+    local name="${1:-}"
     if [[ -z "$name" ]]; then
         _msg remove_usage
         return 1
@@ -832,7 +838,7 @@ _claude_acc_to_trash() {
 }
 
 _claude_acc_default() {
-    local name="$1"
+    local name="${1:-}"
     if [[ -z "$name" ]]; then
         local current email label
         current=$(_claude_default_account)
@@ -868,7 +874,7 @@ _claude_acc_default() {
 }
 
 _claude_acc_link() {
-    local name="$1"
+    local name="${1:-}"
     if [[ -z "$name" ]]; then
         _msg link_usage
         _msg link_desc
@@ -1088,7 +1094,7 @@ _claude_acc_seed_plugins() {
 }
 
 _claude_acc_clone_settings() {
-    local name="$1"
+    local name="${1:-}"
     if [[ -z "$name" ]]; then
         _msg clone_settings_usage
         return 1
@@ -1110,7 +1116,7 @@ _claude_acc_clone_settings() {
 # the current shell's active account. `default` runs without
 # CLAUDE_CONFIG_DIR (standard ~/.claude/).
 _claude_acc_run() {
-    local name="$1"
+    local name="${1:-}"
     if [[ -z "$name" ]]; then
         _msg run_usage
         return 1
@@ -1157,11 +1163,11 @@ _claude_acc_run() {
 # accounts these run side by side: the app takes no single-instance lock.
 
 _claude_acc_desktop_app() {
-    if [[ -n "$CLAUDE_ACC_DESKTOP_APP" ]]; then
+    if [[ -n "${CLAUDE_ACC_DESKTOP_APP:-}" ]]; then
         # A set-but-wrong override resolves to nothing rather than falling
         # back, so a typo is visible instead of silently opening the app the
         # override meant to replace.
-        [[ -e "$CLAUDE_ACC_DESKTOP_APP" ]] && echo "$CLAUDE_ACC_DESKTOP_APP"
+        [[ -e "${CLAUDE_ACC_DESKTOP_APP}" ]] && echo "${CLAUDE_ACC_DESKTOP_APP}"
         return
     fi
     local candidate
@@ -1387,7 +1393,7 @@ _claude_acc_desktop_run() {
 
 _claude_acc_desktop_remove() {
     local force=false
-    if [[ "$1" == "-f" || "$1" == "--force" ]]; then
+    if [[ "${1:-}" == "-f" || "${1:-}" == "--force" ]]; then
         force=true
         shift
     fi
@@ -1469,13 +1475,16 @@ _claude_acc_desktop_clone_config() {
     local -a rest
     while (( $# > 0 )); do
         case "$1" in
-            --from)        from="$2"; shift 2 ;;
+            # Shift the flag, then its value only if there is one. A bare
+            # `shift 2` here could not shift at all when the value was
+            # missing, so `while (( $# > 0 ))` span forever eating memory.
+            --from)        from="${2:-}"; shift; (( $# )) && shift ;;
             -f|--force)    force=true; shift ;;
             *)             rest+=("$1"); shift ;;
         esac
     done
 
-    local name="${rest[1]}"
+    local name="${rest[1]:-}"
     _claude_acc_desktop_name_ok "$name" || return 1
 
     local profile="$CLAUDE_SWITCH_DESKTOP_DIR/$name"
@@ -1522,13 +1531,13 @@ _claude_acc_desktop_clone_runtime() {
     local -a rest
     while (( $# > 0 )); do
         case "$1" in
-            --from)     from="$2"; shift 2 ;;
+            --from)     from="${2:-}"; shift; (( $# )) && shift ;;
             -f|--force) force=true; shift ;;
             *)          rest+=("$1"); shift ;;
         esac
     done
 
-    local name="${rest[1]}"
+    local name="${rest[1]:-}"
     _claude_acc_desktop_name_ok "$name" || return 1
 
     local profile="$CLAUDE_SWITCH_DESKTOP_DIR/$name"
@@ -1592,7 +1601,7 @@ _claude_acc_desktop_clone_runtime() {
 }
 
 _claude_acc_desktop() {
-    local action="$1"
+    local action="${1:-}"
     shift 2>/dev/null
 
     case "$action" in
@@ -2121,7 +2130,7 @@ _claude_acc_import() {
     for a in "$@"; do
         if [[ "$a" == "--move" ]]; then move=1; else pos+=("$a"); fi
     done
-    local name="${pos[1]}" source="${pos[2]}"
+    local name="${pos[1]:-}" source="${pos[2]:-}"
     if [[ -z "$name" || -z "$source" ]]; then _msg import_usage; return 1; fi
     if [[ "$name" == "default" ]]; then _msg reserved_name "$name"; return 1; fi
     _claude_validate_name "$name" || return 1
@@ -2384,7 +2393,7 @@ _claude_acc_lock_marker() {
 
 _claude_acc_doctor() {
     local json=0
-    if [[ "$1" == "--json" ]]; then
+    if [[ "${1:-}" == "--json" ]]; then
         json=1
         shift
     fi

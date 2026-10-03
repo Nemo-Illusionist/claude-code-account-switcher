@@ -26,8 +26,9 @@ export HOME="$scratch/home"
 mkdir -p "$HOME/.claude"
 
 # Pin the language so the rendered lines below are the same on any machine.
-# It also keeps `set -u` above from tripping over `_claude_acc_lang`, which
-# reads $CLAUDE_ACC_LANG unguarded — a separate bug, not this test's subject.
+# This used to double as a workaround for `_claude_acc_lang` reading
+# $CLAUDE_ACC_LANG unguarded under `set -u`; that is fixed, and
+# `tests/shell/nounset.zsh` is what keeps it fixed.
 export CLAUDE_ACC_LANG=en
 
 source "${0:A:h:h:h}/claude-switch.sh" >/dev/null 2>&1
