@@ -1635,6 +1635,54 @@ _claude_acc_legacy_keychain_ok() {
     [[ "$1" == "$(_claude_acc_default_token_dir)" ]]
 }
 
+# NFC-normalise a path, the way Claude Code does before hashing it.
+#
+# ASCII is already NFC — overwhelmingly the common case — so it is echoed
+# untouched and perl is never started. Beyond ASCII we need real NFC:
+# /usr/bin/perl ships with macOS and Unicode::Normalize is a core module, so
+# this costs nothing to depend on. If it is somehow unavailable the raw path
+# is used, which is what this did everywhere before.
+_claude_acc_nfc() {
+    local s="$1"
+    # Plain `[[ $s == [[:ascii:]]## ]]` needs EXTENDED_GLOB, which this script
+    # does not set and must not turn on for its callers.
+    if [[ -z "${s//[[:ascii:]]/}" ]]; then
+        printf '%s' "$s"
+        return 0
+    fi
+    # The argument arrives as bytes, so it must be decoded before NFC and
+    # re-encoded after. Without that, perl treats UTF-8 as Latin-1, NFC does
+    # nothing, and the output is double-encoded — a hash that matches neither
+    # spelling of the path.
+    perl -MEncode -MUnicode::Normalize \
+        -e 'print Encode::encode_utf8(NFC(Encode::decode_utf8($ARGV[0])))' \
+        -- "$s" 2>/dev/null || printf '%s' "$s"
+}
+
+# The macOS Keychain service name Claude Code stores the token under for a
+# config dir. Mirrors keychain_service() in src/identity.rs, including both
+# rules that are easy to miss:
+#
+#   - CLAUDE_SECURESTORAGE_CONFIG_DIR relocates credential storage
+#     independently of CLAUDE_CONFIG_DIR, and when set it is what gets hashed.
+#     Set to the empty string it drops the suffix entirely, so credentials go
+#     to the bare legacy name whatever config dir is in play.
+#   - the path is NFC-normalised before hashing, so a decomposed and a
+#     composed spelling of one directory give one name rather than two.
+_claude_acc_keychain_service() {
+    local dir="$1" hash
+    if [[ -n "${CLAUDE_SECURESTORAGE_CONFIG_DIR+set}" ]]; then
+        [[ -z "$CLAUDE_SECURESTORAGE_CONFIG_DIR" ]] && {
+            printf '%s' "$CLAUDE_ACC_LEGACY_KEYCHAIN_SERVICE"
+            return 0
+        }
+        dir="$CLAUDE_SECURESTORAGE_CONFIG_DIR"
+    fi
+    hash=$(_claude_acc_nfc "$dir" | shasum -a 256 2>/dev/null | cut -c1-8)
+    [[ -z "$hash" ]] && return 1
+    printf '%s-%s' "$CLAUDE_ACC_LEGACY_KEYCHAIN_SERVICE" "$hash"
+}
+
 _claude_acc_keychain_token() {
     local service="$1" blob
     blob=$(security find-generic-password -s "$service" -a "$(id -un)" -w 2>/dev/null)
@@ -1643,11 +1691,10 @@ _claude_acc_keychain_token() {
 }
 
 _claude_acc_token() {
-    local acc_dir="$1" hash token
-    hash=$(printf '%s' "$acc_dir" | shasum -a 256 2>/dev/null | cut -c1-8)
-    [[ -z "$hash" ]] && return 1
+    local acc_dir="$1" service token
+    service=$(_claude_acc_keychain_service "$acc_dir") || return 1
 
-    token=$(_claude_acc_keychain_token "Claude Code-credentials-${hash}")
+    token=$(_claude_acc_keychain_token "$service")
     if [[ -n "$token" ]]; then
         printf '%s' "$token"
         return 0
@@ -2103,14 +2150,14 @@ _claude_acc_update() {
 # dir would otherwise lose its token. No-op (returns non-zero) off macOS or when
 # there's no source entry — the plaintext .credentials.json fallback covers it.
 _claude_acc_rekey_keychain() {
-    local from="$1" to="$2" user fromhash tohash blob
+    local from="$1" to="$2" user fromservice toservice blob
     [[ "$(uname -s)" == "Darwin" ]] || return 1
     command -v security >/dev/null 2>&1 || return 1
     command -v shasum >/dev/null 2>&1 || return 1
     user=$(id -un)
-    fromhash=$(printf '%s' "$from" | shasum -a 256 | cut -c1-8)
-    tohash=$(printf '%s' "$to" | shasum -a 256 | cut -c1-8)
-    blob=$(security find-generic-password -s "Claude Code-credentials-${fromhash}" -a "$user" -w 2>/dev/null)
+    fromservice=$(_claude_acc_keychain_service "$from") || return 1
+    toservice=$(_claude_acc_keychain_service "$to") || return 1
+    blob=$(security find-generic-password -s "$fromservice" -a "$user" -w 2>/dev/null)
     # Importing ~/.claude is the case the scoped name alone can't serve: that
     # account runs with no CLAUDE_CONFIG_DIR, so its token lives under the bare
     # service and there may be no scoped entry at all. Same guard as
@@ -2120,7 +2167,7 @@ _claude_acc_rekey_keychain() {
         blob=$(security find-generic-password -s "$CLAUDE_ACC_LEGACY_KEYCHAIN_SERVICE" -a "$user" -w 2>/dev/null)
     fi
     [[ -z "$blob" ]] && return 1
-    security add-generic-password -U -s "Claude Code-credentials-${tohash}" -a "$user" -w "$blob" 2>/dev/null
+    security add-generic-password -U -s "$toservice" -a "$user" -w "$blob" 2>/dev/null
 }
 
 # Adopt an existing Claude config dir as a managed account without re-login.

@@ -74,6 +74,12 @@ This is just a note, never an error — both accounts share the login (and there
 
 > **macOS only for now.** The Keychain hashing scheme is reverse-engineered from Claude Code's internals, so non-macOS platforms (where Claude Code uses libsecret / Credential Manager) aren't covered yet.
 
+### If you set `CLAUDE_SECURESTORAGE_CONFIG_DIR`
+
+This is an undocumented Claude Code variable that moves credential storage **independently of `CLAUDE_CONFIG_DIR`**. When it is set, it — not the account directory — is what Claude Code hashes into the Keychain service name, so every account's token ends up in the same entry. Set it to the empty string and Claude Code drops the hash altogether, putting credentials under the bare legacy service name.
+
+`doctor`, `lock`, `usage` and `import` follow the same rule, so they keep agreeing with Claude Code when you use it. It is worth knowing what it costs, though: with one shared entry the accounts no longer have separate stored credentials, so whichever account logged in last is the one the Keychain holds. Leave the variable unset unless something specifically requires it.
+
 ## Pinning an account to an identity (`lock`)
 
 `doctor` tells you which account a directory is signed in as. It cannot tell
