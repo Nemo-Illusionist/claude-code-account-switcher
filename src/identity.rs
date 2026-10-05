@@ -322,17 +322,97 @@ fn should_try_legacy_keychain_fallback(acc_dir: &Path) -> bool {
 
 /// macOS Keychain service name Claude Code stores the OAuth token under for a
 /// given config dir: "Claude Code-credentials-<sha256(path)[0:8]>".
+///
+/// Transcribed from Claude Code 2.1.288, which derives it as:
+///
+/// ```js
+/// var configDir = () => (process.env.CLAUDE_CONFIG_DIR
+///                        ?? join(homedir(), ".claude")).normalize("NFC");
+/// function serviceName() {
+///   const ss = process.env.CLAUDE_SECURESTORAGE_CONFIG_DIR;
+///   const unsuffixed = ss !== undefined ? !ss : !process.env.CLAUDE_CONFIG_DIR;
+///   const dir = ss !== undefined ? ss.normalize("NFC") : configDir();
+///   return "Claude Code-credentials" + (unsuffixed ? "" : `-${sha256(dir).slice(0, 8)}`);
+/// }
+/// ```
+///
+/// Two things that are easy to miss, and that we used to get wrong:
+///
+/// `CLAUDE_SECURESTORAGE_CONFIG_DIR` relocates credential storage
+/// *independently* of `CLAUDE_CONFIG_DIR`, and when set it is what gets
+/// hashed. Set to the empty string it drops the suffix altogether, so
+/// credentials land under the bare legacy name no matter which config dir
+/// is in play. It is read from our own environment on purpose: it is the
+/// user's shell that sets it, and our wrapper passes it straight through to
+/// every `claude` it launches, so one variable governs every account.
+///
+/// `CLAUDE_CONFIG_DIR` is the opposite and is **not** consulted here. The
+/// upstream snippet reads it because it is running *as* the account; we are
+/// asking what the name would be for a directory we were handed.
+///
+/// The path is normalised to NFC before hashing. Account names are
+/// ASCII-only, so only the home directory can differ — but that is enough:
+/// a decomposed `/Users/Jose\u{301}` and a composed `/Users/José` are the
+/// same directory and hash to two different service names.
 fn keychain_service(acc_dir: &Path) -> Option<String> {
-    let acc_str = acc_dir.to_str()?;
+    Some(service_name_for(
+        acc_dir.to_str()?,
+        securestorage_override().as_deref(),
+    ))
+}
+
+/// The derivation itself, with the environment passed in.
+///
+/// Kept pure so the cases can be tested without setting process-wide
+/// variables — `cargo test` runs in threads, and an env-var-mutating test
+/// passes alone and then fails inside the full suite.
+fn service_name_for(acc_dir: &str, securestorage: Option<&str>) -> String {
+    match securestorage {
+        // An empty override is meaningful, not missing: it asks for the
+        // unsuffixed name.
+        Some("") => LEGACY_KEYCHAIN_SERVICE.to_string(),
+        Some(over) => scoped_service(over),
+        // The ordinary case, and deliberately *not* conditioned on our own
+        // $CLAUDE_CONFIG_DIR. Upstream reads that variable because it is
+        // running as the account; we are asking what the name would be for
+        // `acc_dir`, which is the scoped one. The standard account's
+        // unsuffixed entry is reached through
+        // `should_try_legacy_keychain_fallback` instead — see `read_token`.
+        None => scoped_service(acc_dir),
+    }
+}
+
+/// `CLAUDE_SECURESTORAGE_CONFIG_DIR` as Claude Code sees it: `None` only when
+/// the variable is absent entirely, because set-but-empty is a distinct case.
+fn securestorage_override() -> Option<String> {
+    std::env::var_os("CLAUDE_SECURESTORAGE_CONFIG_DIR")?
+        .to_str()
+        .map(str::to_string)
+}
+
+/// `Claude Code-credentials-<sha256(nfc(dir))[0:8]>`.
+fn scoped_service(dir: &str) -> String {
     let mut hasher = Sha256::new();
-    hasher.update(acc_str.as_bytes());
+    hasher.update(nfc(dir).as_bytes());
     let digest = hasher.finalize();
     let hash: String = digest
         .iter()
         .take(4)
         .map(|b| format!("{:02x}", b))
         .collect();
-    Some(format!("Claude Code-credentials-{}", hash))
+    format!("{}-{}", LEGACY_KEYCHAIN_SERVICE, hash)
+}
+
+/// NFC, matching JavaScript's `String.prototype.normalize("NFC")`.
+///
+/// ASCII is already NFC, which is the overwhelmingly common case, so it is
+/// returned untouched rather than run through the tables.
+fn nfc(s: &str) -> String {
+    if s.is_ascii() {
+        return s.to_string();
+    }
+    use unicode_normalization::UnicodeNormalization;
+    s.nfc().collect()
 }
 
 /// Raw credential blob (`{"claudeAiOauth":{...}}`) from the Keychain for a dir,
@@ -921,6 +1001,88 @@ mod tests {
         assert!(!should_try_legacy_keychain_fallback(
             standard_dir.parent().expect("home dir has a parent")
         ));
+    }
+
+    // The expected hashes below were computed with Node — the same engine
+    // Claude Code runs on — rather than by this code, so a mistake in our
+    // own derivation cannot make its own test agree with it:
+    //
+    //   crypto.createHash("sha256").update(p).digest("hex").substring(0, 8)
+
+    #[test]
+    fn the_service_name_is_the_one_claude_code_writes() {
+        assert_eq!(
+            service_name_for("/Users/x/.claude-switch/accounts/work", None),
+            "Claude Code-credentials-6669c001"
+        );
+    }
+
+    // CLAUDE_SECURESTORAGE_CONFIG_DIR relocates credential storage
+    // independently of CLAUDE_CONFIG_DIR. Ignoring it meant reading a service
+    // name Claude Code never writes to: `doctor` reporting no token for an
+    // account that is signed in, `lock` blind to drift, `import` re-keying
+    // into an entry nothing reads.
+    #[test]
+    fn a_securestorage_override_is_what_gets_hashed() {
+        assert_eq!(
+            service_name_for(
+                "/Users/x/.claude-switch/accounts/work",
+                Some("/Users/x/.claude-switch/accounts/work")
+            ),
+            "Claude Code-credentials-6669c001",
+            "the override, not the account dir, decides the hash"
+        );
+        assert_ne!(
+            service_name_for("/somewhere/else", Some("/Users/x/elsewhere")),
+            service_name_for("/somewhere/else", None),
+            "an override pointing elsewhere must change the name"
+        );
+    }
+
+    // Set-but-empty is a distinct case upstream, not a missing value: it
+    // drops the suffix entirely and sends credentials to the bare legacy
+    // name whatever CLAUDE_CONFIG_DIR says.
+    #[test]
+    fn an_empty_securestorage_override_asks_for_the_unsuffixed_name() {
+        assert_eq!(
+            service_name_for("/Users/x/.claude-switch/accounts/work", Some("")),
+            "Claude Code-credentials"
+        );
+    }
+
+    // The path is NFC-normalised before hashing. Account names are ASCII, so
+    // only the home directory can differ — but a decomposed and a composed
+    // spelling of the same directory used to hash to two different names,
+    // and only one of them was the one Claude Code wrote.
+    #[test]
+    fn a_decomposed_path_hashes_the_same_as_its_composed_form() {
+        let composed = "/Users/Jos\u{e9}/.claude";
+        let decomposed = "/Users/Jose\u{301}/.claude";
+        assert_ne!(composed, decomposed, "the two spellings differ as bytes");
+
+        assert_eq!(
+            service_name_for(decomposed, None),
+            "Claude Code-credentials-aa0dcdd9",
+            "the decomposed spelling must hash as its composed form"
+        );
+        assert_eq!(
+            service_name_for(composed, None),
+            service_name_for(decomposed, None)
+        );
+        // Guard against "normalising" by stripping the accent instead: that
+        // would collide with a genuinely different directory.
+        assert_ne!(
+            service_name_for(decomposed, None),
+            service_name_for("/Users/Jose/.claude", None)
+        );
+    }
+
+    #[test]
+    fn ascii_is_left_exactly_as_it_is() {
+        // The fast path must be the identity, not an approximation of it.
+        for s in ["/Users/x/.claude", "", "a-b_c.d~e/9Z", "Claude Code"] {
+            assert_eq!(nfc(s), s);
+        }
     }
 
     #[test]
