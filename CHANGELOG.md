@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.21.0](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.20.0...v0.21.0) (2026-10-15)
+
+
+### Features
+
+* doctor says when one credential store is shared by every account ([#154](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/154)) ([916724a](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/916724a986279d4bc56c034f2564fdfbc3df137b))
+
+
+### Bug Fixes
+
+* derive the Keychain service name the way Claude Code does ([#150](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/150)) ([1200452](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/120045256eb877704bc260cebe229ffa4be1b9fd))
+* escape the install path everywhere it is pasted into generated shell ([#153](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/153)) ([267d031](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/267d031981eb563c28983d912c8eaa8b0f88a89f))
+* let a missing argument reach the usage message instead of killing the shell ([#148](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/148)) ([a34120d](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/a34120d2db7c8746771f7a6abd09e7f007fd15f9))
+* show the context percentage Claude Code shows, and stop the bar moving ([#155](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/155)) ([1753512](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/1753512a6076ac42549a9c4b18587a0c0280c877))
+
+
+### Documentation
+
+* say that the status line meter is the context window, not the quota ([#146](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/146)) ([f85378f](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/f85378fec9a3a8a5d9de3721affae269cabf4d91))
+
 ## [0.20.0](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.19.0...v0.20.0) (2026-10-01)
 
 
