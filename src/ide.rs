@@ -85,7 +85,11 @@ pub fn install_wrapper(
     let bin_dir = config.base_dir.join("bin");
     fs::create_dir_all(&bin_dir)?;
     let wrapper = bin_dir.join("claude");
-    let bin_str = claude_acc_bin.to_string_lossy();
+    // The template wraps the placeholder in `'...'`, so an apostrophe in the
+    // path closed the string early and produced a wrapper no shell could
+    // parse — while `install` reported success and every IDE launch then
+    // failed with nothing pointing here (#101).
+    let bin_str = crate::quoting::sh_single_quoted(&claude_acc_bin.to_string_lossy());
     let content = WRAPPER_TEMPLATE.replace(WRAPPER_PLACEHOLDER, &bin_str);
     fs::write(&wrapper, content)?;
     fs::set_permissions(&wrapper, fs::Permissions::from_mode(0o755))?;

@@ -10,6 +10,7 @@ mod environment;
 mod i18n;
 mod ide;
 mod identity;
+mod quoting;
 mod resolve;
 mod seed;
 mod sessions;

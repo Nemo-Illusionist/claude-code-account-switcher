@@ -417,8 +417,28 @@ _claude_ensure_ide_symlinks() {
 # (no code duplication) — and then activates for $PWD *itself*, rather than
 # letting the source do it: `claude-acc run <name>` has already picked an
 # account, and re-deriving one from the directory would silently undo it.
+# Body of a POSIX single-quoted string holding $1.
+#
+# The generated wrapper wraps this script's path in '...', and
+# /Users/O'Brien is an ordinary home directory — an apostrophe closed the
+# string early and left a wrapper zsh could not parse, while nothing
+# reported a problem until the next `claude` launch (#101). Mirrors
+# sh_single_quoted() in src/quoting.rs: end the quoted run, emit an escaped
+# quote, start a new one.
+_claude_acc_sh_quote() {
+    # The pattern and replacement go through variables on purpose: written
+    # inline, the backslashes needed to express '\'' inside a zsh
+    # substitution are easy to miscount, and the result still parses — it
+    # just produces the wrong path.
+    local s="$1" q="'" esc
+    esc="'\\''"
+    print -rn -- "${s//$q/$esc}"
+}
+
 _claude_ensure_wrapper() {
     local wrapper="$CLAUDE_SWITCH_BIN/claude"
+    local script_q
+    script_q=$(_claude_acc_sh_quote "$CLAUDE_SWITCH_SCRIPT")
 
     # Regenerate only if wrapper is missing or older than the main script
     if [[ -x "$wrapper" && "$wrapper" -nt "$CLAUDE_SWITCH_SCRIPT" ]]; then
@@ -433,7 +453,7 @@ emulate -L zsh
 # Suppress the activation the sourced script does on load, so an account
 # chosen by the caller survives it.
 CLAUDE_ACC_NO_AUTOACTIVATE=1
-[[ -r '$CLAUDE_SWITCH_SCRIPT' ]] && source '$CLAUDE_SWITCH_SCRIPT' >/dev/null 2>&1
+[[ -r '$script_q' ]] && source '$script_q' >/dev/null 2>&1
 unset CLAUDE_ACC_NO_AUTOACTIVATE
 
 # Derive the account from \$PWD only when the caller named none:

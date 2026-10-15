@@ -21,6 +21,8 @@
 // through serde would silently delete every comment in someone's editor
 // config.
 
+#[cfg(not(windows))]
+use crate::quoting::sh_single_quoted;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -101,18 +103,6 @@ pub fn install_wrapper(base_dir: &Path, claude_acc_bin: &Path) -> std::io::Resul
     fs::write(&wrapper, content)?;
     fs::set_permissions(&wrapper, fs::Permissions::from_mode(0o755))?;
     Ok(wrapper)
-}
-
-/// Body of a POSIX single-quoted string holding `raw`.
-///
-/// The template wraps the placeholder in `'...'`, and a single quote in the
-/// path — `/Users/O'Brien` is an ordinary home directory — closes that
-/// string early and leaves a script the shell cannot parse. The escape is
-/// the standard one: end the quoted run, emit an escaped quote, start a new
-/// run.
-#[cfg(not(windows))]
-fn sh_single_quoted(raw: &str) -> String {
-    raw.replace('\'', "'\\''")
 }
 
 /// Directories under `<config>/<dir>/User/profiles/`, one per non-default

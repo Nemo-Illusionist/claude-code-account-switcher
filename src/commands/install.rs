@@ -1,6 +1,7 @@
 use crate::config::AppConfig;
 use crate::i18n::{I18n, Msg};
 use crate::ide;
+use crate::quoting::{is_single_line, pwsh_single_quoted, sh_single_quoted};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -113,6 +114,17 @@ fn ensure_shell_integration(config: &AppConfig, i18n: &I18n) {
     let bin_path = config.base_dir.join("bin").join(binary_name());
     let bin_str = bin_path.to_str().expect("Invalid bin path");
 
+    // A newline in the path cannot be quoted away: the rc line is written,
+    // found and de-duplicated by line, so a path containing one would be
+    // split and neither parse nor match itself again.
+    if !is_single_line(bin_str) {
+        eprintln!(
+            "Refusing to write shell integration: the install path contains a newline ({:?})",
+            bin_str
+        );
+        return;
+    }
+
     let (shell, rc_path) = detect_shell_and_rc();
 
     let eval_line = match shell.as_str() {
@@ -122,9 +134,17 @@ fn ensure_shell_integration(config: &AppConfig, i18n: &I18n) {
         // line of `init pwsh` (a comment) and the integration is dead.
         "pwsh" | "powershell" => format!(
             "Invoke-Expression ((& '{}' init pwsh) -join \"`n\")",
-            bin_str
+            pwsh_single_quoted(bin_str)
         ),
-        _ => format!("eval \"$('{0}' init {1})\"", bin_str, shell),
+        // Escaped per shell: the path goes between single quotes, and
+        // `/Users/O'Brien` otherwise closes them and leaves an rc file that
+        // fails at every shell start — while `install` reported success
+        // (#101). PowerShell doubles the quote, POSIX leaves the string.
+        _ => format!(
+            "eval \"$('{0}' init {1})\"",
+            sh_single_quoted(bin_str),
+            shell
+        ),
     };
 
     if let Some(rc) = rc_path {
