@@ -81,3 +81,9 @@ Project conventions beyond the build — commits and PR scope, tests, i18n,
 shell parity, completions, README parity. Most load on their own when the
 files they govern come into play, but a path-scoped rule can't fire before
 you've opened the file. Look there before starting work.
+
+Two of them are not scoped to any path, because they apply before you open
+the first file: `commits-and-prs.md`, and `reverse-engineering.md` — which
+covers how to establish a claim about Claude Code's own internals. This whole
+tool is built on undocumented behaviour read out of a specific build, so
+"I remember how this works" is the main way the repo gets things wrong.

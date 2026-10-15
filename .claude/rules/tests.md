@@ -2,6 +2,8 @@
 paths:
   - "src/*.rs"
   - "src/commands/*.rs"
+  - "claude-switch.sh"
+  - "tests/shell/*.zsh"
 ---
 
 # Almost every code change ships a test proving it works
@@ -67,6 +69,66 @@ Not coverage for its own sake. Test the things that would actually go wrong:
 - boundaries — empty input, one item, several, equal values
 - the case the change exists to fix, written so it fails without the fix
 - anything platform-conditional, on both sides (`cfg!(windows)`)
+
+## A test that can pass for the wrong reason is not a test
+
+Three ways a green test has lied here. All three are cheap to rule out.
+
+**The expected value must come from somewhere other than the code under
+test.** Compute it by hand, or with a different tool, and paste it in as a
+literal. Deriving it from our own implementation means a wrong implementation
+agrees with its own test forever.
+
+In #150 the Keychain hashes were computed in Node — the engine Claude Code
+runs on — rather than by this code. That is the only reason a double-encoding
+bug surfaced: the shell helper fed perl raw bytes, so NFC did nothing and the
+output was re-encoded, producing a hash matching *neither* spelling of the
+path. A self-derived expectation would have matched it happily.
+
+**Assert the value, not merely that it differs.** `!=` is satisfied by
+nothing at all. A `keychain_service.zsh` check passed on `master` because the
+function did not exist, the comparison returned empty, and empty is `!=` the
+expected name. Require a well-formed answer *and* the right one.
+
+The same trap in a different shape: checking "does any emitted SGR code equal
+`5`" to assert blink is gone false-positives on `38;5;208`, where the `5`
+selects 256-colour mode. Assert over the exact set of codes.
+
+**Run the new test against the base branch and read the failure.** Not just
+that it fails — *why*. "33 checks failed" is the signal; "command not found"
+where you expected a wrong value means you are pinning a new helper rather
+than the bug. A throwaway worktree is the cheap way:
+
+```sh
+wt=$(mktemp -d)/wt && git worktree add -q "$wt" master
+cp tests/shell/<new>.zsh "$wt/tests/shell/" && (cd "$wt" && zsh tests/shell/<new>.zsh)
+git worktree remove --force "$wt"
+```
+
+## No test may depend on process-wide mutable state
+
+`cargo test` runs tests in threads of one process. A test that sets or clears
+an environment variable passes alone and then fails inside the full suite,
+depending on scheduling — and the failure looks like a flake rather than the
+design error it is.
+
+Extract the decision as a function taking the value as a parameter:
+`used_of_usable(remaining, total, acw)`, `severity_code(pct)`,
+`service_name_for(dir, securestorage)`. The thin wrapper that reads the
+environment needs no test; the logic gets all of them.
+
+## Exploratory sweeps are read-only
+
+When looping over every command to see which ones misbehave, leave out the
+ones that write. `claude-acc update` downloads `master`'s copy of
+`claude-switch.sh` over the live file — run inside a sweep from a working
+copy, it silently reverted the fix being tested. `tests/shell/nounset.zsh`
+excludes it, with a comment saying why.
+
+The same applies to a probe that polls: distinguish "the answer is no" from
+"the command failed". A `gh pr diff` returning nothing because of a transient
+error reads identically to a changelog entry being absent, and reported the
+opposite of the truth.
 
 ## Before pushing
 
