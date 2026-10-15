@@ -27,6 +27,16 @@ export CLAUDE_ACC_LANG=en
 
 source "${0:A:h:h:h}/claude-switch.sh" >/dev/null 2>&1
 
+# `doctor` refuses to run without `security`, which is macOS-only — so on the
+# Linux runner every check below would be skipped, and a skip is
+# indistinguishable from a pass. A stub satisfies the dependency gate
+# (`command -v` sees a shell function in zsh) and makes the notice path
+# execute on both platforms. Non-zero means "no such Keychain entry", which
+# is why the rows below read `no token`.
+#
+# Same approach as `token_lookup.zsh` and `import_rekey.zsh`.
+security() { return 1 }
+
 check() {
     local label="$1" expected="$2" actual="$3"
     if [[ "$expected" == "$actual" ]]; then
@@ -64,6 +74,17 @@ print -r -- "doctor output and exit code:"
 
 # One real account so `doctor` has a row to print.
 mkdir -p "$CLAUDE_SWITCH_ACCOUNTS_DIR/work"
+
+# `doctor` refuses outright if any of its dependencies is missing, and the
+# refusal is a single line that would otherwise surface as a confusing
+# mismatch in the checks below. Say it plainly instead — this is the only
+# shell test that runs `doctor`, so it is the first to find out.
+for dep in curl jq shasum; do
+    if ! command -v "$dep" >/dev/null 2>&1; then
+        print -r -- "  FAIL '$dep' is missing, so doctor cannot run here"
+        (( failures++ ))
+    fi
+done
 
 out=$(CLAUDE_SECURESTORAGE_CONFIG_DIR=/Users/x/.claude claude-acc doctor 2>&1)
 rc_shared=$?
