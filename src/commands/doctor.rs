@@ -40,6 +40,35 @@ fn shared_seg(
     )
 }
 
+/// What `CLAUDE_SECURESTORAGE_CONFIG_DIR` is doing to credential storage.
+///
+/// `doctor` follows that variable (see `identity::keychain_service`), so it
+/// keeps agreeing with Claude Code when it is set. What it cannot otherwise
+/// do is say what the variable *costs* — with one shared entry every account
+/// reports the same identity, and nothing on screen distinguishes that from a
+/// genuinely shared login (#151).
+#[derive(Debug, PartialEq)]
+enum SharedStore {
+    /// Set to a path: every account's token is keyed by that one path.
+    At(String),
+    /// Set to the empty string: Claude Code drops the per-directory suffix
+    /// entirely and uses the bare legacy service name. Worse than sharing,
+    /// because a managed account is deliberately forbidden from reading that
+    /// entry and so reports no token at all.
+    Legacy,
+}
+
+/// Pure so the cases are testable without setting a process-wide variable —
+/// `cargo test` is threaded, and an env-mutating test passes alone then fails
+/// in the suite (see `.claude/rules/tests.md`).
+fn shared_credential_store(securestorage: Option<&str>) -> Option<SharedStore> {
+    match securestorage {
+        None => None,
+        Some("") => Some(SharedStore::Legacy),
+        Some(dir) => Some(SharedStore::At(dir.to_string())),
+    }
+}
+
 /// The audited accounts that have Claude in Chrome switched off, named the way
 /// `claude-acc run` takes them, or `None` when there is nothing to say.
 ///
@@ -258,6 +287,14 @@ fn run_human(config: &AppConfig, i18n: &I18n, accounts: &[String], standard_pres
     if let Some(names) = chrome_off(config, &rows, standard_label) {
         i18n.print(Msg::DoctorChromeOff(names));
     }
+    // Like the Chrome hint: informational, and deliberately not touching the
+    // exit code. A shared credential store is a configuration someone chose,
+    // not a wrong identity — and the exit code means only the latter.
+    match shared_credential_store(crate::identity::securestorage_override().as_deref()) {
+        Some(SharedStore::At(dir)) => i18n.print(Msg::DoctorCredentialStoreShared(dir)),
+        Some(SharedStore::Legacy) => i18n.print(Msg::DoctorCredentialStoreLegacy),
+        None => {}
+    }
     // Exactly one summary line, always — a script grepping for either of
     // these must not find silence just because drift showed up alongside a
     // clean audit.
@@ -426,6 +463,45 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join(".claude.json"), body).unwrap();
         (name.to_string(), AuditResult::NoToken)
+    }
+
+    // #151: `doctor` follows CLAUDE_SECURESTORAGE_CONFIG_DIR, so it agrees
+    // with Claude Code — but with one shared entry every account reports the
+    // same identity, and nothing on screen said why.
+    #[test]
+    fn an_unset_variable_says_nothing() {
+        assert_eq!(shared_credential_store(None), None);
+    }
+
+    #[test]
+    fn a_path_override_is_reported_with_the_path() {
+        assert_eq!(
+            shared_credential_store(Some("/Users/x/.claude")),
+            Some(SharedStore::At("/Users/x/.claude".to_string()))
+        );
+    }
+
+    // Set-but-empty is a different outcome upstream, not a missing value: the
+    // suffix is dropped and everything lands under the bare legacy entry,
+    // which a managed account may not read at all. It gets its own wording.
+    #[test]
+    fn an_empty_override_is_a_distinct_case_from_a_path() {
+        assert_eq!(shared_credential_store(Some("")), Some(SharedStore::Legacy));
+        assert_ne!(
+            shared_credential_store(Some("")),
+            shared_credential_store(Some("/Users/x/.claude"))
+        );
+    }
+
+    // A path that happens to be whitespace is still a path to Claude Code —
+    // only an exactly empty value triggers the unsuffixed branch there, so
+    // trimming here would report the wrong outcome.
+    #[test]
+    fn whitespace_is_a_path_not_an_empty_value() {
+        assert_eq!(
+            shared_credential_store(Some(" ")),
+            Some(SharedStore::At(" ".to_string()))
+        );
     }
 
     #[test]

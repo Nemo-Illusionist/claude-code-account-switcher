@@ -1104,6 +1104,40 @@ impl I18n {
                  выполните `/chrome` внутри этого аккаунта.",
                 names
             ),
+            // Two separate sentences rather than one with a hole in it: an
+            // override pointing at a path and an override set to the empty
+            // string put the credentials in different places, and the second
+            // has no path to name.
+            (Msg::DoctorCredentialStoreShared(ref dir), Lang::En) => format!(
+                "CLAUDE_SECURESTORAGE_CONFIG_DIR is set to {}, so every account \
+                 shares one stored credential instead of having its own. \
+                 Whichever account signed in last is the one the Keychain \
+                 holds, which is why accounts above may report the same \
+                 identity. Unset it to get per-account credentials back.",
+                dir
+            ),
+            (Msg::DoctorCredentialStoreShared(ref dir), Lang::Ru) => format!(
+                "CLAUDE_SECURESTORAGE_CONFIG_DIR выставлена в {}, поэтому все \
+                 аккаунты делят одну сохранённую запись вместо собственной. \
+                 В Keychain лежат креды того аккаунта, под которым логинились \
+                 последними — отсюда и одинаковые личности в строках выше. \
+                 Снимите переменную, чтобы вернуть раздельные креды.",
+                dir
+            ),
+            (Msg::DoctorCredentialStoreLegacy, Lang::En) => s(
+                "CLAUDE_SECURESTORAGE_CONFIG_DIR is set but empty, which makes \
+                 Claude Code drop the per-directory suffix and store every \
+                 account's credentials under the single legacy entry. Managed \
+                 accounts are not allowed to read that entry, so they will \
+                 report no token at all. Unset the variable entirely.",
+            ),
+            (Msg::DoctorCredentialStoreLegacy, Lang::Ru) => s(
+                "CLAUDE_SECURESTORAGE_CONFIG_DIR выставлена, но пуста — из-за \
+                 этого Claude Code отбрасывает суффикс по папке и держит креды \
+                 всех аккаунтов в одной legacy-записи. Управляемым аккаунтам \
+                 читать её нельзя, поэтому они вообще сообщат об отсутствии \
+                 токена. Снимите переменную совсем.",
+            ),
             (Msg::VscodeWindowsUnsupported, Lang::En) => s(
                 "Not on Windows yet: the wrapper is a shell script, and a .cmd \
                  or .exe shim the extension can spawn hasn't been built. \
@@ -1395,6 +1429,8 @@ pub enum Msg {
     LockCorrupt(String, String, String),
     DoctorDriftHint,
     DoctorChromeOff(String),
+    DoctorCredentialStoreShared(String),
+    DoctorCredentialStoreLegacy,
     UsageFromCache(u64),
     UsageWindowHasReset,
     VscodeWindowsUnsupported,

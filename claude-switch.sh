@@ -120,6 +120,8 @@ _claude_msg_en=(
     doctor_lock_corrupt "⚠ pin unreadable — the drift check is off for this account"
     doctor_drift_hint   "Drift means this directory is signed in as an account it was not pinned to — work done here would go to the wrong one. Put it back with \`claude-acc login <name>\`, or accept the new identity with \`claude-acc lock <name> --force\`."
     doctor_chrome_off   "Claude in Chrome is off in: %s. Claude Code keeps that switch per config dir, so the browser tools stay missing there until you run \`/chrome\` once inside that account."
+    doctor_cred_shared  "CLAUDE_SECURESTORAGE_CONFIG_DIR is set to %s, so every account shares one stored credential instead of having its own. Whichever account signed in last is the one the Keychain holds, which is why accounts above may report the same identity. Unset it to get per-account credentials back."
+    doctor_cred_legacy  "CLAUDE_SECURESTORAGE_CONFIG_DIR is set but empty, which makes Claude Code drop the per-directory suffix and store every account's credentials under the single legacy entry. Managed accounts are not allowed to read that entry, so they will report no token at all. Unset the variable entirely."
     help_lock           "Pin an account to its current identity"
     clone_settings_usage "Usage: claude-acc clone-settings <name>"
     import_usage        "Usage: claude-acc import <name> <path> [--move]"
@@ -267,6 +269,8 @@ _claude_msg_ru=(
     doctor_lock_corrupt "⚠ закрепление не читается — проверка расхождений для этого аккаунта не работает"
     doctor_drift_hint   "Расхождение значит, что каталог залогинен под аккаунтом, за которым он не закреплён, — работа отсюда уйдёт не туда. Вернуть: \`claude-acc login <name>\`. Принять новую личность: \`claude-acc lock <name> --force\`."
     doctor_chrome_off   "Claude in Chrome выключен в: %s. Claude Code хранит этот переключатель отдельно для каждой config-папки, поэтому браузерные инструменты там не появятся, пока вы один раз не выполните \`/chrome\` внутри этого аккаунта."
+    doctor_cred_shared  "CLAUDE_SECURESTORAGE_CONFIG_DIR выставлена в %s, поэтому все аккаунты делят одну сохранённую запись вместо собственной. В Keychain лежат креды того аккаунта, под которым логинились последними — отсюда и одинаковые личности в строках выше. Снимите переменную, чтобы вернуть раздельные креды."
+    doctor_cred_legacy  "CLAUDE_SECURESTORAGE_CONFIG_DIR выставлена, но пуста — из-за этого Claude Code отбрасывает суффикс по папке и держит креды всех аккаунтов в одной legacy-записи. Управляемым аккаунтам читать её нельзя, поэтому они вообще сообщат об отсутствии токена. Снимите переменную совсем."
     help_lock           "Закрепить аккаунт за его текущей личностью"
     clone_settings_usage "Использование: claude-acc clone-settings <name>"
     import_usage        "Использование: claude-acc import <name> <путь> [--move]"
@@ -2625,6 +2629,19 @@ _claude_acc_doctor() {
     done
     (( chrome_seen && ${#chrome_off} > 0 )) && \
         _msg doctor_chrome_off "${(j:, :)chrome_off}"
+    # Informational, like the Chrome hint: it must not reach the exit code
+    # below, which means "wrong identity" and nothing else.
+    # Names chosen not to collide with this function's existing locals: a
+    # bare `local` on a name already local here makes zsh *print* it, which
+    # leaked a stray `kind=managed` line into doctor's output.
+    local cred_notice="$(_claude_acc_cred_store_notice)"
+    if [[ -n "$cred_notice" ]]; then
+        if [[ "${cred_notice%%$'\t'*}" == "legacy" ]]; then
+            _msg doctor_cred_legacy
+        else
+            _msg doctor_cred_shared "${cred_notice#*$'\t'}"
+        fi
+    fi
     # Exactly one summary line, always — see the Rust side.
     if (( healthy == total )); then
         _msg doctor_all_ok
@@ -2633,6 +2650,21 @@ _claude_acc_doctor() {
     fi
     (( healthy == total && drift == 0 )) && return 0
     return 1
+}
+
+# Which credential-store notice `doctor` should print, if any.
+#
+# Echoes "shared\t<dir>", "legacy", or nothing. Mirrors
+# shared_credential_store() in src/commands/doctor.rs: an unset variable is
+# silence, an empty one means Claude Code drops the per-directory suffix
+# altogether, and anything else — whitespace included — is a path it hashes.
+_claude_acc_cred_store_notice() {
+    [[ -n "${CLAUDE_SECURESTORAGE_CONFIG_DIR+set}" ]] || return 0
+    if [[ -z "$CLAUDE_SECURESTORAGE_CONFIG_DIR" ]]; then
+        print -r -- "legacy"
+    else
+        print -r -- "shared"$'\t'"$CLAUDE_SECURESTORAGE_CONFIG_DIR"
+    fi
 }
 
 # JSON form of `doctor`. Last positional arg is the standard_present flag (0/1);

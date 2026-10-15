@@ -80,6 +80,19 @@ This is an undocumented Claude Code variable that moves credential storage **ind
 
 `doctor`, `lock`, `usage` and `import` follow the same rule, so they keep agreeing with Claude Code when you use it. It is worth knowing what it costs, though: with one shared entry the accounts no longer have separate stored credentials, so whichever account logged in last is the one the Keychain holds. Leave the variable unset unless something specifically requires it.
 
+`doctor` says so when it finds the variable set, because otherwise every account reports the same identity with nothing on screen explaining why:
+
+```
+Auditing 2 account(s):
+  ? personal  no token (run: claude-acc login personal)
+  ? work      no token (run: claude-acc login work)
+
+CLAUDE_SECURESTORAGE_CONFIG_DIR is set to /Users/x/.claude, so every account shares one stored credential instead of having its own. Whichever account signed in last is the one the Keychain holds, which is why accounts above may report the same identity. Unset it to get per-account credentials back.
+0 of 2 accounts healthy.
+```
+
+The empty-string case gets its own wording, because dropping the hash sends credentials to the one legacy entry that managed accounts are not allowed to read — there they report no token at all rather than someone else's. Either way it is a note, not an error: `doctor`'s exit code still means "wrong identity" and nothing else.
+
 ## Pinning an account to an identity (`lock`)
 
 `doctor` tells you which account a directory is signed in as. It cannot tell

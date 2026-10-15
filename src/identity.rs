@@ -384,7 +384,7 @@ fn service_name_for(acc_dir: &str, securestorage: Option<&str>) -> String {
 
 /// `CLAUDE_SECURESTORAGE_CONFIG_DIR` as Claude Code sees it: `None` only when
 /// the variable is absent entirely, because set-but-empty is a distinct case.
-fn securestorage_override() -> Option<String> {
+pub(crate) fn securestorage_override() -> Option<String> {
     std::env::var_os("CLAUDE_SECURESTORAGE_CONFIG_DIR")?
         .to_str()
         .map(str::to_string)
