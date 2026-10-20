@@ -120,6 +120,14 @@ impl AppConfig {
     /// cannot each drop the other's change. Advisory:
     /// `claude-switch.sh` takes the same file with `zsystem flock`, whose
     /// fcntl lock excludes this one on macOS.
+    ///
+    /// This blocks with no timeout, deliberately and unlike the shell side.
+    /// `claude-switch.sh` waits five seconds and then edits unlocked, so a
+    /// stuck holder cannot wedge someone's interactive shell. Here the caller
+    /// is a one-shot command, so waiting is the safer failure: proceeding
+    /// unlocked is how a binding gets lost, which is the bug this exists to
+    /// prevent. A holder keeps the lock only for one small file rewrite, and
+    /// the OS releases it when that process exits however it exits.
     fn locked<T>(&self, edit: impl FnOnce() -> io::Result<T>) -> io::Result<T> {
         let lock = fs::OpenOptions::new()
             .create(true)
@@ -241,8 +249,22 @@ impl AppConfig {
 /// truncates first, so a reader — or a crash — mid-write sees an empty file,
 /// and for `links` that is every binding gone. Callers hold `locked`, so the
 /// fixed temp name cannot collide.
+/// Where `replace_file` stages its write for `path`.
+///
+/// `pid` is passed in rather than read here so the naming rule is assertable
+/// without spawning a process.
+fn tmp_path(path: &Path, pid: u32) -> PathBuf {
+    path.with_extension(format!("tmp.{}", pid))
+}
+
 fn replace_file(path: &Path, content: &str) -> io::Result<()> {
-    let tmp = path.with_extension("tmp");
+    // The temporary name carries the process id, so two writers cannot share
+    // it. Under the lock they are already serialised — but `locked` is
+    // advisory and `claude-switch.sh` deliberately falls back to an unlocked
+    // edit when `zsh/system` is missing or the lock does not come free, which
+    // is exactly the state where a single fixed `config.tmp` would let two
+    // processes interleave their bytes and then rename the result into place.
+    let tmp = tmp_path(path, std::process::id());
     fs::write(&tmp, content)?;
     fs::rename(&tmp, path).inspect_err(|_| {
         let _ = fs::remove_file(&tmp);
@@ -392,6 +414,42 @@ mod tests {
         names.sort();
         assert_eq!(names, [".config.lock", "accounts", "config", "links"]);
         let _ = fs::remove_dir_all(&c.base_dir);
+    }
+
+    // Follow-up to #160: the staging name was a fixed `config.tmp`, shared by
+    // every process. Under the lock that is harmless, but `locked` is
+    // advisory and `claude-switch.sh` falls back to an unlocked edit when
+    // `zsh/system` is missing or the lock does not come free within five
+    // seconds — and in that state two writers would interleave their bytes
+    // into one temporary and rename the result into place.
+    #[test]
+    fn the_staging_name_is_specific_to_one_process() {
+        let p = Path::new("/base/links");
+        assert_ne!(
+            tmp_path(p, 101),
+            tmp_path(p, 102),
+            "two processes must not stage through the same file"
+        );
+        assert_eq!(tmp_path(p, 101), Path::new("/base/links.tmp.101"));
+    }
+
+    // It must still sit beside the target: `rename` is only atomic within one
+    // filesystem, and staging in the system temp directory would cross one.
+    #[test]
+    fn the_staging_file_is_a_sibling_of_its_target() {
+        let p = Path::new("/base/links");
+        assert_eq!(tmp_path(p, 7).parent(), p.parent());
+    }
+
+    // And it must not collide with a real file. Both names this tool writes
+    // are extensionless, so appending rather than replacing is what keeps
+    // `config` and `links` distinguishable once staged.
+    #[test]
+    fn the_staging_names_of_the_two_files_differ() {
+        assert_ne!(
+            tmp_path(Path::new("/base/config"), 7),
+            tmp_path(Path::new("/base/links"), 7)
+        );
     }
 
     #[test]

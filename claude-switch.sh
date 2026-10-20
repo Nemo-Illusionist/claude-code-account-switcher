@@ -507,7 +507,13 @@ _claude_links_remove_dir() {
     local dir="$1"
     [[ -z "$dir" || ! -f "$CLAUDE_SWITCH_LINKS" ]] && return 0
     local tmpfile line
-    tmpfile=$(mktemp) || return 1
+    # Staged beside the target rather than in $TMPDIR, so the `mv` below is a
+    # rename and therefore atomic: a reader sees the old file or the new one,
+    # never a half-written one. On a default macOS both live on the same
+    # volume and this already held, but only by coincidence — a TMPDIR moved
+    # to another volume turns the rename into a copy. Matches the guarantee
+    # `replace_file` makes in src/config.rs.
+    tmpfile=$(mktemp "$CLAUDE_SWITCH_DIR/.links.XXXXXX") || return 1
     while IFS= read -r line; do
         [[ "$line" == "${dir}="* ]] || printf '%s\n' "$line"
     done < "$CLAUDE_SWITCH_LINKS" > "$tmpfile"

@@ -2,6 +2,11 @@
 name = "claude-acc"
 version = "0.21.0"
 edition = "2024"
+# `File::lock`, which `config::locked` uses to keep two writers from dropping
+# each other's edit, is stable since 1.89.0 — verified in the stdlib source:
+# `#[stable(feature = "file_lock", since = "1.89.0")]`. Declared so an older
+# toolchain fails with "requires rustc 1.89" instead of an unresolved method.
+rust-version = "1.89"
 description = "Claude Code Account Switcher — bind different accounts to different directories"
 authors = ["Petr Radilov"]
 license = "MIT"
