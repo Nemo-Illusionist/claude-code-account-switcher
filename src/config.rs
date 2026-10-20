@@ -24,6 +24,12 @@ pub struct AppConfig {
     pub base_dir: PathBuf,
 }
 
+impl Default for AppConfig {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AppConfig {
     pub fn new() -> Self {
         let home = dirs::home_dir().expect("Cannot determine home directory");

@@ -1,0 +1,36 @@
+{
+  "name": "claude-acc-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "tsc --noEmit && vite build",
+    "test": "vitest run",
+    "check": "tsc --noEmit",
+    "tauri": "tauri",
+    "prepare:cli": "node scripts/prepare-cli.mjs",
+    "desktop:dev": "npm run prepare:cli && tauri dev",
+    "desktop:build": "npm run prepare:cli && tauri build"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2",
+    "react": "^19",
+    "react-dom": "^19"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2",
+    "@testing-library/react": "^16",
+    "@testing-library/user-event": "^14",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@vitejs/plugin-react": "^6.1.2",
+    "jsdom": "^26",
+    "typescript": "^5",
+    "vite": "^8.3.4",
+    "vitest": "^5.0.5"
+  },
+  "engines": {
+    "node": ">=22.19"
+  }
+}

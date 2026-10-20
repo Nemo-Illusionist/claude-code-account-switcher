@@ -274,7 +274,8 @@ pub fn find_duplicate_account(new_dir: &Path, known: &[(String, PathBuf)]) -> Op
     })
 }
 
-fn audit_at(token_dir: &Path, cache_path: &Path) -> AuditResult {
+/// Audit a configuration directory using an explicit, caller-owned profile cache.
+pub fn audit_at(token_dir: &Path, cache_path: &Path) -> AuditResult {
     let Some(token) = read_token(token_dir) else {
         return AuditResult::NoToken;
     };
@@ -384,7 +385,7 @@ fn service_name_for(acc_dir: &str, securestorage: Option<&str>) -> String {
 
 /// `CLAUDE_SECURESTORAGE_CONFIG_DIR` as Claude Code sees it: `None` only when
 /// the variable is absent entirely, because set-but-empty is a distinct case.
-pub(crate) fn securestorage_override() -> Option<String> {
+pub fn securestorage_override() -> Option<String> {
     std::env::var_os("CLAUDE_SECURESTORAGE_CONFIG_DIR")?
         .to_str()
         .map(str::to_string)
@@ -902,7 +903,7 @@ pub fn seconds_until(resets_at: &str) -> Option<i64> {
 /// Parse an ISO-8601 timestamp like `2026-06-10T12:20:01.254509+00:00` (or
 /// trailing `Z`) into Unix epoch seconds. Fractional seconds are ignored.
 /// Returns `None` on any malformed component.
-fn iso_to_epoch(s: &str) -> Option<i64> {
+pub fn iso_to_epoch(s: &str) -> Option<i64> {
     let (date, rest) = s.split_once('T')?;
     let mut dparts = date.split('-');
     let y: i64 = dparse(dparts.next())?;

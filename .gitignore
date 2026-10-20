@@ -2,3 +2,11 @@
 
 # Personal, per-machine Claude Code settings — .claude/rules/ IS committed
 .claude/settings.local.json
+
+# Optional desktop app
+apps/desktop/node_modules/
+apps/desktop/dist/
+apps/desktop/src-tauri/target/
+apps/desktop/src-tauri/gen/
+apps/desktop/src-tauri/binaries/claude-acc*
+artifacts/

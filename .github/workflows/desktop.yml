@@ -1,0 +1,43 @@
+name: Desktop
+on:
+  pull_request:
+    paths: ['apps/desktop/**', 'src/**', 'Cargo.toml', 'Cargo.lock', '.github/workflows/desktop.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  macos:
+    runs-on: macos-latest
+    env:
+      CARGO_BUILD_JOBS: 2
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+      - name: Install frontend
+        working-directory: apps/desktop
+        run: npm ci
+      - name: Typecheck and component tests
+        working-directory: apps/desktop
+        run: npm run check && npm test
+      - name: Prepare bundled CLI and frontend
+        working-directory: apps/desktop
+        run: npm run prepare:cli && npm run build
+      - name: Native formatting, lints, and launcher test
+        run: |
+          cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml --all --check
+          cargo clippy --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets -- -D warnings
+          cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --release
+      - name: Validate unsigned application bundle
+        working-directory: apps/desktop
+        run: npm run tauri -- build --bundles app
