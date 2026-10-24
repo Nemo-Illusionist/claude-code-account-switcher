@@ -2,6 +2,17 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
+/// Filename the installed binary lives under inside `~/.claude-switch/bin/`.
+/// Windows requires the `.exe` extension or the OS won't execute the file
+/// even when the path is given explicitly.
+pub fn binary_name() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "claude-acc.exe"
+    } else {
+        "claude-acc"
+    }
+}
+
 /// Account names: ASCII letters, digits, hyphens, underscores. Rejects path
 /// separators, regex metacharacters, whitespace, and unicode — anything
 /// unsafe in a filesystem path or shell expansion.
