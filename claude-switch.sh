@@ -105,7 +105,7 @@ _claude_msg_en=(
     link_done           "%s → account '%s'"
     link_done_default   "%s → ~/.claude/ (default)"
     reserved_name       "'%s' is a reserved name."
-    name_invalid        "Account name must contain only letters, digits, hyphens, and underscores."
+    name_invalid        "Account name must contain only letters, digits, hyphens, and underscores, and must not start with a hyphen."
     seed_copied         "  copied: %s"
     seed_nothing        "  nothing to copy from ~/.claude/"
     lock_usage          "Usage: claude-acc lock <name> [--force]"
@@ -254,7 +254,7 @@ _claude_msg_ru=(
     link_done           "%s → аккаунт '%s'"
     link_done_default   "%s → ~/.claude/ (default)"
     reserved_name       "'%s' — зарезервированное имя."
-    name_invalid        "Имя аккаунта может содержать только буквы, цифры, дефисы и подчёркивания."
+    name_invalid        "Имя аккаунта может содержать только буквы, цифры, дефисы и подчёркивания и не может начинаться с дефиса."
     seed_copied         "  скопировано: %s"
     seed_nothing        "  нечего копировать из ~/.claude/"
     lock_usage          "Использование: claude-acc lock <name> [--force]"
@@ -378,7 +378,9 @@ _msg() {
 # that could be unsafe inside file paths or grep/sed patterns.
 _claude_validate_name() {
     local name="$1"
-    if [[ ! "$name" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+    # No leading hyphen, the same rule as the binary's `validate_name`: it
+    # reads `-work` as a flag, and here `-s` or `-f` would be taken as one.
+    if [[ ! "$name" =~ ^[a-zA-Z0-9_][a-zA-Z0-9_-]*$ ]]; then
         _msg name_invalid
         return 1
     fi

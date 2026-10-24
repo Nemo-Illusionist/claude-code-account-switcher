@@ -223,12 +223,12 @@ impl I18n {
             (Msg::ReservedName(ref n), Lang::Ru) => format!("'{}' — зарезервированное имя.", n),
 
             // name validation
-            (Msg::NameInvalid, Lang::En) => {
-                s("Account name must contain only letters, digits, hyphens, and underscores.")
-            }
-            (Msg::NameInvalid, Lang::Ru) => {
-                s("Имя аккаунта может содержать только буквы, цифры, дефисы и подчёркивания.")
-            }
+            (Msg::NameInvalid, Lang::En) => s(
+                "Account name must contain only letters, digits, hyphens, and underscores, and must not start with a hyphen.",
+            ),
+            (Msg::NameInvalid, Lang::Ru) => s(
+                "Имя аккаунта может содержать только буквы, цифры, дефисы и подчёркивания и не может начинаться с дефиса.",
+            ),
 
             // install
             (Msg::InstallUpToDate(ref v), Lang::En) => format!("Already up to date (v{}).", v),
