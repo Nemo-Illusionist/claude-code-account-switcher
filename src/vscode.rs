@@ -62,17 +62,27 @@ const KNOWN_EDITORS: &[(&str, &str)] = &[
 
 /// `<config root>/<dir>/User/settings.json`, wherever that is here.
 pub fn settings_path(dir: &str) -> Option<PathBuf> {
-    dirs::config_dir().map(|c| c.join(dir).join("User").join("settings.json"))
+    dirs::config_dir().map(|root| settings_path_in(&root, dir))
+}
+
+/// [`settings_path`] under a given config root.
+pub fn settings_path_in(root: &Path, dir: &str) -> PathBuf {
+    root.join(dir).join("User").join("settings.json")
 }
 
 /// Editors actually installed: the `User` directory exists. `settings.json`
 /// itself may not — a profile that has never been customised has none, and
 /// writing one is fine.
 pub fn detect_editors() -> Vec<Editor> {
+    dirs::config_dir().map_or_else(Vec::new, |root| detect_editors_in(&root))
+}
+
+/// [`detect_editors`] under a given config root.
+pub fn detect_editors_in(root: &Path) -> Vec<Editor> {
     KNOWN_EDITORS
         .iter()
         .filter_map(|(label, dir)| {
-            let settings = settings_path(dir)?;
+            let settings = settings_path_in(root, dir);
             settings.parent()?.is_dir().then_some(Editor {
                 label,
                 settings: settings.clone(),
@@ -115,9 +125,11 @@ pub fn install_wrapper(base_dir: &Path, claude_acc_bin: &Path) -> std::io::Resul
 /// not write those — but silently doing nothing for someone on a second
 /// profile is worse than saying so.
 pub fn extra_profiles(dir: &str) -> Vec<String> {
-    let Some(root) = dirs::config_dir() else {
-        return Vec::new();
-    };
+    dirs::config_dir().map_or_else(Vec::new, |root| extra_profiles_in(&root, dir))
+}
+
+/// [`extra_profiles`] under a given config root.
+pub fn extra_profiles_in(root: &Path, dir: &str) -> Vec<String> {
     let Ok(entries) = fs::read_dir(root.join(dir).join("User").join("profiles")) else {
         return Vec::new();
     };
@@ -228,7 +240,10 @@ pub fn clear_wrapper(settings: &Path) -> std::io::Result<bool> {
 /// The temporary sits beside the target so the rename stays on one
 /// filesystem, which is what makes it atomic.
 fn write_atomically(settings: &Path, content: &str) -> std::io::Result<()> {
-    let tmp = settings.with_extension("json.claude-acc-tmp");
+    // One name per process: the CLI and the manager can both write this
+    // file, and a shared temporary would let their bytes mix before the
+    // rename, as #168 found for `config`.
+    let tmp = settings.with_extension(format!("json.claude-acc-tmp.{}", std::process::id()));
     fs::write(&tmp, content)?;
     // The rename gives the target the temporary's permissions, so carry the
     // original's across rather than silently resetting someone's mode.
@@ -241,6 +256,50 @@ fn write_atomically(settings: &Path, content: &str) -> std::io::Result<()> {
             let _ = fs::remove_file(&tmp);
             Err(e)
         }
+    }
+}
+
+/// What installing does with one editor, given what its settings.json
+/// says. The CLI's `vscode install` and the manager both decide through it.
+/// Split out from the loop so the policy can be checked without a
+/// filesystem, an editor, or a terminal to print to.
+#[derive(Debug, PartialEq)]
+pub enum InstallAction {
+    Write,
+    AlreadySetUp,
+    /// Someone else's launcher. Replaced only with `--force`.
+    RefuseForeign(String),
+    /// Never overwritten, `--force` or not: forcing is for replacing a
+    /// wrapper, not for writing over a file we could not read.
+    RefuseUnreadable,
+}
+
+pub fn plan_install(state: &WrapperState, force: bool) -> InstallAction {
+    match state {
+        WrapperState::Unreadable => InstallAction::RefuseUnreadable,
+        _ if force => InstallAction::Write,
+        WrapperState::Ours => InstallAction::AlreadySetUp,
+        WrapperState::Foreign(other) => InstallAction::RefuseForeign(other.clone()),
+        WrapperState::Unset => InstallAction::Write,
+    }
+}
+
+/// What uninstalling does with one editor. There is no `--force` here: a
+/// launcher that isn't ours is not ours to remove.
+#[derive(Debug, PartialEq)]
+pub enum UninstallAction {
+    Clear,
+    KeepForeign(String),
+    RefuseUnreadable,
+}
+
+pub fn plan_uninstall(state: &WrapperState) -> UninstallAction {
+    match state {
+        WrapperState::Foreign(other) => UninstallAction::KeepForeign(other.clone()),
+        // Report it as unreadable rather than letting `clear_wrapper`
+        // surface a read error as a write failure.
+        WrapperState::Unreadable => UninstallAction::RefuseUnreadable,
+        WrapperState::Ours | WrapperState::Unset => UninstallAction::Clear,
     }
 }
 
@@ -985,6 +1044,27 @@ mod tests {
     }
 
     #[test]
+    fn another_writers_temporary_is_neither_used_nor_removed() {
+        // The CLI and the manager both write here. A temporary under one
+        // shared name would let one process's bytes land in the other's
+        // file before the rename (#168 found that for `config`).
+        let dir = scratch("atomic-shared");
+        let settings = dir.join("settings.json");
+        let theirs = dir.join("settings.json.claude-acc-tmp");
+        fs::write(&settings, "{}\n").unwrap();
+        fs::write(&theirs, "another process, half written").unwrap();
+        assert!(set_wrapper(&settings, &dir.join("bin").join(WRAPPER_NAME)).unwrap());
+        assert_eq!(
+            fs::read_to_string(&theirs).unwrap(),
+            "another process, half written"
+        );
+        assert!(
+            read_string_value(&fs::read_to_string(&settings).unwrap(), WRAPPER_SETTING).is_some()
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn writing_leaves_no_temporary_behind_and_keeps_the_files_mode() {
         // The write goes via a sibling temp + rename so the editor's live
         // config is never briefly zero-length. The temp must not survive,
@@ -1105,5 +1185,77 @@ mod tests {
     fn settings_path_ends_where_vs_code_keeps_it() {
         let p = settings_path("Code").unwrap();
         assert!(p.ends_with("Code/User/settings.json") || p.ends_with(r"Code\User\settings.json"));
+    }
+
+    fn foreign() -> WrapperState {
+        WrapperState::Foreign("/opt/other/launcher".to_string())
+    }
+
+    #[test]
+    fn install_writes_where_nothing_is_set_and_skips_what_is_already_ours() {
+        assert_eq!(
+            plan_install(&WrapperState::Unset, false),
+            InstallAction::Write
+        );
+        assert_eq!(
+            plan_install(&WrapperState::Ours, false),
+            InstallAction::AlreadySetUp
+        );
+    }
+
+    #[test]
+    fn install_refuses_a_foreign_wrapper_until_forced() {
+        // Regression guard: inverting this condition would silently replace
+        // another tool's launcher and break it, with nothing said.
+        assert_eq!(
+            plan_install(&foreign(), false),
+            InstallAction::RefuseForeign("/opt/other/launcher".to_string())
+        );
+        assert_eq!(plan_install(&foreign(), true), InstallAction::Write);
+    }
+
+    #[test]
+    fn force_rewrites_our_own_wrapper_rather_than_reporting_it_set_up() {
+        // `--force` after the wrapper path moved has to actually rewrite it.
+        assert_eq!(
+            plan_install(&WrapperState::Ours, true),
+            InstallAction::Write
+        );
+    }
+
+    #[test]
+    fn force_never_writes_over_a_file_that_could_not_be_read() {
+        // Forcing replaces a wrapper. It is not permission to overwrite a
+        // settings.json we failed to parse or failed to read at all — that
+        // is how the whole file gets lost.
+        for force in [false, true] {
+            assert_eq!(
+                plan_install(&WrapperState::Unreadable, force),
+                InstallAction::RefuseUnreadable,
+                "force={force}"
+            );
+        }
+    }
+
+    #[test]
+    fn uninstall_clears_ours_and_does_nothing_where_nothing_is_set() {
+        assert_eq!(plan_uninstall(&WrapperState::Ours), UninstallAction::Clear);
+        assert_eq!(plan_uninstall(&WrapperState::Unset), UninstallAction::Clear);
+    }
+
+    #[test]
+    fn uninstall_leaves_a_foreign_wrapper_alone() {
+        assert_eq!(
+            plan_uninstall(&foreign()),
+            UninstallAction::KeepForeign("/opt/other/launcher".to_string())
+        );
+    }
+
+    #[test]
+    fn uninstall_reports_an_unreadable_file_instead_of_a_write_failure() {
+        assert_eq!(
+            plan_uninstall(&WrapperState::Unreadable),
+            UninstallAction::RefuseUnreadable
+        );
     }
 }

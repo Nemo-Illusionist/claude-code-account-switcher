@@ -6,16 +6,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// Filename the installed binary lives under inside `~/.claude-switch/bin/`.
-/// Windows requires the `.exe` extension or the OS won't execute the file
-/// even when the path is given explicitly.
-pub(crate) fn binary_name() -> &'static str {
-    if cfg!(target_os = "windows") {
-        "claude-acc.exe"
-    } else {
-        "claude-acc"
-    }
-}
+pub(crate) use crate::config::binary_name;
 
 pub fn run(config: &AppConfig, i18n: &I18n) {
     let bin_dir = config.base_dir.join("bin");
