@@ -18,3 +18,5 @@ pub mod quoting;
 pub mod resolve;
 #[doc(hidden)]
 pub mod sessions;
+#[doc(hidden)]
+pub mod trash;

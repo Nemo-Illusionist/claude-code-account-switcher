@@ -159,6 +159,37 @@ pub fn read_lock_at(path: &Path) -> LockRead {
     }
 }
 
+/// What pinning does with one account, given what its pin file says. The
+/// CLI's `lock` and the manager both decide through it.
+///
+/// Split out the way `plan_install`/`plan_uninstall` are in the CLI's
+/// `commands/vscode.rs`: the policy here — never replace a pin by accident —
+/// is the whole point of the feature, and tangled with printing it could not
+/// be checked at all.
+#[derive(Debug, PartialEq)]
+pub enum LockAction {
+    Write,
+    AlreadyPinned(Identity),
+    /// Pinned to somebody else. This *is* drift; replacing it takes `--force`,
+    /// because re-pinning is how the warning gets switched off.
+    RefuseWouldReplace(Identity),
+    /// A pin that cannot be read counts as existing. Treating it as absent
+    /// would let a corrupted file turn the protection off and report success.
+    RefuseCorrupt,
+}
+
+pub fn plan_lock(existing: &LockRead, current: &Identity, force: bool) -> LockAction {
+    if force {
+        return LockAction::Write;
+    }
+    match existing {
+        LockRead::None => LockAction::Write,
+        LockRead::Corrupt => LockAction::RefuseCorrupt,
+        LockRead::Pinned(p) if p.uuid == current.uuid => LockAction::AlreadyPinned(p.clone()),
+        LockRead::Pinned(p) => LockAction::RefuseWouldReplace(p.clone()),
+    }
+}
+
 /// Pin `path` to `identity`.
 pub fn write_lock_at(path: &Path, identity: &Identity) -> std::io::Result<()> {
     let now = SystemTime::now()
