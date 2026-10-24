@@ -1,0 +1,25 @@
+[package]
+name = "claude-acc-manager"
+version = "0.1.0"
+edition = "2024"
+# Higher than the root crate's 1.89 (`File::lock`): the locked `tauri` 2.12,
+# `tauri-build`, `tauri-runtime` and `muda` each declare `rust-version = "1.90"`
+# (read from `cargo metadata`). Declared so an older toolchain names the
+# compiler it needs instead of failing inside a dependency.
+rust-version = "1.90"
+license = "MIT"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+claude-acc = { path = "../../.." }
+serde = { version = "1", features = ["derive"] }
+tauri = { version = "2", features = ["tray-icon"] }
+rfd = "0.15"
+
+[dev-dependencies]
+serde_json = "1"
+
+[profile.release]
+strip = true
