@@ -4,10 +4,9 @@ use std::process::Command;
 
 use serde_json::Value;
 
-use crate::commands::install::binary_name;
 use crate::config::AppConfig;
 use crate::i18n::{I18n, Msg};
-use crate::resolve;
+use crate::{resolve, statusline};
 
 // `claude-acc statusline` is meant to be wired into Claude Code's `statusLine`
 // setting. Claude Code pipes session JSON on stdin (model, workspace, git repo,
@@ -254,23 +253,6 @@ fn paint(code: &str, text: &str) -> String {
     }
 }
 
-/// Render `bin` for the `statusLine.command` string.
-///
-/// Claude Code runs the status line command through a shell — on Windows that
-/// shell is Git Bash (`/bin/bash.exe`), where a backslash is an escape
-/// character, so a native `C:\Users\...` path collapses to `C:Users...` and the
-/// binary is never found (the status line silently renders blank). A
-/// forward-slash path (`C:/Users/...`) is understood by both Git Bash and the
-/// Windows API, so it is safe regardless of which shell runs the command.
-fn command_path(bin: &Path) -> String {
-    let s = bin.display().to_string();
-    if cfg!(windows) {
-        s.replace('\\', "/")
-    } else {
-        s
-    }
-}
-
 fn install_into_settings(config: &AppConfig, i18n: &I18n) -> i32 {
     let cwd = std::env::current_dir().unwrap_or_default();
     // The account this directory currently resolves to (managed account or the
@@ -295,12 +277,7 @@ fn install_into_settings(config: &AppConfig, i18n: &I18n) -> i32 {
         .filter(Value::is_object)
         .unwrap_or_else(|| serde_json::json!({}));
 
-    let bin = config.base_dir.join("bin").join(binary_name());
-    root["statusLine"] = serde_json::json!({
-        "type": "command",
-        "command": format!("{} statusline", command_path(&bin)),
-        "padding": 0,
-    });
+    root["statusLine"] = statusline::entry(&config.base_dir);
 
     let serialized = match serde_json::to_string_pretty(&root) {
         Ok(s) => s,
@@ -537,19 +514,5 @@ mod tests {
     fn paint_respects_no_color() {
         unsafe { std::env::set_var("NO_COLOR", "1") };
         assert_eq!(paint("31", "hi"), "hi");
-    }
-
-    #[test]
-    fn command_path_uses_forward_slashes() {
-        // Whatever the platform, the rendered command must never contain a
-        // backslash — Git Bash (used by Claude Code on Windows) would treat it
-        // as an escape and the status line would render blank.
-        let p = Path::new("base").join("bin").join("claude-acc");
-        let rendered = command_path(&p);
-        assert!(
-            !rendered.contains('\\'),
-            "command path must not contain backslashes: {rendered:?}"
-        );
-        assert!(rendered.contains("bin/claude-acc"), "got {rendered:?}");
     }
 }

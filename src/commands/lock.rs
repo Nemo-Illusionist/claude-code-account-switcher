@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use crate::config::{AppConfig, is_reserved_name, validate_name};
 use crate::i18n::{I18n, Msg};
-use crate::identity::{self, Identity, LockRead, LockState};
+use crate::identity::{self, Identity, LockAction, LockRead, LockState, plan_lock};
 
 /// Where an account's pin and its config dir live.
 ///
@@ -80,36 +80,6 @@ pub fn run(config: &AppConfig, i18n: &I18n, name: &str, force: bool) -> i32 {
     }
     i18n.print(Msg::LockDone(name.to_string(), describe(&current)));
     0
-}
-
-/// What `lock` does with one account, given what its pin file says.
-///
-/// Split out from the command the way `plan_install`/`plan_uninstall` are in
-/// `commands/vscode.rs`: the policy here — never replace a pin by accident —
-/// is the whole point of the feature, and tangled with printing it could not
-/// be checked at all.
-#[derive(Debug, PartialEq)]
-pub enum LockAction {
-    Write,
-    AlreadyPinned(Identity),
-    /// Pinned to somebody else. This *is* drift; replacing it takes `--force`,
-    /// because re-pinning is how the warning gets switched off.
-    RefuseWouldReplace(Identity),
-    /// A pin that cannot be read counts as existing. Treating it as absent
-    /// would let a corrupted file turn the protection off and report success.
-    RefuseCorrupt,
-}
-
-pub fn plan_lock(existing: &LockRead, current: &Identity, force: bool) -> LockAction {
-    if force {
-        return LockAction::Write;
-    }
-    match existing {
-        LockRead::None => LockAction::Write,
-        LockRead::Corrupt => LockAction::RefuseCorrupt,
-        LockRead::Pinned(p) if p.uuid == current.uuid => LockAction::AlreadyPinned(p.clone()),
-        LockRead::Pinned(p) => LockAction::RefuseWouldReplace(p.clone()),
-    }
 }
 
 /// Whether an automatic pin after login should write. Only "no pin at all"

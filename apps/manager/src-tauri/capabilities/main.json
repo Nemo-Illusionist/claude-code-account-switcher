@@ -1,0 +1,6 @@
+{
+  "identifier": "main",
+  "description": "Local manager window; no filesystem, shell, HTTP, or remote access from JavaScript.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}
