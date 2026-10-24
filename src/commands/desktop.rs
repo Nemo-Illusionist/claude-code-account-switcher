@@ -1,5 +1,5 @@
 use crate::config::{AppConfig, is_reserved_name, validate_name};
-use crate::desktop;
+use crate::desktop::{self, borrowed_email, cli_identities};
 use crate::i18n::{I18n, Msg};
 use crate::identity;
 use std::collections::HashMap;
@@ -69,29 +69,10 @@ fn signin_is_possible(i18n: &I18n, force: bool) -> bool {
 }
 
 fn launch(i18n: &I18n, app: &std::path::Path, profile: &std::path::Path) -> i32 {
-    let mut cmd = desktop::launch_command(app, profile);
-    if !desktop::launch_detaches() {
-        // The app itself is the child here, and it lives as long as its
-        // window does — waiting would hang the terminal for the session.
-        return match cmd.spawn() {
-            Ok(_) => 0,
-            Err(e) => {
-                i18n.print(Msg::DesktopLaunchFailed(e.to_string()));
-                1
-            }
-        };
-    }
-    // `open` returns as soon as the app is up, so waiting costs a moment and
-    // buys a real exit status — spawning instead would report success even
-    // when the app failed to start.
-    match cmd.status() {
-        Ok(status) if status.success() => 0,
-        Ok(status) => {
-            i18n.print(Msg::DesktopLaunchFailed(status.to_string()));
-            1
-        }
+    match desktop::launch(app, profile) {
+        Ok(()) => 0,
         Err(e) => {
-            i18n.print(Msg::DesktopLaunchFailed(e.to_string()));
+            i18n.print(Msg::DesktopLaunchFailed(e));
             1
         }
     }
@@ -356,42 +337,6 @@ pub fn list(config: &AppConfig, i18n: &I18n) -> i32 {
     0
 }
 
-/// `accountUuid` -> email for every account this tool manages, read from each
-/// config dir's own `.claude.json`.
-///
-/// A Desktop profile records the uuid it last signed in as, but not the
-/// email; the CLI side has both. When the same person is signed into a
-/// profile and into an account here, matching the two is enough to name the
-/// profile — a couple of local JSON reads, no Keychain prompt and no network,
-/// which is the whole reason it belongs in `list` rather than in `usage`.
-fn cli_identities(config: &AppConfig) -> HashMap<String, String> {
-    let mut known = HashMap::new();
-    let dirs = config
-        .list_accounts()
-        .unwrap_or_default()
-        .iter()
-        .map(|a| config.account_path(a))
-        .chain(identity::standard_token_dir())
-        .collect::<Vec<_>>();
-    for dir in dirs {
-        if let Some(id) = identity::local_identity(&dir)
-            && let Some(email) = id.email
-        {
-            known.insert(id.uuid.to_lowercase(), email);
-        }
-    }
-    known
-}
-
-/// The email of the account `uuid` belongs to, if this tool manages it.
-///
-/// Compared case-insensitively: Claude Desktop writes the uuid into its
-/// `config.json` and Claude Code writes it into `.claude.json`, and nothing
-/// promises the two agree on case.
-fn borrowed_email<'a>(uuid: Option<&str>, known: &'a HashMap<String, String>) -> Option<&'a str> {
-    known.get(&uuid?.to_lowercase()).map(String::as_str)
-}
-
 /// `"  <email>  Max 20x"` for a profile whose identity we know, `"  aa6c22d5-…"`
 /// when only the plaintext uuid is available, `""` when neither.
 ///
@@ -637,31 +582,6 @@ mod tests {
             "  aa6c22d5…"
         );
         let _ = fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn the_uuid_match_ignores_case() {
-        // Two different files written by two different programs; nothing
-        // promises they agree on case.
-        let map = known("aa6c22d5-f7d1-4ac1-bb29-22abc90481c1", "a@b.com");
-        assert_eq!(
-            borrowed_email(Some("AA6C22D5-F7D1-4AC1-BB29-22ABC90481C1"), &map),
-            Some("a@b.com")
-        );
-    }
-
-    #[test]
-    fn nothing_to_match_borrows_nothing() {
-        let map = known("aa6c22d5-f7d1-4ac1-bb29-22abc90481c1", "a@b.com");
-        assert_eq!(borrowed_email(None, &map), None);
-        assert_eq!(borrowed_email(Some("aa6c22d5"), &map), None);
-        assert_eq!(
-            borrowed_email(
-                Some("aa6c22d5-f7d1-4ac1-bb29-22abc90481c1"),
-                &HashMap::new()
-            ),
-            None
-        );
     }
 
     #[test]
