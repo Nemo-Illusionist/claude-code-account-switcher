@@ -1,0 +1,147 @@
+name: Manager
+
+on:
+  # No `paths` filter on `pull_request`, for the same reason as rust.yml: a
+  # required status check that never runs never reports. `checks` runs on
+  # every pull request; `bundle` decides for itself whether it has work.
+  pull_request:
+  push:
+    branches: [master]
+    paths:
+      - 'apps/manager/**'
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/manager.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: manager-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+  CARGO_BUILD_JOBS: 2
+
+jobs:
+  # Cheap enough for every pull request, docs-only ones included, so it can
+  # be a required status check.
+  checks:
+    # Named for the workflow, not the runner: next to Rust's `macos-latest`
+    # in a check rollup, a bare runner name reads as the same check.
+    name: Manager checks (macOS)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/manager/package-lock.json
+
+      - name: Install Rust (stable, with rustfmt + clippy)
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch
+        with:
+          # Spelled out because the pin replaced the `@stable` ref that used
+          # to carry this.
+          toolchain: stable
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: |
+            . -> target
+            apps/manager/src-tauri -> target
+
+      # No lifecycle scripts: nothing in the tree needs them (esbuild and
+      # fsevents ship prebuilt binaries), and they would run for the whole
+      # transitive dev tree with the workflow's access.
+      - name: npm ci --ignore-scripts
+        working-directory: apps/manager
+        run: npm ci --ignore-scripts
+
+      - name: Typecheck and frontend tests
+        working-directory: apps/manager
+        run: npm run check && npm test
+
+      # The Tauri crate embeds the built frontend and the bundled CLI, so both
+      # must exist before it compiles.
+      - name: Build the frontend and the bundled CLI
+        working-directory: apps/manager
+        run: npm run build && npm run prepare:cli
+
+      - name: cargo fmt --check (manager)
+        run: cargo fmt --manifest-path apps/manager/src-tauri/Cargo.toml --all --check
+
+      - name: cargo clippy (manager)
+        run: cargo clippy --manifest-path apps/manager/src-tauri/Cargo.toml --all-targets -- -D warnings
+
+      - name: cargo test (manager)
+        run: cargo test --manifest-path apps/manager/src-tauri/Cargo.toml --release
+
+  # The slow part. On a pull request it runs only if the change could break
+  # the bundle, so a docs-only PR costs nothing here; after a merge and on
+  # demand it always runs. Unsigned; nothing is published.
+  bundle:
+    name: Manager bundle (macOS)
+    needs: checks
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The base commit is needed to diff a pull request against it.
+          fetch-depth: 0
+
+      - name: Does this change touch what the bundle is built from?
+        id: scope
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ] ||
+             git diff --name-only "$BASE" HEAD |
+               grep -qE '^(apps/manager/|src/|Cargo\.(toml|lock)$|\.github/workflows/manager\.yml$)'; then
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "build=false" >> "$GITHUB_OUTPUT"
+            echo "Nothing the bundle is built from changed; skipping."
+          fi
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        if: steps.scope.outputs.build == 'true'
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/manager/package-lock.json
+
+      - name: Install Rust (stable)
+        if: steps.scope.outputs.build == 'true'
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        if: steps.scope.outputs.build == 'true'
+        with:
+          workspaces: |
+            . -> target
+            apps/manager/src-tauri -> target
+
+      - name: npm ci --ignore-scripts
+        if: steps.scope.outputs.build == 'true'
+        working-directory: apps/manager
+        run: npm ci --ignore-scripts
+
+      - name: Build the frontend and the bundled CLI
+        if: steps.scope.outputs.build == 'true'
+        working-directory: apps/manager
+        run: npm run build && npm run prepare:cli
+
+      - name: Bundle the unsigned .app
+        if: steps.scope.outputs.build == 'true'
+        working-directory: apps/manager
+        run: npm run tauri -- build --bundles app
