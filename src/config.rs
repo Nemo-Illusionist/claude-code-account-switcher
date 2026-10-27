@@ -4,9 +4,12 @@ use std::path::{Path, PathBuf};
 
 /// Account names: ASCII letters, digits, hyphens, underscores. Rejects path
 /// separators, regex metacharacters, whitespace, and unicode — anything
-/// unsafe in a filesystem path or shell expansion.
+/// unsafe in a filesystem path or shell expansion — and a leading hyphen:
+/// `claude-acc`'s argument parser reads `-work` as a flag, so an account by
+/// that name could be created with `--` but not addressed without it.
 pub fn validate_name(name: &str) -> bool {
     !name.is_empty()
+        && !name.starts_with('-')
         && name
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
@@ -295,6 +298,17 @@ mod tests {
         assert!(validate_name("WORK"));
         assert!(validate_name("123"));
         assert!(validate_name("a"));
+    }
+
+    #[test]
+    fn validate_name_rejects_a_leading_hyphen() {
+        // Regression: `-work` passed, and then `claude-acc login -work`
+        // failed with "unexpected argument '-w'".
+        assert!(!validate_name("-work"));
+        assert!(!validate_name("-"));
+        assert!(!validate_name("--"));
+        assert!(validate_name("work-"));
+        assert!(validate_name("_work"));
     }
 
     #[test]
