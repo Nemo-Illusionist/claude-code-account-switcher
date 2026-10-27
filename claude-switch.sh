@@ -127,6 +127,8 @@ _claude_msg_en=(
     import_usage        "Usage: claude-acc import <name> <path> [--move]"
     import_source_not_dir "Source '%s' is not a directory."
     import_source_managed "That path is already inside ~/.claude-switch/accounts/."
+    import_source_holds_accounts "That path holds ~/.claude-switch/accounts/, so it cannot be imported into it."
+    import_move_standard "Not moving a directory that holds ~/.claude, the standard account. Import it without --move."
     import_failed       "Import failed: %s"
     import_done         "Imported '%s' → %s"
     import_rekeyed      "Moved the Keychain token to the new location."
@@ -276,6 +278,8 @@ _claude_msg_ru=(
     import_usage        "Использование: claude-acc import <name> <путь> [--move]"
     import_source_not_dir "Источник '%s' не является директорией."
     import_source_managed "Этот путь уже внутри ~/.claude-switch/accounts/."
+    import_source_holds_accounts "Этот путь содержит ~/.claude-switch/accounts/, поэтому его нельзя импортировать туда."
+    import_move_standard "Директория содержит ~/.claude, стандартный аккаунт, и не будет перемещена. Импортируйте её без --move."
     import_failed       "Импорт не удался: %s"
     import_done         "Импортирован '%s' → %s"
     import_rekeyed      "Токен Keychain перенесён на новое место."
@@ -2239,6 +2243,18 @@ _claude_acc_import() {
     local target="$CLAUDE_SWITCH_ACCOUNTS_DIR/$name"
     if [[ -e "$target" ]]; then _msg add_exists "$name"; return 1; fi
     if [[ "$src" == "$CLAUDE_SWITCH_ACCOUNTS_DIR"/* ]]; then _msg import_source_managed; return 1; fi
+    # Containment is compared on physical paths (`:A`), so another spelling of
+    # the same directory cannot slip past. Holding the accounts dir means a
+    # copy would land inside itself; moving a dir that holds ~/.claude takes
+    # the standard account away from Claude Code.
+    local real_src="${src:A}" real_accounts="${CLAUDE_SWITCH_ACCOUNTS_DIR:A}" real_standard="${HOME}/.claude"
+    real_standard="${real_standard:A}"
+    if [[ "$real_accounts" == "$real_src" || "$real_accounts" == "${real_src%/}"/* ]]; then
+        _msg import_source_holds_accounts; return 1
+    fi
+    if (( move )) && [[ "$real_standard" == "$real_src" || "$real_standard" == "${real_src%/}"/* ]]; then
+        _msg import_move_standard; return 1
+    fi
 
     if (( move )); then
         mv "$src" "$target" 2>/dev/null || { _msg import_failed "mv"; return 1; }
