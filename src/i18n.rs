@@ -428,6 +428,14 @@ impl I18n {
                 "Панель установлена для аккаунта '{}': {}\n(Перезапустите Claude Code, чтобы увидеть.)",
                 acc, path
             ),
+            (Msg::StatuslineSettingsUnreadable(ref path), Lang::En) => format!(
+                "Not changing {}: it could not be read as a JSON object, and rewriting it would lose what is in it. Fix it, then run this again.",
+                path
+            ),
+            (Msg::StatuslineSettingsUnreadable(ref path), Lang::Ru) => format!(
+                "{} не изменён: его не удалось прочитать как JSON-объект, а перезапись потеряла бы его содержимое. Исправьте файл и запустите команду снова.",
+                path
+            ),
             (Msg::StatuslineInstallFailed(ref e), Lang::En) => {
                 format!("Could not install the status line: {}", e)
             }
@@ -1358,6 +1366,7 @@ pub enum Msg {
     UsageAvailableNow,
     StatuslineInstalled(String, String),
     StatuslineInstallFailed(String),
+    StatuslineSettingsUnreadable(String),
     UpdateUpToDate(String),
     UpdateAvailable(String, String),
     UpdateDowngrading(String, String),
