@@ -324,6 +324,18 @@ impl I18n {
             (Msg::ImportSourceManaged, Lang::Ru) => {
                 s("Этот путь уже внутри ~/.claude-switch/accounts/.")
             }
+            (Msg::ImportSourceHoldsAccounts, Lang::En) => {
+                s("That path holds ~/.claude-switch/accounts/, so it cannot be imported into it.")
+            }
+            (Msg::ImportSourceHoldsAccounts, Lang::Ru) => s(
+                "Этот путь содержит ~/.claude-switch/accounts/, поэтому его нельзя импортировать туда.",
+            ),
+            (Msg::ImportMoveStandard, Lang::En) => s(
+                "Not moving a directory that holds ~/.claude, the standard account. Import it without --move.",
+            ),
+            (Msg::ImportMoveStandard, Lang::Ru) => s(
+                "Директория содержит ~/.claude, стандартный аккаунт, и не будет перемещена. Импортируйте её без --move.",
+            ),
             (Msg::ImportFailed(ref e), Lang::En) => format!("Import failed: {}", e),
             (Msg::ImportFailed(ref e), Lang::Ru) => format!("Импорт не удался: {}", e),
             (Msg::ImportDone(ref n, ref p), Lang::En) => format!("Imported '{}' → {}", n, p),
@@ -1375,6 +1387,8 @@ pub enum Msg {
     UpdateWrapperFailed(String),
     ImportSourceNotDir(String),
     ImportSourceManaged,
+    ImportSourceHoldsAccounts,
+    ImportMoveStandard,
     ImportFailed(String),
     ImportDone(String, String),
     ImportRekeyed,
