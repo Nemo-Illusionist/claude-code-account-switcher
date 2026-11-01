@@ -386,6 +386,18 @@ _claude_validate_name() {
     fi
 }
 
+# `_claude_validate_name` for an account that already exists: a name from
+# before a leading hyphen was refused stays usable while its directory is
+# there, as the binary's `validate_existing_name` does. Creating one under
+# such a name is still refused.
+_claude_validate_existing_name() {
+    local name="$1"
+    if [[ "$name" =~ ^[a-zA-Z0-9_-]+$ && -d "$CLAUDE_SWITCH_ACCOUNTS_DIR/$name" ]]; then
+        return 0
+    fi
+    _claude_validate_name "$name"
+}
+
 # --- Init ---
 _claude_switch_init() {
     mkdir -p "$CLAUDE_SWITCH_ACCOUNTS_DIR"
@@ -740,6 +752,8 @@ _claude_acc_add() {
 }
 
 _claude_acc_login() {
+    # `--` before the name, as the binary needs for `-work` and suggests.
+    [[ "${1:-}" == "--" ]] && shift
     local name="${1:-}"
     if [[ -z "$name" ]]; then
         _msg login_usage
@@ -763,7 +777,7 @@ _claude_acc_login() {
         return
     fi
 
-    _claude_validate_name "$name" || return 1
+    _claude_validate_existing_name "$name" || return 1
 
     local acc_dir="$CLAUDE_SWITCH_ACCOUNTS_DIR/$name"
     if [[ ! -d "$acc_dir" ]]; then
@@ -810,7 +824,7 @@ _claude_acc_remove() {
         return 1
     fi
 
-    _claude_validate_name "$name" || return 1
+    _claude_validate_existing_name "$name" || return 1
 
     local acc_dir="$CLAUDE_SWITCH_ACCOUNTS_DIR/$name"
     if [[ ! -d "$acc_dir" ]]; then
@@ -915,7 +929,7 @@ _claude_acc_default() {
         return
     fi
 
-    _claude_validate_name "$name" || return 1
+    _claude_validate_existing_name "$name" || return 1
 
     if [[ ! -d "$CLAUDE_SWITCH_ACCOUNTS_DIR/$name" ]]; then
         _msg default_not_found "$name"
@@ -937,7 +951,7 @@ _claude_acc_link() {
     fi
 
     if [[ "$name" != "default" ]]; then
-        _claude_validate_name "$name" || return 1
+        _claude_validate_existing_name "$name" || return 1
     fi
 
     if [[ "$name" != "default" && ! -d "$CLAUDE_SWITCH_ACCOUNTS_DIR/$name" ]]; then
@@ -1167,6 +1181,8 @@ _claude_acc_clone_settings() {
 # the current shell's active account. `default` runs without
 # CLAUDE_CONFIG_DIR (standard ~/.claude/).
 _claude_acc_run() {
+    # `--` before the name, as the binary needs for `-work` and suggests.
+    [[ "${1:-}" == "--" ]] && shift
     local name="${1:-}"
     if [[ -z "$name" ]]; then
         _msg run_usage
@@ -1190,7 +1206,7 @@ _claude_acc_run() {
         return $?
     fi
 
-    _claude_validate_name "$name" || return 1
+    _claude_validate_existing_name "$name" || return 1
 
     local acc_dir="$CLAUDE_SWITCH_ACCOUNTS_DIR/$name"
     if [[ ! -d "$acc_dir" ]]; then
@@ -2373,6 +2389,8 @@ _claude_acc_lock() {
     while (( $# )); do
         case "$1" in
             -f|--force) force=1; shift ;;
+            # As the binary needs for `-work` and suggests.
+            --) shift ;;
             *) name="$1"; shift ;;
         esac
     done

@@ -1,4 +1,4 @@
-use crate::config::{AppConfig, is_reserved_name, validate_name};
+use crate::config::{AppConfig, is_reserved_name, validate_existing_name};
 use crate::i18n::{I18n, Msg};
 use std::fs;
 use std::io::{self, Write};
@@ -9,7 +9,7 @@ pub fn run(config: &AppConfig, i18n: &I18n, name: &str, force: bool, purge: bool
         std::process::exit(1);
     }
 
-    if !validate_name(name) {
+    if !validate_existing_name(config, name) {
         i18n.print(Msg::NameInvalid);
         std::process::exit(1);
     }

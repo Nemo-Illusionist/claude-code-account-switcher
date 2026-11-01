@@ -1,4 +1,4 @@
-use crate::config::{AppConfig, validate_name};
+use crate::config::{AppConfig, validate_existing_name};
 use crate::i18n::{I18n, Msg};
 use crate::identity;
 use crate::sessions::{self, SessionRef};
@@ -331,7 +331,7 @@ fn account_config_dir(config: &AppConfig, label: &str) -> Option<PathBuf> {
     if label == sessions::DEFAULT_LABEL {
         return identity::standard_token_dir().filter(|d| d.is_dir());
     }
-    if !validate_name(label) || !config.account_exists(label) {
+    if !validate_existing_name(config, label) || !config.account_exists(label) {
         return None;
     }
     Some(config.account_path(label))

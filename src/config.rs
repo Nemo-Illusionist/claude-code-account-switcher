@@ -8,8 +8,23 @@ use std::path::{Path, PathBuf};
 /// `claude-acc`'s argument parser reads `-work` as a flag, so an account by
 /// that name could be created with `--` but not addressed without it.
 pub fn validate_name(name: &str) -> bool {
+    !name.starts_with('-') && safe_chars(name)
+}
+
+/// `validate_name` for an account that already exists. A name the rule
+/// accepted before a leading hyphen was refused (`-work`) stays reachable
+/// while its directory is there, so an account made then can still be
+/// listed, used and removed. Creating one under such a name is still
+/// refused: `add`, `import`, `clone-settings` and `desktop` keep
+/// `validate_name`.
+pub fn validate_existing_name(config: &AppConfig, name: &str) -> bool {
+    validate_name(name) || (safe_chars(name) && config.account_path(name).is_dir())
+}
+
+/// Letters, digits, hyphens and underscores, and at least one character:
+/// nothing that could leave the accounts directory or break `links`.
+fn safe_chars(name: &str) -> bool {
     !name.is_empty()
-        && !name.starts_with('-')
         && name
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
@@ -309,6 +324,22 @@ mod tests {
         assert!(!validate_name("--"));
         assert!(validate_name("work-"));
         assert!(validate_name("_work"));
+    }
+
+    #[test]
+    fn an_existing_account_keeps_a_name_from_before_the_hyphen_rule() {
+        let config = temp_config("existing-name");
+        config.init().unwrap();
+        // Not on disk: refused, as for a new name.
+        assert!(!validate_existing_name(&config, "-work"));
+        fs::create_dir_all(config.account_path("-work")).unwrap();
+        assert!(validate_existing_name(&config, "-work"));
+        assert!(validate_existing_name(&config, "work"));
+        // The other rules still hold, directory or not.
+        assert!(!validate_existing_name(&config, ""));
+        assert!(!validate_existing_name(&config, "../etc"));
+        assert!(!validate_name("-work"));
+        let _ = fs::remove_dir_all(&config.base_dir);
     }
 
     #[test]

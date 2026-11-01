@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crate::config::{AppConfig, is_reserved_name, validate_name};
+use crate::config::{AppConfig, is_reserved_name, validate_existing_name};
 use crate::i18n::{I18n, Msg};
 use crate::identity::{self, Identity, LockRead, LockState};
 
@@ -27,7 +27,7 @@ pub fn run(config: &AppConfig, i18n: &I18n, name: &str, force: bool) -> i32 {
             i18n.print(Msg::ReservedName(name.to_string()));
             return 1;
         }
-        if !validate_name(name) {
+        if !validate_existing_name(config, name) {
             i18n.print(Msg::NameInvalid);
             return 1;
         }

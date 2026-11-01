@@ -5,7 +5,7 @@
 # The binary's argument parser reads `-work` as a flag, so a name the old
 # rule accepted could be created but not addressed; and the script's own
 # `add` and `remove` take `-s` and `-f` as flags. Both sides now refuse such
-# a name.
+# a name for a new account, and keep one that already exists usable.
 #
 # Run: zsh tests/shell/name_leading_dash.zsh
 
@@ -42,6 +42,20 @@ check a accepted
 # The refusal names the rule, rather than a generic error.
 msg=$(_claude_validate_name -work 2>&1)
 [[ "$msg" == *"must not start with a hyphen"* ]] || { print -r -- "FAIL: message was: $msg"; failures+=1; }
+
+# An account made before the rule stays usable while its directory is there;
+# a new one still cannot be given such a name.
+fail() { print -r -- "FAIL: $1"; failures+=1 }
+_claude_validate_existing_name -work >/dev/null 2>&1 && fail "-work accepted with no directory"
+mkdir -p "$CLAUDE_SWITCH_ACCOUNTS_DIR/-work"
+_claude_validate_existing_name -work >/dev/null 2>&1 || fail "existing -work refused"
+_claude_validate_name -work >/dev/null 2>&1 && fail "-work accepted for a new account"
+# `--` before the name, as the binary suggests: lock reaches the account
+# (it has no identity yet) rather than reporting it missing.
+out=$(_claude_acc_lock -- -work 2>&1)
+[[ "$out" == *"no signed-in identity"* ]] || fail "lock -- -work said: $out"
+_claude_acc_remove -f -work >/dev/null 2>&1
+[[ ! -e "$CLAUDE_SWITCH_ACCOUNTS_DIR/-work" ]] || fail "remove -f -work left the account"
 
 if (( failures )); then
     print -r -- "name_leading_dash: $failures failure(s)"

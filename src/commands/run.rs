@@ -1,4 +1,4 @@
-use crate::config::{AppConfig, validate_name};
+use crate::config::{AppConfig, validate_existing_name};
 use crate::environment::strip_claude_auth_env;
 use crate::i18n::{I18n, Msg};
 use crate::sessions;
@@ -49,7 +49,7 @@ pub fn run(config: &AppConfig, i18n: &I18n, name: &str, args: &[String]) {
         std::process::exit(super::spawn_claude(build_command(args, None), i18n));
     }
 
-    if !validate_name(name) {
+    if !validate_existing_name(config, name) {
         i18n.print(Msg::NameInvalid);
         std::process::exit(1);
     }

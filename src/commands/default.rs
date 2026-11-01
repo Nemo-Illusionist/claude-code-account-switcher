@@ -1,4 +1,4 @@
-use crate::config::{AppConfig, validate_name};
+use crate::config::{AppConfig, validate_existing_name};
 use crate::i18n::{I18n, Msg};
 use crate::identity;
 
@@ -20,7 +20,7 @@ pub fn run(config: &AppConfig, i18n: &I18n, name: Option<&str>) {
             i18n.print(Msg::ResetDone);
         }
         Some(name) => {
-            if !validate_name(name) {
+            if !validate_existing_name(config, name) {
                 i18n.print(Msg::NameInvalid);
                 std::process::exit(1);
             }
