@@ -41,6 +41,19 @@ pub fn run(config: &AppConfig, i18n: &I18n, name: &str, source: &str, move_into:
         return 1;
     }
 
+    let standard = identity::standard_token_dir();
+    match contains(&src, &accounts_dir, standard.as_deref(), move_into) {
+        Some(Contains::Accounts) => {
+            i18n.print(Msg::ImportSourceHoldsAccounts);
+            return 1;
+        }
+        Some(Contains::Standard) => {
+            i18n.print(Msg::ImportMoveStandard);
+            return 1;
+        }
+        None => {}
+    }
+
     if let Some(parent) = target.parent() {
         let _ = fs::create_dir_all(parent);
     }
@@ -89,6 +102,37 @@ pub fn run(config: &AppConfig, i18n: &I18n, name: &str, source: &str, move_into:
 
 /// Absolute form of a user-supplied path, expanding a leading `~/`. Symlinks
 /// are not resolved — Claude Code hashed the path as given, so we match that.
+/// What an import source must not hold.
+#[derive(Debug, PartialEq)]
+enum Contains {
+    /// Copying it would copy the new account into itself; moving it would
+    /// move every managed account away.
+    Accounts,
+    /// `~/.claude` belongs to Claude Code. Copying it is a normal import;
+    /// moving it takes the standard account away from under Claude Code.
+    Standard,
+}
+
+/// Whether `src` holds the accounts directory, or (for a move) the standard
+/// account's. Compared as physical paths, so a second spelling of the same
+/// directory (a symlink, `/tmp` against `/private/tmp`) cannot slip past.
+fn contains(
+    src: &Path,
+    accounts: &Path,
+    standard: Option<&Path>,
+    move_into: bool,
+) -> Option<Contains> {
+    let real = |p: &Path| p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
+    let src = real(src);
+    if real(accounts).starts_with(&src) {
+        return Some(Contains::Accounts);
+    }
+    match standard {
+        Some(standard) if move_into && real(standard).starts_with(&src) => Some(Contains::Standard),
+        _ => None,
+    }
+}
+
 fn to_absolute(p: &str) -> PathBuf {
     if let Some(rest) = p.strip_prefix("~/")
         && let Some(home) = dirs::home_dir()
@@ -142,6 +186,38 @@ fn copy_symlink(src: &Path, dst: &Path) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_source_holding_the_accounts_or_the_standard_dir_is_refused() {
+        // Regression: `import x ~` copied the home directory, accounts and
+        // all, into `~/.claude-switch/accounts/x`, and `import x ~ --move`
+        // could move `~/.claude` away from Claude Code.
+        let base = std::env::temp_dir().join(format!("cc-import-contains-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let home = base.join("home");
+        let accounts = home.join(".claude-switch/accounts");
+        let standard = home.join(".claude");
+        let other = home.join(".claude-work");
+        for d in [&accounts, &standard, &other] {
+            fs::create_dir_all(d).unwrap();
+        }
+        let check = |src: &Path, move_into| contains(src, &accounts, Some(&standard), move_into);
+
+        assert_eq!(check(&home, false), Some(Contains::Accounts));
+        assert_eq!(check(&home, true), Some(Contains::Accounts));
+        assert_eq!(
+            check(&home.join(".claude-switch"), false),
+            Some(Contains::Accounts)
+        );
+        assert_eq!(check(&standard, true), Some(Contains::Standard));
+        // Copying the standard account is an ordinary import.
+        assert_eq!(check(&standard, false), None);
+        assert_eq!(check(&other, false), None);
+        assert_eq!(check(&other, true), None);
+        // Another spelling of the same directory.
+        assert_eq!(check(&other.join(".."), false), Some(Contains::Accounts));
+        fs::remove_dir_all(base).unwrap();
+    }
 
     #[test]
     fn to_absolute_keeps_absolute() {
