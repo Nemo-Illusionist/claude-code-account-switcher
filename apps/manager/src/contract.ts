@@ -84,7 +84,9 @@ export type GuiError =
   | "unrepresentable_directory"
   | "directory_missing"
   | "shared_credential_store"
-  | "identity_drift";
+  | "identity_drift"
+  | "trash_unavailable"
+  | "not_signed_in";
 export type ManagerError =
   | "cli_missing"
   | "launcher_failed"

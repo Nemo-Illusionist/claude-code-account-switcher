@@ -16,6 +16,10 @@
 //!   one directory and the binding it inherits from, via `resolve_account`.
 //! - [`sessions`]: session metadata, newest first.
 //! - [`change_default`] and [`change_binding`]: validated writes.
+//! - [`remove_account`]: a managed account to the desktop trash, never
+//!   deleted outright.
+//! - [`pin_account`]: pin an account to the identity it is signed in as,
+//!   by the same rules as `claude-acc lock`.
 //! - [`check_launch`]: whether `run`, `login` or `add` may start for an
 //!   account, and in which physical directory. The decision only; launching
 //!   is the caller's.
@@ -44,7 +48,7 @@
 //! "active" account; `is_default` is only the configured fallback for
 //! unbound directories.
 use crate::config::{AppConfig, validate_name};
-use crate::{identity, resolve, sessions};
+use crate::{identity, resolve, sessions, trash};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fs;
@@ -67,6 +71,8 @@ pub enum GuiError {
     DirectoryMissing,
     SharedCredentialStore,
     IdentityDrift,
+    TrashUnavailable,
+    NotSignedIn,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -374,6 +380,21 @@ fn usage(result: identity::UsageResult, now: u64) -> Usage {
     }
 }
 
+/// The pin state of one account, read from disk now. Cheap: two local
+/// files, no network. For a consumer that keeps a snapshot and must not
+/// show a pin state older than a change it just made.
+pub fn lock_of(config: &AppConfig, standard: &Path, name: &str) -> LockStatus {
+    // Storage that would be refused for a snapshot is not read here either.
+    let Ok(dir) = account_dir(config, standard, name) else {
+        return LockStatus::Unknown;
+    };
+    let lock = lock_path(config, name, &dir);
+    if reject_symlinks(&config.base_dir, &lock).is_err() {
+        return LockStatus::Unknown;
+    }
+    lock_status(identity::lock_state_at(&lock, &dir))
+}
+
 fn lock_status(state: identity::LockState) -> LockStatus {
     match state {
         identity::LockState::Ok => LockStatus::Matched,
@@ -426,10 +447,7 @@ fn account(
     if local.is_some() {
         row.identity_source = IdentitySource::Local;
     }
-    row.lock = lock_status(identity::lock_state_at(
-        &lock_path(config, name, &path),
-        &path,
-    ));
+    row.lock = lock_of(config, standard, name);
     if !live {
         row.usage = usage(
             identity::cached_usage(&path).map_or(identity::UsageResult::Offline, |(u, age)| {
@@ -597,6 +615,66 @@ pub fn change_binding(
         None => config.remove_link(p).map(|_| ()),
     }
     .map_err(|_| GuiError::StorageWriteFailed)
+}
+
+/// Move a managed account to the desktop trash, then drop the default and
+/// the bindings that named it, as `claude-acc remove` does.
+///
+/// Unlike the CLI there is no fallback to deleting outright: a window that
+/// said "Trash" must not purge. If the move fails, nothing has changed.
+pub fn remove_account(config: &AppConfig, standard: &Path, name: &str) -> Result<(), GuiError> {
+    remove_account_with(config, standard, name, trash::trash_dir)
+}
+
+fn remove_account_with(
+    config: &AppConfig,
+    standard: &Path,
+    name: &str,
+    to_trash: impl FnOnce(&Path) -> std::io::Result<PathBuf>,
+) -> Result<(), GuiError> {
+    // The standard account is `~/.claude` itself, not ours to remove.
+    if name == "default" {
+        return Err(GuiError::InvalidAccount);
+    }
+    let dir = account_dir(config, standard, name)?;
+    writable(config)?;
+    to_trash(&dir).map_err(|_| GuiError::TrashUnavailable)?;
+    if config.get_default().ok().flatten().as_deref() == Some(name) {
+        config
+            .clear_default()
+            .map_err(|_| GuiError::StorageWriteFailed)?;
+    }
+    config
+        .remove_links_for_account(name)
+        .map_err(|_| GuiError::StorageWriteFailed)
+}
+
+/// Pin an account to the identity it is signed in as now, as `claude-acc
+/// lock` does. Pinning the identity it is already pinned to does nothing.
+/// A pin to someone else, or one that cannot be read, is replaced only with
+/// `force`: re-pinning is how a drift warning gets switched off.
+pub fn pin_account(
+    config: &AppConfig,
+    standard: &Path,
+    name: &str,
+    force: bool,
+) -> Result<(), GuiError> {
+    let dir = account_dir(config, standard, name)?;
+    let lock = lock_path(config, name, &dir);
+    // Every pin lives under the switch directory, the standard account's
+    // included, which `account_dir` does not cover.
+    reject_symlinks(&config.base_dir, &lock)?;
+    writable(config)?;
+    let current = identity::local_identity(&dir).ok_or(GuiError::NotSignedIn)?;
+    match identity::plan_lock(&identity::read_lock_at(&lock), &current, force) {
+        identity::LockAction::AlreadyPinned(_) => Ok(()),
+        identity::LockAction::RefuseWouldReplace(_) | identity::LockAction::RefuseCorrupt => {
+            Err(GuiError::IdentityDrift)
+        }
+        identity::LockAction::Write => {
+            identity::write_lock_at(&lock, &current).map_err(|_| GuiError::StorageWriteFailed)
+        }
+    }
 }
 
 /// Decide whether `action` may run for `account`, and in which physical
@@ -821,6 +899,155 @@ mod tests {
     }
 
     #[test]
+    fn removing_an_account_trashes_it_and_drops_only_what_named_it() {
+        let (c, root) = fixture("remove");
+        let standard = root.join("standard");
+        fs::create_dir_all(c.account_path("other")).unwrap();
+        c.set_default("work").unwrap();
+        c.set_link("/p/work", "work").unwrap();
+        c.set_link("/p/other", "other").unwrap();
+        let bin = root.join("bin");
+        fs::create_dir_all(&bin).unwrap();
+
+        remove_account_with(&c, &standard, "work", |dir| {
+            let dest = bin.join("work");
+            fs::rename(dir, &dest).map(|_| dest)
+        })
+        .unwrap();
+
+        assert!(!c.account_path("work").exists());
+        assert!(bin.join("work").is_dir());
+        assert_eq!(c.get_default().unwrap(), None);
+        assert_eq!(
+            c.all_links().unwrap(),
+            vec![("/p/other".to_string(), "other".to_string())]
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_failed_move_to_the_trash_changes_nothing() {
+        // No fallback to deleting: the window promised the Trash.
+        let (c, root) = fixture("remove-fails");
+        let standard = root.join("standard");
+        c.set_default("work").unwrap();
+        c.set_link("/p/work", "work").unwrap();
+
+        let result = remove_account_with(&c, &standard, "work", |_| {
+            Err(std::io::Error::from(std::io::ErrorKind::CrossesDevices))
+        });
+
+        assert_eq!(result, Err(GuiError::TrashUnavailable));
+        assert!(c.account_path("work").is_dir());
+        assert_eq!(c.get_default().unwrap().as_deref(), Some("work"));
+        assert_eq!(c.all_links().unwrap().len(), 1);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn the_standard_account_and_bad_names_are_never_removed() {
+        let (c, root) = fixture("remove-refused");
+        let standard = root.join("standard");
+        fs::create_dir_all(&standard).unwrap();
+        let never = |_: &Path| -> std::io::Result<PathBuf> { panic!("moved") };
+        for (name, error) in [
+            ("default", GuiError::InvalidAccount),
+            ("../work", GuiError::InvalidAccount),
+            ("missing", GuiError::AccountMissing),
+        ] {
+            assert_eq!(
+                remove_account_with(&c, &standard, name, never),
+                Err(error),
+                "{name}"
+            );
+        }
+        assert!(standard.is_dir());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    fn signed_in(dir: &Path, uuid: &str) {
+        fs::write(
+            dir.join(".claude.json"),
+            format!(r#"{{"oauthAccount":{{"accountUuid":"{uuid}"}}}}"#),
+        )
+        .unwrap();
+    }
+
+    fn pinned_to(path: &Path) -> Option<String> {
+        match identity::read_lock_at(path) {
+            identity::LockRead::Pinned(id) => Some(id.uuid),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn pinning_writes_once_and_never_moves_a_pin_without_force() {
+        let (c, root) = fixture("pin");
+        let standard = root.join("standard");
+        let lock = c.account_path("work").join(identity::LOCK_FILE);
+        signed_in(&c.account_path("work"), "u-1");
+        pin_account(&c, &standard, "work", false).unwrap();
+        assert_eq!(pinned_to(&lock).as_deref(), Some("u-1"));
+        // Same identity again: nothing to do, not an error.
+        pin_account(&c, &standard, "work", false).unwrap();
+
+        // Re-logged in as someone else: that is the drift the pin reports.
+        signed_in(&c.account_path("work"), "u-2");
+        assert_eq!(
+            pin_account(&c, &standard, "work", false),
+            Err(GuiError::IdentityDrift)
+        );
+        assert_eq!(pinned_to(&lock).as_deref(), Some("u-1"));
+        pin_account(&c, &standard, "work", true).unwrap();
+        assert_eq!(pinned_to(&lock).as_deref(), Some("u-2"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_corrupt_pin_is_replaced_only_with_force() {
+        let (c, root) = fixture("pin-corrupt");
+        let standard = root.join("standard");
+        let lock = c.account_path("work").join(identity::LOCK_FILE);
+        signed_in(&c.account_path("work"), "u-1");
+        fs::write(&lock, "{").unwrap();
+        assert_eq!(
+            pin_account(&c, &standard, "work", false),
+            Err(GuiError::IdentityDrift)
+        );
+        assert_eq!(fs::read_to_string(&lock).unwrap(), "{");
+        pin_account(&c, &standard, "work", true).unwrap();
+        assert_eq!(pinned_to(&lock).as_deref(), Some("u-1"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn an_account_never_signed_in_is_not_pinned_to_nothing() {
+        let (c, root) = fixture("pin-none");
+        let standard = root.join("standard");
+        assert_eq!(
+            pin_account(&c, &standard, "work", true),
+            Err(GuiError::NotSignedIn)
+        );
+        assert!(!c.account_path("work").join(identity::LOCK_FILE).exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn the_standard_accounts_pin_goes_beside_our_state_not_into_claude() {
+        let (c, root) = fixture("pin-standard");
+        let standard = root.join("standard");
+        fs::create_dir_all(&standard).unwrap();
+        signed_in(&standard, "u-std");
+        pin_account(&c, &standard, "default", false).unwrap();
+        assert_eq!(
+            pinned_to(&identity::default_lock_path(&c.base_dir)).as_deref(),
+            Some("u-std")
+        );
+        assert!(!standard.join(identity::LOCK_FILE).exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn launch_policy_covers_every_action() {
         let (c, root) = fixture("launch");
         let standard = root.join("home").join(".claude");
@@ -1011,6 +1238,8 @@ mod tests {
             GuiError::DirectoryMissing,
             GuiError::SharedCredentialStore,
             GuiError::IdentityDrift,
+            GuiError::TrashUnavailable,
+            GuiError::NotSignedIn,
         ];
         assert_eq!(sample["gui_errors"], serde_json::to_value(codes).unwrap());
     }

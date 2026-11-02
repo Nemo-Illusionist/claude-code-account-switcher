@@ -118,10 +118,40 @@ const en = {
   detailsAction: "Details & diagnostics",
   loginAction: "Authenticate / re-login",
   makeDefaultAction: "Make default…",
+  pinAction: "Pin identity…",
+  repinAction: "Re-pin to signed-in identity…",
+  trashAction: "Move to Trash…",
   loginTitle: (name: string) => `Authenticate ${name}?`,
   loginConfirm: "Open login",
   loginBody:
     "Open the existing Claude login flow in Terminal. Check the browser identity before signing in. Return here and refresh after the login finishes.",
+  pinTitle: (name: string) => `Pin ${name} to its identity?`,
+  pinConfirm: "Pin",
+  pinBody: (name: ReactNode) => (
+    <>
+      Pin {name} to the identity it is signed in as now. If it is later signed
+      in as someone else, launching it is blocked until it is re-pinned.
+    </>
+  ),
+  repinTitle: (name: string) => `Re-pin ${name}?`,
+  repinConfirm: "Re-pin",
+  repinBody: (name: ReactNode) => (
+    <>
+      {name} is signed in as someone other than its pin, or its pin cannot be
+      read. Re-pinning accepts the identity signed in now and unblocks
+      launching. Do it only if signing in as that identity was intended.
+    </>
+  ),
+  trashTitle: (name: string) => `Move ${name} to the Trash?`,
+  trashConfirm: "Move to Trash",
+  trashBody: (name: ReactNode) => (
+    <>
+      The account directory of {name}, with its settings and sessions, moves to
+      the Trash and stays there until you empty it. Directories bound to it lose
+      their binding, and if it is the default, the standard account becomes the
+      default.
+    </>
+  ),
   defaultTitle: (name: string) => `Make ${name} the default?`,
   defaultConfirm: "Change default",
   defaultBody: (name: ReactNode) => (
@@ -245,8 +275,12 @@ const en = {
 
   // Backend results
   errors: {
+    not_signed_in:
+      "This account has never signed in, so there is no identity to pin. Sign in first, then pin it.",
+    trash_unavailable:
+      "The account could not be moved to the Trash, so nothing was removed. `claude-acc remove --purge` in Terminal deletes it outright.",
     identity_drift:
-      "The account identity differs from its pin, or the pin is corrupt. Inspect it with the CLI before launching.",
+      "The account identity differs from its pin, or the pin is corrupt. If signing in as this identity was intended, re-pin it from the account menu; otherwise sign in again as the pinned one.",
     shared_credential_store:
       "A shared credential-store override is set. Live refresh is disabled because it could report one account for every directory. Launch the manager without CLAUDE_SECURESTORAGE_CONFIG_DIR.",
     invalid_account:
@@ -318,8 +352,11 @@ export function useCopy(): Messages {
  * string means the backend did answer, with something this window does not
  * recognise, so it must not be told the backend is unreachable. Only a
  * non-string, a request that never got an answer, is that. Tauri's own
- * rejections are expected to be strings of the second kind; nothing in this
- * frontend can observe that, so it is checked where the shell is added.
+ * rejections are strings of the second kind, read from tauri 2.12.4: its
+ * errors reach the window through `From<crate::Error> for InvokeError`
+ * (`ipc/mod.rs`) as `Value::String(error.to_string())`, bad arguments
+ * included, and an unknown command is rejected with
+ * `format!("Command {command} not found")` (`webview/mod.rs`).
  */
 export function describeError(t: Messages, error: unknown): string {
   if (typeof error !== "string") return t.unreachable;
