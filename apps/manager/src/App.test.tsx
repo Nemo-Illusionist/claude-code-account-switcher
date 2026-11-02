@@ -18,6 +18,7 @@ vi.mock("./api", async (importOriginal) => ({
   api: {
     snapshot: vi.fn(),
     setDefault: vi.fn(),
+    removeAccount: vi.fn(),
     bindings: vi.fn(),
     bind: vi.fn(),
     sessions: vi.fn(),
@@ -118,6 +119,37 @@ describe("accounts", () => {
       expect(document.querySelector(".default-name")?.textContent).toBe("personal"),
     );
     expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("moves a managed account to the Trash only after confirmation", async () => {
+    const removed = snapshot();
+    removed.revision = 4;
+    removed.accounts = removed.accounts.filter((a) => a.name !== "personal");
+    vi.mocked(api.removeAccount).mockResolvedValue(removed);
+    render(<App />);
+    await screen.findByText("developer@example.test");
+    // Every managed account offers it; the standard `~/.claude` one does not.
+    expect(screen.getAllByText("Move to Trash…")).toHaveLength(2);
+    expect(document.querySelectorAll("article.account-card")).toHaveLength(3);
+    fireEvent.click(within(card("personal")).getByText("Move to Trash…"));
+    expect(api.removeAccount).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Move to Trash" }));
+    await waitFor(() => expect(api.removeAccount).toHaveBeenCalledWith("personal"));
+    await waitFor(() => expect(screen.queryByText("personal", { selector: "h3" })).toBeNull());
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("keeps the account and says why when the Trash refuses it", async () => {
+    vi.mocked(api.removeAccount).mockRejectedValue("trash_unavailable");
+    render(<App />);
+    await screen.findByText("developer@example.test");
+    fireEvent.click(within(card("personal")).getByText("Move to Trash…"));
+    fireEvent.click(screen.getByRole("button", { name: "Move to Trash" }));
+    const dialog = await screen.findByRole("dialog");
+    expect((await within(dialog).findByRole("alert")).textContent).toContain(
+      "nothing was removed",
+    );
+    expect(card("personal")).toBeTruthy();
   });
 
   it("closes an account's action menu once used, or on a click elsewhere", async () => {

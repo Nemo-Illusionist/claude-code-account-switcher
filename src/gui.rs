@@ -16,6 +16,8 @@
 //!   one directory and the binding it inherits from, via `resolve_account`.
 //! - [`sessions`]: session metadata, newest first.
 //! - [`change_default`] and [`change_binding`]: validated writes.
+//! - [`remove_account`]: a managed account to the desktop trash, never
+//!   deleted outright.
 //! - [`check_launch`]: whether `run`, `login` or `add` may start for an
 //!   account, and in which physical directory. The decision only; launching
 //!   is the caller's.
@@ -44,7 +46,7 @@
 //! "active" account; `is_default` is only the configured fallback for
 //! unbound directories.
 use crate::config::{AppConfig, validate_name};
-use crate::{identity, resolve, sessions};
+use crate::{identity, resolve, sessions, trash};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fs;
@@ -67,6 +69,7 @@ pub enum GuiError {
     DirectoryMissing,
     SharedCredentialStore,
     IdentityDrift,
+    TrashUnavailable,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -599,6 +602,38 @@ pub fn change_binding(
     .map_err(|_| GuiError::StorageWriteFailed)
 }
 
+/// Move a managed account to the desktop trash, then drop the default and
+/// the bindings that named it, as `claude-acc remove` does.
+///
+/// Unlike the CLI there is no fallback to deleting outright: a window that
+/// said "Trash" must not purge. If the move fails, nothing has changed.
+pub fn remove_account(config: &AppConfig, standard: &Path, name: &str) -> Result<(), GuiError> {
+    remove_account_with(config, standard, name, trash::trash_dir)
+}
+
+fn remove_account_with(
+    config: &AppConfig,
+    standard: &Path,
+    name: &str,
+    to_trash: impl FnOnce(&Path) -> std::io::Result<PathBuf>,
+) -> Result<(), GuiError> {
+    // The standard account is `~/.claude` itself, not ours to remove.
+    if name == "default" {
+        return Err(GuiError::InvalidAccount);
+    }
+    let dir = account_dir(config, standard, name)?;
+    writable(config)?;
+    to_trash(&dir).map_err(|_| GuiError::TrashUnavailable)?;
+    if config.get_default().ok().flatten().as_deref() == Some(name) {
+        config
+            .clear_default()
+            .map_err(|_| GuiError::StorageWriteFailed)?;
+    }
+    config
+        .remove_links_for_account(name)
+        .map_err(|_| GuiError::StorageWriteFailed)
+}
+
 /// Decide whether `action` may run for `account`, and in which physical
 /// directory (the home directory when none is given). This is the whole
 /// policy; a front end only carries the answer to a terminal.
@@ -821,6 +856,73 @@ mod tests {
     }
 
     #[test]
+    fn removing_an_account_trashes_it_and_drops_only_what_named_it() {
+        let (c, root) = fixture("remove");
+        let standard = root.join("standard");
+        fs::create_dir_all(c.account_path("other")).unwrap();
+        c.set_default("work").unwrap();
+        c.set_link("/p/work", "work").unwrap();
+        c.set_link("/p/other", "other").unwrap();
+        let bin = root.join("bin");
+        fs::create_dir_all(&bin).unwrap();
+
+        remove_account_with(&c, &standard, "work", |dir| {
+            let dest = bin.join("work");
+            fs::rename(dir, &dest).map(|_| dest)
+        })
+        .unwrap();
+
+        assert!(!c.account_path("work").exists());
+        assert!(bin.join("work").is_dir());
+        assert_eq!(c.get_default().unwrap(), None);
+        assert_eq!(
+            c.all_links().unwrap(),
+            vec![("/p/other".to_string(), "other".to_string())]
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_failed_move_to_the_trash_changes_nothing() {
+        // No fallback to deleting: the window promised the Trash.
+        let (c, root) = fixture("remove-fails");
+        let standard = root.join("standard");
+        c.set_default("work").unwrap();
+        c.set_link("/p/work", "work").unwrap();
+
+        let result = remove_account_with(&c, &standard, "work", |_| {
+            Err(std::io::Error::from(std::io::ErrorKind::CrossesDevices))
+        });
+
+        assert_eq!(result, Err(GuiError::TrashUnavailable));
+        assert!(c.account_path("work").is_dir());
+        assert_eq!(c.get_default().unwrap().as_deref(), Some("work"));
+        assert_eq!(c.all_links().unwrap().len(), 1);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn the_standard_account_and_bad_names_are_never_removed() {
+        let (c, root) = fixture("remove-refused");
+        let standard = root.join("standard");
+        fs::create_dir_all(&standard).unwrap();
+        let never = |_: &Path| -> std::io::Result<PathBuf> { panic!("moved") };
+        for (name, error) in [
+            ("default", GuiError::InvalidAccount),
+            ("../work", GuiError::InvalidAccount),
+            ("missing", GuiError::AccountMissing),
+        ] {
+            assert_eq!(
+                remove_account_with(&c, &standard, name, never),
+                Err(error),
+                "{name}"
+            );
+        }
+        assert!(standard.is_dir());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn launch_policy_covers_every_action() {
         let (c, root) = fixture("launch");
         let standard = root.join("home").join(".claude");
@@ -1011,6 +1113,7 @@ mod tests {
             GuiError::DirectoryMissing,
             GuiError::SharedCredentialStore,
             GuiError::IdentityDrift,
+            GuiError::TrashUnavailable,
         ];
         assert_eq!(sample["gui_errors"], serde_json::to_value(codes).unwrap());
     }

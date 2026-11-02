@@ -118,10 +118,21 @@ const en = {
   detailsAction: "Details & diagnostics",
   loginAction: "Authenticate / re-login",
   makeDefaultAction: "Make default…",
+  trashAction: "Move to Trash…",
   loginTitle: (name: string) => `Authenticate ${name}?`,
   loginConfirm: "Open login",
   loginBody:
     "Open the existing Claude login flow in Terminal. Check the browser identity before signing in. Return here and refresh after the login finishes.",
+  trashTitle: (name: string) => `Move ${name} to the Trash?`,
+  trashConfirm: "Move to Trash",
+  trashBody: (name: ReactNode) => (
+    <>
+      The account directory of {name}, with its settings and sessions, moves to
+      the Trash and stays there until you empty it. Directories bound to it lose
+      their binding, and if it is the default, the standard account becomes the
+      default.
+    </>
+  ),
   defaultTitle: (name: string) => `Make ${name} the default?`,
   defaultConfirm: "Change default",
   defaultBody: (name: ReactNode) => (
@@ -245,6 +256,8 @@ const en = {
 
   // Backend results
   errors: {
+    trash_unavailable:
+      "The account could not be moved to the Trash, so nothing was removed. `claude-acc remove --purge` in Terminal deletes it outright.",
     identity_drift:
       "The account identity differs from its pin, or the pin is corrupt. Inspect it with the CLI before launching.",
     shared_credential_store:
@@ -318,8 +331,11 @@ export function useCopy(): Messages {
  * string means the backend did answer, with something this window does not
  * recognise, so it must not be told the backend is unreachable. Only a
  * non-string, a request that never got an answer, is that. Tauri's own
- * rejections are expected to be strings of the second kind; nothing in this
- * frontend can observe that, so it is checked where the shell is added.
+ * rejections are strings of the second kind, read from tauri 2.12.4: its
+ * errors reach the window through `From<crate::Error> for InvokeError`
+ * (`ipc/mod.rs`) as `Value::String(error.to_string())`, bad arguments
+ * included, and an unknown command is rejected with
+ * `format!("Command {command} not found")` (`webview/mod.rs`).
  */
 export function describeError(t: Messages, error: unknown): string {
   if (typeof error !== "string") return t.unreachable;

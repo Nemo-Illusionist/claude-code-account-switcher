@@ -15,6 +15,8 @@ import type {
 export const api = {
   snapshot: (live: boolean) => invoke<Snapshot>("snapshot", { live }),
   setDefault: (account: string) => invoke<Snapshot>("set_default", { account }),
+  removeAccount: (account: string) =>
+    invoke<Snapshot>("remove_account", { account }),
   bindings: (directory: string | null) =>
     invoke<Bindings>("list_bindings", { directory }),
   bind: (directory: string, account: string | null) =>

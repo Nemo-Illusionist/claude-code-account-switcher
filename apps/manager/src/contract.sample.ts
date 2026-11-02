@@ -111,6 +111,7 @@ export const sample: {
     "directory_missing",
     "shared_credential_store",
     "identity_drift",
+    "trash_unavailable",
   ],
   manager_errors: [
     "cli_missing",
