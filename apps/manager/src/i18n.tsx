@@ -118,10 +118,54 @@ const en = {
   detailsAction: "Details & diagnostics",
   loginAction: "Authenticate / re-login",
   makeDefaultAction: "Make default…",
+  pinAction: "Pin identity…",
+  repinAction: "Re-pin to signed-in identity…",
+  cloneSettingsAction: "Copy settings from the standard account…",
+  trashAction: "Move to Trash…",
   loginTitle: (name: string) => `Authenticate ${name}?`,
   loginConfirm: "Open login",
   loginBody:
     "Open the existing Claude login flow in Terminal. Check the browser identity before signing in. Return here and refresh after the login finishes.",
+  pinTitle: (name: string) => `Pin ${name} to its identity?`,
+  pinConfirm: "Pin",
+  pinBody: (name: ReactNode) => (
+    <>
+      Pin {name} to the identity it is signed in as now. If it is later signed
+      in as someone else, launching it is blocked until it is re-pinned.
+    </>
+  ),
+  repinTitle: (name: string) => `Re-pin ${name}?`,
+  repinConfirm: "Re-pin",
+  repinBody: (name: ReactNode) => (
+    <>
+      {name} is signed in as someone other than its pin, or its pin cannot be
+      read. Re-pinning accepts the identity signed in now and unblocks
+      launching. Do it only if signing in as that identity was intended.
+    </>
+  ),
+  cloneSettingsTitle: (name: string) => `Copy settings into ${name}?`,
+  cloneSettingsConfirm: "Copy settings",
+  cloneSettingsBody: (name: ReactNode) => (
+    <>
+      Copy settings.json, CLAUDE.md, agents, commands, output styles, skills and
+      plugins from the standard account into {name}. A file or folder {name}
+      already has is kept, and plugins are copied only if it has none
+      installed. Sign-in, sessions and local settings are not copied.
+    </>
+  ),
+  cloneSettingsDone: (name: string, items: string) => `Copied ${items} into ${name}.`,
+  cloneSettingsNothing: (name: string) =>
+    `Nothing to copy: ${name} already has these, or the standard account has none of them.`,
+  trashTitle: (name: string) => `Move ${name} to the Trash?`,
+  trashConfirm: "Move to Trash",
+  trashBody: (name: ReactNode) => (
+    <>
+      The account directory of {name}, with its settings and sessions, moves to
+      the Trash and stays there until you empty it. Directories bound to it lose
+      their binding, and if it is the default, the standard account becomes the
+      default.
+    </>
+  ),
   defaultTitle: (name: string) => `Make ${name} the default?`,
   defaultConfirm: "Change default",
   defaultBody: (name: ReactNode) => (
@@ -171,7 +215,27 @@ const en = {
   addTitle: (name: string) => `Add ${name}?`,
   addConfirm: "Create & authenticate",
   addBody:
-    "Create an isolated account using the CLI and open its login flow in Terminal. Existing settings and conversations are not copied.",
+    "Create an isolated account using the CLI and open its login flow in Terminal. Conversations are not copied.",
+  importInstead: "Import an existing folder instead",
+  createInstead: "Create a new account instead",
+  importSourceLabel: "Existing config folder",
+  importSourcePlaceholder: "~/.claude-work",
+  importTitle: (name: string) => `Import as ${name}?`,
+  importBody: (source: ReactNode, name: ReactNode) => (
+    <>
+      {source} becomes the managed account {name}, with its settings, sessions
+      and sign-in, without signing in again. On macOS, a Keychain sign-in found
+      for the folder is copied to the new location.
+    </>
+  ),
+  importMoveLabel:
+    "Move the folder instead of copying it. The original location will no longer exist.",
+  importCopyConfirm: "Import a copy",
+  importMoveConfirm: "Move and import",
+  importDone: (name: string) =>
+    `Imported ${name}. Refresh status to check that it is still signed in; if it is not, use Authenticate from its menu.`,
+  addSeedLabel:
+    "Start with the standard account's settings.json, CLAUDE.md, agents, commands, output styles, skills and plugins",
 
   // Usage and freshness
   resetPassed: "Reset passed",
@@ -232,21 +296,66 @@ const en = {
 
   // Sessions
   sessionsBanner:
-    "Session handoff is available through the existing CLI. This browser reads metadata only and preserves every transcript.",
+    "This browser reads session metadata only, never a transcript's content. Copying a session to another account leaves the original where it is.",
   discoveringSessions: "Discovering session metadata…",
   noSessionsTitle: "No sessions found",
   noSessionsBody: "Start Claude Code under an account to create a conversation.",
   showMore: (remaining: number) => `Show more (${remaining} remaining)`,
   sessionsFootnote:
-    "Project names are the CLI’s stored directory slugs, not reversible filesystem paths. Copying and resuming remain a CLI workflow.",
+    "Project names are the CLI’s stored directory slugs, not reversible filesystem paths. Resuming a copied session happens in Terminal.",
   modifiedUnknown: "Modified time unknown",
   sessionSize: (kilobytes: string) => `${kilobytes} KB`,
   copiesElsewhere: "Copies in multiple accounts",
+  resumeHookTitle: "Resume check in the claude wrapper (installed by claude-acc install)",
+  resumeHookOn:
+    "On: claude --resume <id> offers to copy a session that another account holds.",
+  resumeHookOff:
+    "Off: claude --resume <id> goes straight through. claude-acc run <account> --resume <id> still checks.",
+  resumeHookTurnOff: "Turn off…",
+  resumeHookTurnOn: "Turn on…",
+  resumeHookOffTitle: "Turn off the resume check?",
+  resumeHookOnTitle: "Turn on the resume check?",
+  resumeHookOffConfirm: "Turn off",
+  resumeHookOnConfirm: "Turn on",
+  resumeHookOffBody:
+    "claude --resume <id> will no longer look for the session in your other accounts. claude-acc run <account> --resume <id> keeps checking. It applies to the claude wrapper that claude-acc install puts on PATH; without it, claude runs Claude Code directly and nothing is checked. A terminal with CLAUDE_ACC_NO_RESUME_HOOK set to a value other than empty or 0 skips the check whatever is stored here.",
+  resumeHookOnBody:
+    "claude --resume <id> will look for the session in your other accounts first and offer to copy it, asking before anything is copied. It applies to the claude wrapper that claude-acc install puts on PATH; without it, claude runs Claude Code directly and nothing is checked. A terminal with CLAUDE_ACC_NO_RESUME_HOOK set to a value other than empty or 0 skips the check whatever is stored here.",
+  copySessionAction: "Copy to…",
+  copySessionAria: (id: string, account: string) =>
+    `Copy session ${id} from ${account} to another account`,
+  copySessionTitle: "Copy this session to another account?",
+  copySessionBody: (account: ReactNode, id: ReactNode) => (
+    <>
+      The transcript of {id}, with its subagent transcripts, is copied from{" "}
+      {account}. The original stays where it is.
+    </>
+  ),
+  copySessionDestination: "Destination account",
+  copySessionReplaceWarning: (account: ReactNode) => (
+    <>{account} already has a copy of this session. Copying replaces it.</>
+  ),
+  copySessionCost:
+    "The prompt cache is per account, so the first message after resuming under another account re-sends the whole transcript: slower and more expensive than a normal turn.",
+  copySessionConfirm: "Copy session",
+  copySessionReplaceConfirm: "Replace copy",
+  copySessionDone: (account: string, id: string) =>
+    `Copied to ${account}. To continue it, run claude-acc run ${account} --resume ${id} in Terminal.`,
 
   // Backend results
   errors: {
+    import_source_refused:
+      "This folder cannot be imported: it is already a managed account, is a link or keeps its sign-in files as links, holds Claude Accounts' own storage, or, for a move, holds the standard ~/.claude account.",
+    session_missing:
+      "This session is no longer in that account, so nothing was copied. The list has been reloaded.",
+    session_exists:
+      "The destination already has a copy of this session, so nothing was copied. The list has been reloaded; confirm again to replace it.",
+    not_signed_in:
+      "This account has never signed in, so there is no identity to pin. Sign in first, then pin it.",
+    trash_unavailable:
+      "The account could not be moved to the Trash, so nothing was removed. `claude-acc remove --purge` in Terminal deletes it outright.",
     identity_drift:
-      "The account identity differs from its pin, or the pin is corrupt. Inspect it with the CLI before launching.",
+      "The account identity differs from its pin, or the pin is corrupt. If signing in as this identity was intended, re-pin it from the account menu; otherwise sign in again as the pinned one.",
     shared_credential_store:
       "A shared credential-store override is set. Live refresh is disabled because it could report one account for every directory. Launch the manager without CLAUDE_SECURESTORAGE_CONFIG_DIR.",
     invalid_account:
@@ -256,13 +365,14 @@ const en = {
     invalid_directory:
       "Choose an absolute directory path without control characters or surrounding whitespace.",
     unrepresentable_directory:
-      "The CLI binding format cannot represent this path. Avoid equals signs and parent-directory segments.",
+      "This path cannot be used as written. Remove parent-directory (..) segments; a folder binding also cannot contain an equals sign.",
     directory_missing: "This directory no longer exists. Choose another folder.",
     symlink_storage:
       "Symlinked account storage is not supported for safety. Use the CLI to inspect this configuration.",
     storage_unreadable:
       "The account configuration could not be read. Check file permissions.",
-    storage_write_failed: "The configuration could not be saved. Check file permissions.",
+    storage_write_failed:
+      "The change could not be saved, or was saved only in part. Check file permissions and free disk space, then try again.",
     cli_missing: "The bundled CLI is missing. Reinstall Claude Accounts.",
     terminal_failed: "Terminal could not be opened.",
     launcher_failed: "The terminal launch request could not be prepared.",
@@ -318,8 +428,11 @@ export function useCopy(): Messages {
  * string means the backend did answer, with something this window does not
  * recognise, so it must not be told the backend is unreachable. Only a
  * non-string, a request that never got an answer, is that. Tauri's own
- * rejections are expected to be strings of the second kind; nothing in this
- * frontend can observe that, so it is checked where the shell is added.
+ * rejections are strings of the second kind, read from tauri 2.12.4: its
+ * errors reach the window through `From<crate::Error> for InvokeError`
+ * (`ipc/mod.rs`) as `Value::String(error.to_string())`, bad arguments
+ * included, and an unknown command is rejected with
+ * `format!("Command {command} not found")` (`webview/mod.rs`).
  */
 export function describeError(t: Messages, error: unknown): string {
   if (typeof error !== "string") return t.unreachable;
@@ -336,6 +449,11 @@ export function kilobytes(t: Messages, bytes: number): string {
       maximumFractionDigits: 1,
     }),
   );
+}
+
+/** Items joined the table's way: "a, b, and c" in English. */
+export function list(t: Messages, items: string[]): string {
+  return new Intl.ListFormat(t.locale, { type: "conjunction" }).format(items);
 }
 
 export function describeLaunch(t: Messages, account: string, launch: Launch): string {
