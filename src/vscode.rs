@@ -227,15 +227,23 @@ pub fn clear_wrapper(settings: &Path) -> std::io::Result<bool> {
 ///
 /// The temporary sits beside the target so the rename stays on one
 /// filesystem, which is what makes it atomic.
+///
+/// A `settings.json` that is a symlink, as dotfiles setups make it, is
+/// written where it points: renaming over the link itself would replace it
+/// with a plain file and leave the dotfiles copy behind, unchanged.
 fn write_atomically(settings: &Path, content: &str) -> std::io::Result<()> {
-    let tmp = settings.with_extension("json.claude-acc-tmp");
+    let target = match fs::symlink_metadata(settings) {
+        Ok(meta) if meta.file_type().is_symlink() => fs::canonicalize(settings)?,
+        _ => settings.to_path_buf(),
+    };
+    let tmp = target.with_extension("json.claude-acc-tmp");
     fs::write(&tmp, content)?;
     // The rename gives the target the temporary's permissions, so carry the
     // original's across rather than silently resetting someone's mode.
-    if let Ok(meta) = fs::metadata(settings) {
+    if let Ok(meta) = fs::metadata(&target) {
         let _ = fs::set_permissions(&tmp, meta.permissions());
     }
-    match fs::rename(&tmp, settings) {
+    match fs::rename(&tmp, &target) {
         Ok(()) => Ok(()),
         Err(e) => {
             let _ = fs::remove_file(&tmp);
@@ -982,6 +990,43 @@ mod tests {
 
             fs::remove_dir_all(&dir).unwrap();
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symlinked_settings_file_is_written_where_it_points() {
+        // Regression: the rename replaced the link with a plain file, so a
+        // dotfiles-managed settings.json stopped being managed, and the
+        // dotfiles copy never got the setting.
+        let dir = scratch("symlink");
+        let real = dir.join("dotfiles").join("vscode.json");
+        let settings = dir.join("User").join("settings.json");
+        fs::create_dir_all(real.parent().unwrap()).unwrap();
+        fs::create_dir_all(settings.parent().unwrap()).unwrap();
+        fs::write(&real, "{\n    // mine\n    \"editor.fontSize\": 13\n}\n").unwrap();
+        std::os::unix::fs::symlink(&real, &settings).unwrap();
+
+        let ours = dir.join("bin").join(WRAPPER_NAME);
+        assert!(set_wrapper(&settings, &ours).unwrap());
+
+        assert!(
+            fs::symlink_metadata(&settings)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+        let written = fs::read_to_string(&real).unwrap();
+        assert!(read_string_value(&written, WRAPPER_SETTING).is_some());
+        assert!(written.contains("// mine"));
+        // Nothing staged beside the link or the file is left behind.
+        for d in [real.parent().unwrap(), settings.parent().unwrap()] {
+            let names: Vec<_> = fs::read_dir(d)
+                .unwrap()
+                .map(|e| e.unwrap().file_name().to_string_lossy().to_string())
+                .collect();
+            assert_eq!(names.len(), 1, "{names:?}");
+        }
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
