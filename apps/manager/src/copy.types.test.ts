@@ -136,7 +136,7 @@ it("the sub-tables keyed by a contract union stay on `satisfies`", () => {
   };
   visit(source);
   expect({ checked: checked.sort(), cast }).toStrictEqual({
-    checked: ["errors", "identitySources", "lockStates", "usageSources"],
+    checked: ["editorStates", "errors", "identitySources", "lockStates", "usageSources"],
     cast: [],
   });
 });

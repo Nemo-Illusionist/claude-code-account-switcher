@@ -790,6 +790,16 @@ dialog h2 {
   max-height: 60vh;
   overflow: auto;
 }
+.dialog-body label {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0;
+}
+.dialog-body label.check {
+  display: flex;
+  align-items: start;
+  gap: 8px;
+}
 .dialog-actions {
   margin-top: 24px;
   display: flex;
@@ -881,4 +891,28 @@ dd {
   * {
     transition: none !important;
   }
+}
+.setting-row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 14px 16px;
+  margin-bottom: 20px;
+}
+.setting-row > div {
+  flex: 1;
+  min-width: 0;
+}
+.setting-row strong {
+  display: block;
+  font-size: 12px;
+}
+.setting-row .editor-state {
+  display: block;
+}
+.setting-row span {
+  font-size: 11px;
+  color: var(--muted);
 }
