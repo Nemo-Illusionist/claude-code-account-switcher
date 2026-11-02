@@ -10,6 +10,9 @@ export type SnapshotState = {
   refreshing: boolean;
   refresh: (live: boolean) => Promise<void>;
   setDefault: (account: string) => Promise<void>;
+  removeAccount: (account: string) => Promise<void>;
+  pinAccount: (account: string, force: boolean) => Promise<void>;
+  importAccount: (account: string, source: string, moveInto: boolean) => Promise<void>;
 };
 
 /**
@@ -51,10 +54,36 @@ export function useSnapshot(): SnapshotState {
     [apply],
   );
 
+  const removeAccount = useCallback(
+    async (account: string) => apply(await api.removeAccount(account)),
+    [apply],
+  );
+
+  const pinAccount = useCallback(
+    async (account: string, force: boolean) => apply(await api.pinAccount(account, force)),
+    [apply],
+  );
+
+  const importAccount = useCallback(
+    async (account: string, source: string, moveInto: boolean) =>
+      apply(await api.importAccount(account, source, moveInto)),
+    [apply],
+  );
+
   useEffect(() => {
     void refresh(false);
     return events.snapshot(apply);
   }, [apply, refresh]);
 
-  return { snapshot, error, loading, refreshing, refresh, setDefault };
+  return {
+    snapshot,
+    error,
+    loading,
+    refreshing,
+    refresh,
+    setDefault,
+    removeAccount,
+    pinAccount,
+    importAccount,
+  };
 }

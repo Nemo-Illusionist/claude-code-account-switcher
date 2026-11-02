@@ -5,24 +5,43 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type {
   Bindings,
+  Editor,
   Installation,
   Launch,
   LaunchAction,
   Session,
   Snapshot,
+  UpdateCheck,
 } from "./contract";
 
 export const api = {
   snapshot: (live: boolean) => invoke<Snapshot>("snapshot", { live }),
   setDefault: (account: string) => invoke<Snapshot>("set_default", { account }),
+  removeAccount: (account: string) =>
+    invoke<Snapshot>("remove_account", { account }),
+  importAccount: (account: string, source: string, moveInto: boolean) =>
+    invoke<Snapshot>("import_account", { account, source, moveInto }),
+  pinAccount: (account: string, force: boolean) =>
+    invoke<Snapshot>("pin_account", { account, force }),
+  cloneSettings: (account: string) => invoke<string[]>("clone_settings", { account }),
+  installStatusline: (account: string, replace: boolean) =>
+    invoke<void>("install_statusline", { account, replace }),
   bindings: (directory: string | null) =>
     invoke<Bindings>("list_bindings", { directory }),
   bind: (directory: string, account: string | null) =>
     invoke<void>("set_binding", { directory, account }),
   sessions: () => invoke<Session[]>("list_sessions"),
+  resumeHook: () => invoke<boolean>("resume_hook"),
+  setResumeHook: (on: boolean) => invoke<boolean>("set_resume_hook", { on }),
+  copySession: (from: string, project: string, id: string, to: string, replace: boolean) =>
+    invoke<Session[]>("copy_session", { from, project, id, to, replace }),
+  vscodeEditors: () => invoke<Editor[]>("vscode_editors"),
+  vscodeInstall: (force: boolean) => invoke<Editor[]>("vscode_install", { force }),
+  vscodeUninstall: () => invoke<Editor[]>("vscode_uninstall"),
   terminal: (account: string, directory: string | null, action: LaunchAction) =>
     invoke<Launch>("open_terminal", { account, directory, action }),
   installation: () => invoke<Installation>("installation"),
+  checkUpdate: () => invoke<UpdateCheck>("check_update"),
   chooseDirectory: () => invoke<string | null>("choose_directory"),
 };
 

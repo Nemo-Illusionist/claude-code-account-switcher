@@ -7,6 +7,7 @@ import { CopyProvider, useCopy, type Lang } from "./i18n";
 import { NoticeBanner, NoticeProvider, useNotices } from "./notices";
 import { ProjectsPage } from "./projects/ProjectsPage";
 import { SessionsPage } from "./sessions/SessionsPage";
+import { UpdateButton } from "./UpdateButton";
 import { useSnapshot } from "./useSnapshot";
 
 const TABS = ["accounts", "projects", "sessions"] as const;
@@ -146,6 +147,7 @@ function Shell() {
         </div>
         <div className="sidebar-footer">
           {t.sidebarFooter} <span>{t.version(VERSION)}</span>
+          <UpdateButton />
         </div>
       </aside>
       <main>
@@ -184,7 +186,9 @@ function Shell() {
           {tab === "projects" && (
             <ProjectsPage accounts={state.snapshot?.accounts ?? []} />
           )}
-          {tab === "sessions" && <SessionsPage />}
+          {tab === "sessions" && (
+            <SessionsPage accounts={state.snapshot?.accounts ?? []} />
+          )}
         </div>
         <footer>
           <span>

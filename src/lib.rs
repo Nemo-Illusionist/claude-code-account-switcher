@@ -13,8 +13,20 @@ pub mod environment;
 #[doc(hidden)]
 pub mod identity;
 #[doc(hidden)]
+pub mod import;
+#[doc(hidden)]
 pub mod quoting;
 #[doc(hidden)]
 pub mod resolve;
 #[doc(hidden)]
+pub mod seed;
+#[doc(hidden)]
 pub mod sessions;
+#[doc(hidden)]
+pub mod statusline;
+#[doc(hidden)]
+pub mod trash;
+#[doc(hidden)]
+pub mod update;
+#[doc(hidden)]
+pub mod vscode;

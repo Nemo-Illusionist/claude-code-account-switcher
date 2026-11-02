@@ -15,8 +15,27 @@
 //! - [`bindings`]: stored directory bindings, plus the effective account for
 //!   one directory and the binding it inherits from, via `resolve_account`.
 //! - [`sessions`]: session metadata, newest first.
+//! - [`resume_hook`] and [`set_resume_hook`]: the `claude` wrapper's
+//!   `--resume` check, as `claude-acc resume-hook` shows and sets it.
+//! - [`copy_session`]: one account's session copied into another, by the
+//!   same file copy as `claude-acc session copy`.
 //! - [`change_default`] and [`change_binding`]: validated writes.
-//! - [`check_launch`]: whether `run`, `login` or `add` may start for an
+//! - [`remove_account`]: a managed account to the desktop trash, never
+//!   deleted outright.
+//! - [`clone_settings`]: seed a managed account with the standard
+//!   account's settings, as `claude-acc clone-settings` does.
+//! - [`import_account`]: adopt an existing config dir as a managed
+//!   account, by the rules of `claude-acc import`.
+//! - [`install_statusline`]: point an account's Claude Code at `claude-acc
+//!   statusline`, as `claude-acc statusline --install` does.
+//! - [`vscode_editors`], [`vscode_install`] and [`vscode_uninstall`]: the
+//!   VS Code process wrapper, by the rules of `claude-acc vscode`.
+//! - [`check_update`]: the latest `claude-acc` release against the bundled
+//!   and installed CLIs, as `claude-acc update --check` reports it.
+//! - [`pin_account`]: pin an account to the identity it is signed in as,
+//!   by the same rules as `claude-acc lock`.
+//! - [`check_launch`]: whether `run`, `login` or `add` (with or without
+//!   `--seed`) may start for an
 //!   account, and in which physical directory. The decision only; launching
 //!   is the caller's.
 //!
@@ -43,8 +62,9 @@
 //! and anything above them, may be symlinks. There is no notion of a global
 //! "active" account; `is_default` is only the configured fallback for
 //! unbound directories.
-use crate::config::{AppConfig, validate_name};
-use crate::{identity, resolve, sessions};
+use crate::config::{AppConfig, binary_name, validate_name};
+use crate::import::{self, Refusal};
+use crate::{identity, resolve, seed, sessions, statusline, trash, update, vscode};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fs;
@@ -67,6 +87,15 @@ pub enum GuiError {
     DirectoryMissing,
     SharedCredentialStore,
     IdentityDrift,
+    TrashUnavailable,
+    NotSignedIn,
+    SessionMissing,
+    SessionExists,
+    ImportSourceRefused,
+    CliNotInstalled,
+    StatuslineExists,
+    UnsupportedPlatform,
+    UpdateCheckFailed,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -190,12 +219,53 @@ pub struct Session {
     pub duplicate: bool,
 }
 
+/// What a VS Code-family editor's `claudeCode.claudeProcessWrapper` says.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EditorState {
+    /// Points at our wrapper: the native UI follows the workspace's account.
+    Ours,
+    Unset,
+    /// Another tool's launcher; its path is not sent.
+    Foreign,
+    /// `settings.json` cannot be read as JSON this can edit safely.
+    Unreadable,
+    /// `settings.json` is a link. Writing it means replacing it, which would
+    /// cut it off from wherever it points, so it is left alone.
+    Linked,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Editor {
+    pub name: String,
+    pub state: EditorState,
+    /// Profiles beyond the default one read their own settings, not the file
+    /// this writes.
+    pub other_profiles: bool,
+}
+
+/// The latest release against the two CLIs a user can have. A version that
+/// is unknown or does not parse is `None` and never counted as outdated.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct UpdateCheck {
+    pub latest: String,
+    /// The CLI bundled with the app; a newer app replaces it.
+    pub bundled: Option<String>,
+    pub bundled_outdated: bool,
+    /// The CLI under the switch directory; `claude-acc update` replaces it.
+    pub installed: Option<String>,
+    pub installed_outdated: bool,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum LaunchAction {
     Run,
     Login,
     Add,
+    /// `add --seed`: the new account starts with the standard account's
+    /// settings, as `clone-settings` would give it.
+    AddSeeded,
 }
 
 impl LaunchAction {
@@ -204,8 +274,13 @@ impl LaunchAction {
         match self {
             Self::Run => "run",
             Self::Login => "login",
-            Self::Add => "add",
+            Self::Add | Self::AddSeeded => "add",
         }
+    }
+
+    /// Whether the subcommand gets `--seed`.
+    pub fn seeds(self) -> bool {
+        self == Self::AddSeeded
     }
 }
 
@@ -271,6 +346,15 @@ fn storage_root<'a>(config: &'a AppConfig, standard: &'a Path, name: &str) -> &'
     }
 }
 
+/// Files in an account directory that hold credentials or identity, refused
+/// as links. The identity record is checked separately: for the standard
+/// account it lives outside the directory.
+const GUARDED_FILES: [&str; 3] = [
+    ".credentials.json",
+    ".account-info.json",
+    identity::LOCK_FILE,
+];
+
 /// An existing account directory whose storage is safe to read secrets from.
 fn account_dir(config: &AppConfig, standard: &Path, name: &str) -> Result<PathBuf, GuiError> {
     if !validate_name(name) {
@@ -282,11 +366,7 @@ fn account_dir(config: &AppConfig, standard: &Path, name: &str) -> Result<PathBu
     }
     let root = storage_root(config, standard, name);
     reject_symlinks(root, &path)?;
-    for file in [
-        ".credentials.json",
-        ".account-info.json",
-        identity::LOCK_FILE,
-    ] {
+    for file in GUARDED_FILES {
         reject_symlinks(root, &path.join(file))?;
     }
     if let Some(local) = identity::local_identity_path(&path) {
@@ -314,6 +394,31 @@ fn reject_symlinks(root: &Path, path: &Path) -> Result<(), GuiError> {
             Ok(_) => (),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => (),
             Err(_) => return Err(GuiError::StorageUnreadable),
+        }
+    }
+    Ok(())
+}
+
+/// [`reject_symlinks`] for every entry below `src`, and for the path each
+/// would be copied to below `dest`. A missing `src` has nothing below it.
+fn reject_symlinks_below(
+    src_root: &Path,
+    src: &Path,
+    dest_root: &Path,
+    dest: &Path,
+) -> Result<(), GuiError> {
+    let entries = match fs::read_dir(src) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(_) => return Err(GuiError::StorageUnreadable),
+    };
+    for entry in entries {
+        let entry = entry.map_err(|_| GuiError::StorageUnreadable)?;
+        let (from, to) = (entry.path(), dest.join(entry.file_name()));
+        reject_symlinks(src_root, &from)?;
+        reject_symlinks(dest_root, &to)?;
+        if from.is_dir() {
+            reject_symlinks_below(src_root, &from, dest_root, &to)?;
         }
     }
     Ok(())
@@ -374,6 +479,21 @@ fn usage(result: identity::UsageResult, now: u64) -> Usage {
     }
 }
 
+/// The pin state of one account, read from disk now. Cheap: two local
+/// files, no network. For a consumer that keeps a snapshot and must not
+/// show a pin state older than a change it just made.
+pub fn lock_of(config: &AppConfig, standard: &Path, name: &str) -> LockStatus {
+    // Storage that would be refused for a snapshot is not read here either.
+    let Ok(dir) = account_dir(config, standard, name) else {
+        return LockStatus::Unknown;
+    };
+    let lock = lock_path(config, name, &dir);
+    if reject_symlinks(&config.base_dir, &lock).is_err() {
+        return LockStatus::Unknown;
+    }
+    lock_status(identity::lock_state_at(&lock, &dir))
+}
+
 fn lock_status(state: identity::LockState) -> LockStatus {
     match state {
         identity::LockState::Ok => LockStatus::Matched,
@@ -426,10 +546,7 @@ fn account(
     if local.is_some() {
         row.identity_source = IdentitySource::Local;
     }
-    row.lock = lock_status(identity::lock_state_at(
-        &lock_path(config, name, &path),
-        &path,
-    ));
+    row.lock = lock_of(config, standard, name);
     if !live {
         row.usage = usage(
             identity::cached_usage(&path).map_or(identity::UsageResult::Offline, |(u, age)| {
@@ -451,6 +568,14 @@ fn account(
     }
     row.usage = usage(identity::fetch_account_usage(&path), now);
     row
+}
+
+/// One account's row from local records only, as a non-live [`snapshot`]
+/// builds it. For a consumer that keeps a snapshot and must show an account
+/// that appeared after it was built.
+pub fn local_account(config: &AppConfig, standard: &Path, name: &str) -> Account {
+    // `is_default` is the consumer's to mark, as for any kept snapshot.
+    account(config, standard, name, "", false, now())
 }
 
 /// Every account, the standard one first. `live` asks the profile and usage
@@ -560,6 +685,89 @@ pub fn sessions(config: &AppConfig, standard: &Path) -> Result<Vec<Session>, Gui
         .collect())
 }
 
+/// Copy one account's session into another, through the same
+/// `sessions::copy_into` as `claude-acc session copy`. The source is named
+/// the way [`sessions`] lists it, by account, project and id, so unlike the
+/// CLI there is no choice between copies to make.
+///
+/// If `to` already holds a session with this id, in any project, it is
+/// replaced only with `replace`: the CLI asks before that overwrite, and
+/// the window asks instead.
+pub fn copy_session(
+    config: &AppConfig,
+    standard: &Path,
+    from: &str,
+    project: &str,
+    id: &str,
+    to: &str,
+    replace: bool,
+) -> Result<(), GuiError> {
+    // Copying a transcript onto itself; the window never offers it.
+    if from == to {
+        return Err(GuiError::InvalidAccount);
+    }
+    let src_dir = account_dir(config, standard, from)?;
+    let dest_dir = account_dir(config, standard, to)?;
+    let (src_root, dest_root) = (
+        storage_root(config, standard, from),
+        storage_root(config, standard, to),
+    );
+    reject_symlinks(src_root, &sessions::projects_dir(&src_dir))?;
+    reject_symlinks(dest_root, &sessions::projects_dir(&dest_dir))?;
+    // Found in a listing, not joined from the arguments, so a project or id
+    // sent by the window can only name a transcript that is there.
+    let src = sessions::list_in(&src_dir, from, None)
+        .into_iter()
+        .find(|s| s.project == project && s.id == id)
+        .ok_or(GuiError::SessionMissing)?;
+    let dest = sessions::destination_path(&src, &dest_dir);
+    for path in [&src.path, &src.sidecar_dir()] {
+        reject_symlinks(src_root, path)?;
+    }
+    for path in [&dest, &dest.with_extension("")] {
+        reject_symlinks(dest_root, path)?;
+    }
+    // The sidecar is copied file by file, following links, so a link
+    // anywhere below it would read or write outside the storage. Checked
+    // before anything is written, so a refusal leaves the destination as it
+    // was.
+    reject_symlinks_below(
+        src_root,
+        &src.sidecar_dir(),
+        dest_root,
+        &dest.with_extension(""),
+    )?;
+    if !replace
+        && sessions::list_in(&dest_dir, to, None)
+            .iter()
+            .any(|s| s.id == id)
+    {
+        return Err(GuiError::SessionExists);
+    }
+    sessions::copy_into(&src, &dest_dir)
+        .map(|_| ())
+        .map_err(|_| GuiError::StorageWriteFailed)
+}
+
+/// Whether the generated `claude` wrapper checks a `--resume <id>` against
+/// the other accounts, as stored: what `claude-acc resume-hook` shows. The
+/// `CLAUDE_ACC_NO_RESUME_HOOK` override belongs to one terminal's
+/// environment, not to this process, so it is not consulted.
+pub fn resume_hook(config: &AppConfig) -> Result<bool, GuiError> {
+    reject_symlinks(&config.base_dir, &config.config_path())?;
+    check_readable(&config.config_path())?;
+    Ok(sessions::resume_hook_stored_on(config))
+}
+
+/// Store the wrapper's `--resume` check on or off, as `claude-acc
+/// resume-hook on|off` does.
+pub fn set_resume_hook(config: &AppConfig, on: bool) -> Result<(), GuiError> {
+    writable(config)?;
+    config
+        .set_setting(sessions::RESUME_HOOK_SETTING, if on { "on" } else { "off" })
+        .map_err(|_| GuiError::StorageWriteFailed)
+}
+
 pub fn change_default(config: &AppConfig, standard: &Path, name: &str) -> Result<(), GuiError> {
     if name != "default" {
         account_dir(config, standard, name)?;
@@ -599,6 +807,435 @@ pub fn change_binding(
     .map_err(|_| GuiError::StorageWriteFailed)
 }
 
+/// Move a managed account to the desktop trash, then drop the default and
+/// the bindings that named it, as `claude-acc remove` does.
+///
+/// Unlike the CLI there is no fallback to deleting outright: a window that
+/// said "Trash" must not purge. If the move fails, nothing has changed.
+pub fn remove_account(config: &AppConfig, standard: &Path, name: &str) -> Result<(), GuiError> {
+    remove_account_with(config, standard, name, trash::trash_dir)
+}
+
+fn remove_account_with(
+    config: &AppConfig,
+    standard: &Path,
+    name: &str,
+    to_trash: impl FnOnce(&Path) -> std::io::Result<PathBuf>,
+) -> Result<(), GuiError> {
+    // The standard account is `~/.claude` itself, not ours to remove.
+    if name == "default" {
+        return Err(GuiError::InvalidAccount);
+    }
+    let dir = account_dir(config, standard, name)?;
+    writable(config)?;
+    to_trash(&dir).map_err(|_| GuiError::TrashUnavailable)?;
+    if config.get_default().ok().flatten().as_deref() == Some(name) {
+        config
+            .clear_default()
+            .map_err(|_| GuiError::StorageWriteFailed)?;
+    }
+    config
+        .remove_links_for_account(name)
+        .map_err(|_| GuiError::StorageWriteFailed)
+}
+
+/// Seed a managed account with the standard account's settings, memory,
+/// custom assets and plugins, through the CLI's own `seed`. A file or
+/// directory the account already has is kept; plugins are copied only into
+/// an account with none installed. Returns what was copied, a directory
+/// with a trailing `/`; empty when there was nothing to copy.
+///
+/// A link in the account is refused only where the seed would write through
+/// it; one it skips, such as a `skills/` linked to a shared copy, is fine.
+/// The source is the user's own `~/.claude`, read as `clone-settings` reads
+/// it: a file that is a link is followed, a link inside a directory is
+/// recreated.
+pub fn clone_settings(
+    config: &AppConfig,
+    standard: &Path,
+    name: &str,
+) -> Result<Vec<String>, GuiError> {
+    // Seeding the standard account from itself.
+    if name == "default" {
+        return Err(GuiError::InvalidAccount);
+    }
+    let dir = account_dir(config, standard, name)?;
+    for entry in seed::COPYABLE_FILES.iter().chain(seed::COPYABLE_DIRS) {
+        let path = dir.join(entry);
+        // Written only where the standard account has it and the account
+        // has nothing: there, a link leads nowhere and the copy would land
+        // wherever it points.
+        if standard.join(entry).exists() && !path.exists() {
+            reject_symlinks(&config.base_dir, &path)?;
+        }
+    }
+    // Plugins are copied, into an existing `plugins/` too, when the standard
+    // account has some and this one has none; then a link anywhere in it
+    // would be written through.
+    let plugins = dir.join("plugins");
+    if seed::has_plugins(&standard.join("plugins")) && !seed::has_plugins(&plugins) {
+        reject_symlinks_in(&config.base_dir, &plugins)?;
+    }
+    let report =
+        seed::copy_user_config_from(standard, &dir).map_err(|_| GuiError::StorageWriteFailed)?;
+    Ok(report
+        .copied
+        .iter()
+        .map(|c| match c.files {
+            None => c.name.to_string(),
+            Some(_) => format!("{}/", c.name),
+        })
+        .collect())
+}
+
+/// [`reject_symlinks`] for `dir` and everything below it. A missing `dir`
+/// has nothing below it.
+fn reject_symlinks_in(root: &Path, dir: &Path) -> Result<(), GuiError> {
+    reject_symlinks(root, dir)?;
+    let entries = match fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(_) => return Err(GuiError::StorageUnreadable),
+    };
+    for entry in entries {
+        let path = entry.map_err(|_| GuiError::StorageUnreadable)?.path();
+        reject_symlinks(root, &path)?;
+        if path.is_dir() {
+            reject_symlinks_in(root, &path)?;
+        }
+    }
+    Ok(())
+}
+
+/// Adopt an existing Claude Code config dir as managed account `name`, as
+/// `claude-acc import` does: copied, or moved with `move_into`, then its
+/// Keychain entry copied to the new location so the sign-in comes along.
+/// `source` is absolute, or starts with `~/` for the home directory this
+/// app resolved `standard` under.
+///
+/// The CLI's refusals apply. Beyond them, the window refuses with
+/// `import_source_refused` a source that is itself a link or holds its
+/// credential or identity files as links (the account would be refused
+/// everywhere else here), one that holds the `accounts/`
+/// directory (copying it would copy into itself), and moving anything that
+/// holds the standard `~/.claude`, which is not ours to take away.
+pub fn import_account(
+    config: &AppConfig,
+    standard: &Path,
+    name: &str,
+    source: &str,
+    move_into: bool,
+) -> Result<(), GuiError> {
+    import_account_with(config, standard, name, source, move_into, |from, to| {
+        // Best effort, as in the CLI: a refresh shows whether the sign-in
+        // came along.
+        let _ = identity::copy_keychain_entry(from, to);
+    })
+}
+
+fn import_account_with(
+    config: &AppConfig,
+    standard: &Path,
+    name: &str,
+    source: &str,
+    move_into: bool,
+    rekey: impl FnOnce(&Path, &Path),
+) -> Result<(), GuiError> {
+    let src = match source.strip_prefix("~/") {
+        Some(rest) => {
+            let home = standard.parent().ok_or(GuiError::DirectoryMissing)?;
+            let joined = home.join(rest);
+            project_path(joined.to_str().ok_or(GuiError::InvalidDirectory)?, false)?
+        }
+        None => project_path(source, false)?,
+    };
+    match import::refusal(config, name, &src) {
+        None => (),
+        Some(Refusal::Reserved | Refusal::InvalidName) => return Err(GuiError::InvalidAccount),
+        Some(Refusal::SourceNotDir) => return Err(GuiError::DirectoryMissing),
+        Some(Refusal::Exists) => return Err(GuiError::AccountExists),
+        Some(Refusal::SourceManaged) => return Err(GuiError::ImportSourceRefused),
+    }
+    let is_link = |p: &Path| fs::symlink_metadata(p).is_ok_and(|m| m.file_type().is_symlink());
+    // Imported as they are, these links would make an account that
+    // `account_dir` refuses, and so one the window could not use or remove.
+    let links = is_link(&src)
+        || GUARDED_FILES
+            .iter()
+            .chain([&".claude.json"])
+            .any(|f| is_link(&src.join(f)));
+    // Before the comparison below: it creates the switch directory, which a
+    // path that does not exist yet could not be resolved against.
+    writable(config)?;
+    // Containment is decided on physical paths, so a second spelling of the
+    // same directory cannot slip past it. The path as given is what is
+    // copied and re-keyed, as the CLI does: the Keychain entry is named
+    // after it.
+    let real = |p: &Path| p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
+    let real_src = real(&src);
+    if links
+        || real(&config.accounts_dir()).starts_with(&real_src)
+        || real_src.starts_with(real(&config.accounts_dir()))
+        || (move_into && real(standard).starts_with(&real_src))
+    {
+        return Err(GuiError::ImportSourceRefused);
+    }
+    let target = config.account_path(name);
+    reject_symlinks(&config.base_dir, &target)?;
+    if move_into {
+        fs::rename(&src, &target).map_err(|_| GuiError::StorageWriteFailed)?;
+    } else if import::copy_tree(&src, &target).is_err() {
+        let _ = fs::remove_dir_all(&target);
+        return Err(GuiError::StorageWriteFailed);
+    }
+    rekey(&src, &target);
+    Ok(())
+}
+
+/// Write the `statusLine` block that runs `claude-acc statusline` into an
+/// account's `settings.json`, as `claude-acc statusline --install` does, for
+/// a named account rather than the one the working directory resolves to.
+///
+/// Where it departs from the CLI, on purpose:
+/// - a `settings.json` that is not a JSON object is refused
+///   (`storage_unreadable`), never replaced by a file holding only the
+///   status line;
+/// - a `statusLine` of someone else's is replaced only with `replace`
+///   (`statusline_exists`); the block this writes is not;
+/// - the command runs the CLI installed under the switch directory, so
+///   without one there it is `cli_not_installed`;
+/// - the file is replaced by a rename, so an interrupted write cannot leave
+///   it half-written; its mode is carried over, a hard link to it is not.
+pub fn install_statusline(
+    config: &AppConfig,
+    standard: &Path,
+    name: &str,
+    replace: bool,
+) -> Result<(), GuiError> {
+    let dir = account_dir(config, standard, name)?;
+    let settings = dir.join("settings.json");
+    // A rename would replace a link with a file: a `settings.json` kept in
+    // dotfiles would stop being shared without anyone noticing.
+    reject_symlinks(storage_root(config, standard, name), &settings)?;
+    if !config.base_dir.join("bin").join(binary_name()).is_file() {
+        return Err(GuiError::CliNotInstalled);
+    }
+    let mut root = match fs::read_to_string(&settings) {
+        Ok(raw) => serde_json::from_str::<serde_json::Value>(&raw)
+            .ok()
+            .filter(serde_json::Value::is_object)
+            .ok_or(GuiError::StorageUnreadable)?,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => serde_json::json!({}),
+        Err(_) => return Err(GuiError::StorageUnreadable),
+    };
+    let entry = statusline::entry(&config.base_dir);
+    match root.get("statusLine") {
+        Some(existing) if *existing == entry => return Ok(()),
+        Some(_) if !replace => return Err(GuiError::StatuslineExists),
+        _ => (),
+    }
+    root["statusLine"] = entry;
+    let mut text = serde_json::to_string_pretty(&root).map_err(|_| GuiError::StorageWriteFailed)?;
+    text.push('\n');
+    let staged = dir.join("settings.json.claude-acc-tmp");
+    fs::write(&staged, text)
+        .and_then(|_| {
+            // The rename gives the file the staged copy's mode; keep the
+            // original's, which may be 0600 for an `env` holding a key.
+            if let Ok(meta) = fs::metadata(&settings) {
+                fs::set_permissions(&staged, meta.permissions())?;
+            }
+            fs::rename(&staged, &settings)
+        })
+        .map_err(|_| {
+            let _ = fs::remove_file(&staged);
+            GuiError::StorageWriteFailed
+        })
+}
+
+fn editor_state(editor: &vscode::Editor, wrapper: &Path) -> EditorState {
+    if fs::symlink_metadata(&editor.settings).is_ok_and(|m| m.file_type().is_symlink()) {
+        return EditorState::Linked;
+    }
+    match vscode::wrapper_state(&editor.settings, wrapper) {
+        vscode::WrapperState::Ours => EditorState::Ours,
+        vscode::WrapperState::Unset => EditorState::Unset,
+        vscode::WrapperState::Foreign(_) => EditorState::Foreign,
+        vscode::WrapperState::Unreadable => EditorState::Unreadable,
+    }
+}
+
+/// Every VS Code-family editor installed here and what its process wrapper
+/// setting says, as `claude-acc vscode status` reports it. Empty when none
+/// is installed.
+pub fn vscode_editors(config: &AppConfig) -> Vec<Editor> {
+    dirs::config_dir().map_or_else(Vec::new, |root| vscode_editors_in(config, &root))
+}
+
+/// [`vscode_editors`] under `editors_root`, the platform's config directory
+/// (`~/Library/Application Support` on macOS) or a test's.
+fn vscode_editors_in(config: &AppConfig, editors_root: &Path) -> Vec<Editor> {
+    let wrapper = vscode::wrapper_path(&config.base_dir);
+    vscode::detect_editors_in(editors_root)
+        .iter()
+        .map(|e| Editor {
+            name: e.label.to_string(),
+            state: editor_state(e, &wrapper),
+            other_profiles: !vscode::extra_profiles_in(editors_root, e.dir).is_empty(),
+        })
+        .collect()
+}
+
+/// Set up the editors installed here; the rules are on `vscode_install_in`.
+pub fn vscode_install(config: &AppConfig, force: bool) -> Result<Vec<Editor>, GuiError> {
+    let root = dirs::config_dir().ok_or(GuiError::DirectoryMissing)?;
+    vscode_install_in(config, &root, force)
+}
+
+/// Point every installed editor's process wrapper at ours, by the CLI's
+/// `plan_install`: an unreadable file is never written, and another tool's
+/// launcher is replaced only with `force`. Returns the editors as they are
+/// afterwards; if one could not be written, the others are still tried and
+/// the reply is `storage_write_failed`.
+///
+/// Unlike `claude-acc vscode install`, the wrapper always runs the CLI
+/// installed under the switch directory (`cli_not_installed` without one):
+/// the CLI falls back to the running binary, which here would be this app.
+/// And a linked `settings.json` is left alone.
+fn vscode_install_in(
+    config: &AppConfig,
+    editors_root: &Path,
+    force: bool,
+) -> Result<Vec<Editor>, GuiError> {
+    if cfg!(windows) {
+        // The wrapper is a shell script; the CLI refuses here too.
+        return Err(GuiError::UnsupportedPlatform);
+    }
+    let bin = config.base_dir.join("bin").join(binary_name());
+    if !bin.is_file() {
+        return Err(GuiError::CliNotInstalled);
+    }
+    let wrapper = vscode::wrapper_path(&config.base_dir);
+    reject_symlinks(&config.base_dir, &wrapper)?;
+    write_vscode_wrapper(config, &bin)?;
+    // Every editor is tried, as in the CLI: one that cannot be written does
+    // not keep the others from being set up.
+    let mut failed = false;
+    for editor in vscode::detect_editors_in(editors_root) {
+        if editor_state(&editor, &wrapper) == EditorState::Linked {
+            continue;
+        }
+        let state = vscode::wrapper_state(&editor.settings, &wrapper);
+        if vscode::plan_install(&state, force) == vscode::InstallAction::Write {
+            failed |= vscode::set_wrapper(&editor.settings, &wrapper).is_err();
+        }
+    }
+    if failed {
+        return Err(GuiError::StorageWriteFailed);
+    }
+    Ok(vscode_editors_in(config, editors_root))
+}
+
+#[cfg(not(windows))]
+fn write_vscode_wrapper(config: &AppConfig, bin: &Path) -> Result<(), GuiError> {
+    vscode::install_wrapper(&config.base_dir, bin)
+        .map(|_| ())
+        .map_err(|_| GuiError::StorageWriteFailed)
+}
+
+#[cfg(windows)]
+fn write_vscode_wrapper(_: &AppConfig, _: &Path) -> Result<(), GuiError> {
+    Err(GuiError::UnsupportedPlatform)
+}
+
+/// Undo [`vscode_install`] for the editors installed here; the rules are on
+/// `vscode_uninstall_in`.
+pub fn vscode_uninstall(config: &AppConfig) -> Result<Vec<Editor>, GuiError> {
+    let root = dirs::config_dir().ok_or(GuiError::DirectoryMissing)?;
+    vscode_uninstall_in(config, &root)
+}
+
+/// Take our process wrapper out of every installed editor, by the CLI's
+/// `plan_uninstall`: another tool's launcher stays, and so does a linked
+/// `settings.json`. The wrapper file itself stays too, as with the CLI;
+/// nothing runs it once no editor points at it. Returns the editors as they
+/// are afterwards.
+fn vscode_uninstall_in(config: &AppConfig, editors_root: &Path) -> Result<Vec<Editor>, GuiError> {
+    let wrapper = vscode::wrapper_path(&config.base_dir);
+    let mut failed = false;
+    for editor in vscode::detect_editors_in(editors_root) {
+        if editor_state(&editor, &wrapper) == EditorState::Linked {
+            continue;
+        }
+        let state = vscode::wrapper_state(&editor.settings, &wrapper);
+        if vscode::plan_uninstall(&state) == vscode::UninstallAction::Clear {
+            failed |= vscode::clear_wrapper(&editor.settings).is_err();
+        }
+    }
+    if failed {
+        return Err(GuiError::StorageWriteFailed);
+    }
+    Ok(vscode_editors_in(config, editors_root))
+}
+
+/// Ask GitHub for the latest `claude-acc` release, as `claude-acc update
+/// --check` does, and compare it with the bundled and installed CLIs'
+/// versions, as their owner read them. Nothing is downloaded.
+pub fn check_update(bundled: &str, installed: Option<&str>) -> Result<UpdateCheck, GuiError> {
+    check_update_with(bundled, installed, || {
+        update::latest_release_tag(&update::repo_slug(update::REPO_URL)?)
+    })
+}
+
+fn check_update_with(
+    bundled: &str,
+    installed: Option<&str>,
+    latest_tag: impl FnOnce() -> Option<String>,
+) -> Result<UpdateCheck, GuiError> {
+    let latest = latest_tag()
+        .as_deref()
+        .and_then(update::normalize_version)
+        .ok_or(GuiError::UpdateCheckFailed)?;
+    let bundled = update::normalize_version(bundled);
+    let installed = installed.and_then(update::normalize_version);
+    let outdated = |v: &Option<String>| v.as_deref().is_some_and(|v| update::is_newer(&latest, v));
+    Ok(UpdateCheck {
+        bundled_outdated: outdated(&bundled),
+        installed_outdated: outdated(&installed),
+        latest,
+        bundled,
+        installed,
+    })
+}
+
+/// Pin an account to the identity it is signed in as now, as `claude-acc
+/// lock` does. Pinning the identity it is already pinned to does nothing.
+/// A pin to someone else, or one that cannot be read, is replaced only with
+/// `force`: re-pinning is how a drift warning gets switched off.
+pub fn pin_account(
+    config: &AppConfig,
+    standard: &Path,
+    name: &str,
+    force: bool,
+) -> Result<(), GuiError> {
+    let dir = account_dir(config, standard, name)?;
+    let lock = lock_path(config, name, &dir);
+    // Every pin lives under the switch directory, the standard account's
+    // included, which `account_dir` does not cover.
+    reject_symlinks(&config.base_dir, &lock)?;
+    writable(config)?;
+    let current = identity::local_identity(&dir).ok_or(GuiError::NotSignedIn)?;
+    match identity::plan_lock(&identity::read_lock_at(&lock), &current, force) {
+        identity::LockAction::AlreadyPinned(_) => Ok(()),
+        identity::LockAction::RefuseWouldReplace(_) | identity::LockAction::RefuseCorrupt => {
+            Err(GuiError::IdentityDrift)
+        }
+        identity::LockAction::Write => {
+            identity::write_lock_at(&lock, &current).map_err(|_| GuiError::StorageWriteFailed)
+        }
+    }
+}
+
 /// Decide whether `action` may run for `account`, and in which physical
 /// directory (the home directory when none is given). This is the whole
 /// policy; a front end only carries the answer to a terminal.
@@ -610,7 +1247,7 @@ pub fn check_launch(
     directory: Option<&str>,
 ) -> Result<PathBuf, GuiError> {
     match action {
-        LaunchAction::Add => {
+        LaunchAction::Add | LaunchAction::AddSeeded => {
             if !validate_name(account) || account == "default" {
                 return Err(GuiError::InvalidAccount);
             }
@@ -821,6 +1458,527 @@ mod tests {
     }
 
     #[test]
+    fn removing_an_account_trashes_it_and_drops_only_what_named_it() {
+        let (c, root) = fixture("remove");
+        let standard = root.join("standard");
+        fs::create_dir_all(c.account_path("other")).unwrap();
+        c.set_default("work").unwrap();
+        c.set_link("/p/work", "work").unwrap();
+        c.set_link("/p/other", "other").unwrap();
+        let bin = root.join("bin");
+        fs::create_dir_all(&bin).unwrap();
+
+        remove_account_with(&c, &standard, "work", |dir| {
+            let dest = bin.join("work");
+            fs::rename(dir, &dest).map(|_| dest)
+        })
+        .unwrap();
+
+        assert!(!c.account_path("work").exists());
+        assert!(bin.join("work").is_dir());
+        assert_eq!(c.get_default().unwrap(), None);
+        assert_eq!(
+            c.all_links().unwrap(),
+            vec![("/p/other".to_string(), "other".to_string())]
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_failed_move_to_the_trash_changes_nothing() {
+        // No fallback to deleting: the window promised the Trash.
+        let (c, root) = fixture("remove-fails");
+        let standard = root.join("standard");
+        c.set_default("work").unwrap();
+        c.set_link("/p/work", "work").unwrap();
+
+        let result = remove_account_with(&c, &standard, "work", |_| {
+            Err(std::io::Error::from(std::io::ErrorKind::CrossesDevices))
+        });
+
+        assert_eq!(result, Err(GuiError::TrashUnavailable));
+        assert!(c.account_path("work").is_dir());
+        assert_eq!(c.get_default().unwrap().as_deref(), Some("work"));
+        assert_eq!(c.all_links().unwrap().len(), 1);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn the_standard_account_and_bad_names_are_never_removed() {
+        let (c, root) = fixture("remove-refused");
+        let standard = root.join("standard");
+        fs::create_dir_all(&standard).unwrap();
+        let never = |_: &Path| -> std::io::Result<PathBuf> { panic!("moved") };
+        for (name, error) in [
+            ("default", GuiError::InvalidAccount),
+            ("../work", GuiError::InvalidAccount),
+            ("missing", GuiError::AccountMissing),
+        ] {
+            assert_eq!(
+                remove_account_with(&c, &standard, name, never),
+                Err(error),
+                "{name}"
+            );
+        }
+        assert!(standard.is_dir());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    fn signed_in(dir: &Path, uuid: &str) {
+        fs::write(
+            dir.join(".claude.json"),
+            format!(r#"{{"oauthAccount":{{"accountUuid":"{uuid}"}}}}"#),
+        )
+        .unwrap();
+    }
+
+    fn pinned_to(path: &Path) -> Option<String> {
+        match identity::read_lock_at(path) {
+            identity::LockRead::Pinned(id) => Some(id.uuid),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn pinning_writes_once_and_never_moves_a_pin_without_force() {
+        let (c, root) = fixture("pin");
+        let standard = root.join("standard");
+        let lock = c.account_path("work").join(identity::LOCK_FILE);
+        signed_in(&c.account_path("work"), "u-1");
+        pin_account(&c, &standard, "work", false).unwrap();
+        assert_eq!(pinned_to(&lock).as_deref(), Some("u-1"));
+        // Same identity again: nothing to do, not an error.
+        pin_account(&c, &standard, "work", false).unwrap();
+
+        // Re-logged in as someone else: that is the drift the pin reports.
+        signed_in(&c.account_path("work"), "u-2");
+        assert_eq!(
+            pin_account(&c, &standard, "work", false),
+            Err(GuiError::IdentityDrift)
+        );
+        assert_eq!(pinned_to(&lock).as_deref(), Some("u-1"));
+        pin_account(&c, &standard, "work", true).unwrap();
+        assert_eq!(pinned_to(&lock).as_deref(), Some("u-2"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_corrupt_pin_is_replaced_only_with_force() {
+        let (c, root) = fixture("pin-corrupt");
+        let standard = root.join("standard");
+        let lock = c.account_path("work").join(identity::LOCK_FILE);
+        signed_in(&c.account_path("work"), "u-1");
+        fs::write(&lock, "{").unwrap();
+        assert_eq!(
+            pin_account(&c, &standard, "work", false),
+            Err(GuiError::IdentityDrift)
+        );
+        assert_eq!(fs::read_to_string(&lock).unwrap(), "{");
+        pin_account(&c, &standard, "work", true).unwrap();
+        assert_eq!(pinned_to(&lock).as_deref(), Some("u-1"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn an_account_never_signed_in_is_not_pinned_to_nothing() {
+        let (c, root) = fixture("pin-none");
+        let standard = root.join("standard");
+        assert_eq!(
+            pin_account(&c, &standard, "work", true),
+            Err(GuiError::NotSignedIn)
+        );
+        assert!(!c.account_path("work").join(identity::LOCK_FILE).exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn the_standard_accounts_pin_goes_beside_our_state_not_into_claude() {
+        let (c, root) = fixture("pin-standard");
+        let standard = root.join("standard");
+        fs::create_dir_all(&standard).unwrap();
+        signed_in(&standard, "u-std");
+        pin_account(&c, &standard, "default", false).unwrap();
+        assert_eq!(
+            pinned_to(&identity::default_lock_path(&c.base_dir)).as_deref(),
+            Some("u-std")
+        );
+        assert!(!standard.join(identity::LOCK_FILE).exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    /// A transcript at `<account>/projects/-p/<id>.jsonl`, with a sidecar.
+    fn transcript(dir: &Path, id: &str, body: &str) -> PathBuf {
+        let project = sessions::projects_dir(dir).join("-p");
+        fs::create_dir_all(project.join(id).join("subagents")).unwrap();
+        fs::write(project.join(id).join("subagents").join("a.jsonl"), "{}\n").unwrap();
+        let path = project.join(format!("{id}.jsonl"));
+        fs::write(&path, body).unwrap();
+        path
+    }
+
+    #[test]
+    fn a_copied_session_lands_in_the_other_account_with_its_subagents() {
+        let (c, root) = fixture("copy");
+        let standard = root.join("standard");
+        fs::create_dir_all(&standard).unwrap();
+        transcript(&c.account_path("work"), "s-1", "work's\n");
+        copy_session(&c, &standard, "work", "-p", "s-1", "default", false).unwrap();
+        let landed = standard.join("projects").join("-p");
+        assert_eq!(
+            fs::read_to_string(landed.join("s-1.jsonl")).unwrap(),
+            "work's\n"
+        );
+        assert!(
+            landed
+                .join("s-1")
+                .join("subagents")
+                .join("a.jsonl")
+                .is_file()
+        );
+        // The source is copied, not moved.
+        assert!(
+            c.account_path("work")
+                .join("projects/-p/s-1.jsonl")
+                .is_file()
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_copy_already_in_the_destination_is_replaced_only_when_asked() {
+        let (c, root) = fixture("copy-replace");
+        let standard = root.join("standard");
+        fs::create_dir_all(c.account_path("home")).unwrap();
+        transcript(&c.account_path("work"), "s-1", "new\n");
+        let theirs = transcript(&c.account_path("home"), "s-1", "old\n");
+        assert_eq!(
+            copy_session(&c, &standard, "work", "-p", "s-1", "home", false),
+            Err(GuiError::SessionExists)
+        );
+        assert_eq!(fs::read_to_string(&theirs).unwrap(), "old\n");
+        copy_session(&c, &standard, "work", "-p", "s-1", "home", true).unwrap();
+        assert_eq!(fs::read_to_string(&theirs).unwrap(), "new\n");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_copy_names_only_a_listed_session_in_another_account() {
+        let (c, root) = fixture("copy-refused");
+        let standard = root.join("standard");
+        fs::create_dir_all(c.account_path("home")).unwrap();
+        transcript(&c.account_path("work"), "s-1", "{}\n");
+        let copy = |project, id, to| copy_session(&c, &standard, "work", project, id, to, true);
+        assert_eq!(copy("-p", "s-2", "home"), Err(GuiError::SessionMissing));
+        assert_eq!(copy("-q", "s-1", "home"), Err(GuiError::SessionMissing));
+        // Joined from the arguments, this would read outside `projects`.
+        assert_eq!(
+            copy("..", "projects/-p/s-1", "home"),
+            Err(GuiError::SessionMissing)
+        );
+        assert_eq!(copy("-p", "s-1", "work"), Err(GuiError::InvalidAccount));
+        assert_eq!(copy("-p", "s-1", "ghost"), Err(GuiError::AccountMissing));
+        assert!(!c.account_path("home").join("projects").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn cloning_copies_the_standard_settings_and_keeps_the_accounts_own() {
+        let (c, root) = fixture("clone");
+        let standard = root.join("standard");
+        fs::create_dir_all(standard.join("agents")).unwrap();
+        fs::write(standard.join("settings.json"), "{}").unwrap();
+        fs::write(standard.join("CLAUDE.md"), "standard").unwrap();
+        fs::write(standard.join("agents").join("a.md"), "agent").unwrap();
+        let work = c.account_path("work");
+        fs::write(work.join("CLAUDE.md"), "work's own").unwrap();
+
+        assert_eq!(
+            clone_settings(&c, &standard, "work").unwrap(),
+            ["settings.json", "agents/"]
+        );
+        assert_eq!(
+            fs::read_to_string(work.join("CLAUDE.md")).unwrap(),
+            "work's own"
+        );
+        assert_eq!(
+            fs::read_to_string(work.join("agents/a.md")).unwrap(),
+            "agent"
+        );
+        // A second run has nothing left to copy, and says so by an empty list.
+        assert!(clone_settings(&c, &standard, "work").unwrap().is_empty());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn only_an_existing_managed_account_is_seeded() {
+        let (c, root) = fixture("clone-refused");
+        let standard = root.join("standard");
+        fs::create_dir_all(&standard).unwrap();
+        fs::write(standard.join("settings.json"), "{}").unwrap();
+        for (name, error) in [
+            ("default", GuiError::InvalidAccount),
+            ("../work", GuiError::InvalidAccount),
+            ("ghost", GuiError::AccountMissing),
+        ] {
+            assert_eq!(clone_settings(&c, &standard, name), Err(error), "{name}");
+        }
+        assert!(!c.account_path("ghost").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    /// A config dir worth importing, at `home/<dir>`.
+    fn config_dir(root: &Path, dir: &str) -> PathBuf {
+        let path = root.join("home").join(dir);
+        fs::create_dir_all(path.join("agents")).unwrap();
+        fs::write(path.join("settings.json"), "{}").unwrap();
+        fs::write(path.join("agents/a.md"), "agent").unwrap();
+        path
+    }
+
+    #[test]
+    fn an_import_copies_or_moves_and_carries_the_sign_in_from_the_path_given() {
+        let (c, root) = fixture("import");
+        let standard = root.join("home").join(".claude");
+        let src = config_dir(&root, ".claude-work");
+        let mut seen = None;
+        import_account_with(
+            &c,
+            &standard,
+            "copied",
+            src.to_str().unwrap(),
+            false,
+            |f, t| seen = Some((f.to_path_buf(), t.to_path_buf())),
+        )
+        .unwrap();
+        let copied = c.account_path("copied");
+        assert_eq!(
+            fs::read_to_string(copied.join("agents/a.md")).unwrap(),
+            "agent"
+        );
+        assert!(
+            src.join("settings.json").is_file(),
+            "a copy leaves the source"
+        );
+        assert_eq!(seen, Some((src.clone(), copied)));
+
+        // `~/` is the home this app resolved the standard account under.
+        import_account_with(&c, &standard, "moved", "~/.claude-work", true, |_, _| ()).unwrap();
+        assert!(c.account_path("moved").join("settings.json").is_file());
+        assert!(!src.exists(), "a move takes the source away");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn an_import_that_would_lose_or_loop_data_is_refused_before_anything_moves() {
+        let (c, root) = fixture("import-refused");
+        let standard = config_dir(&root, ".claude");
+        let src = config_dir(&root, ".claude-work");
+        let import = |name: &str, source: &Path, move_into| {
+            import_account_with(
+                &c,
+                &standard,
+                name,
+                source.to_str().unwrap(),
+                move_into,
+                |_, _| panic!("re-keyed"),
+            )
+        };
+        for (name, source, move_into, error) in [
+            ("default", &src, false, GuiError::InvalidAccount),
+            ("a b", &src, false, GuiError::InvalidAccount),
+            (
+                "fresh",
+                &root.join("missing"),
+                false,
+                GuiError::DirectoryMissing,
+            ),
+            ("work", &src, false, GuiError::AccountExists),
+            // Already ours; and a source holding our storage would be copied
+            // into itself.
+            (
+                "fresh",
+                &c.account_path("work"),
+                true,
+                GuiError::ImportSourceRefused,
+            ),
+            ("fresh", &root, false, GuiError::ImportSourceRefused),
+            ("fresh", &c.base_dir, false, GuiError::ImportSourceRefused),
+            // Moving the standard account, or a folder holding it, away.
+            ("fresh", &standard, true, GuiError::ImportSourceRefused),
+            (
+                "fresh",
+                &root.join("home"),
+                true,
+                GuiError::ImportSourceRefused,
+            ),
+        ] {
+            assert_eq!(
+                import(name, source, move_into),
+                Err(error),
+                "{name} {source:?}"
+            );
+        }
+        assert_eq!(
+            import_account_with(&c, &standard, "fresh", "relative/dir", false, |_, _| ()),
+            Err(GuiError::InvalidDirectory)
+        );
+        assert!(!c.account_path("fresh").exists());
+        assert!(standard.join("settings.json").is_file());
+        assert!(c.account_path("work").is_dir());
+        // Copying the standard account is how the CLI imports it, too.
+        import_account_with(
+            &c,
+            &standard,
+            "fresh",
+            standard.to_str().unwrap(),
+            false,
+            |_, _| (),
+        )
+        .unwrap();
+        assert!(standard.join("settings.json").is_file());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_local_row_is_built_for_an_account_added_after_a_snapshot() {
+        let (c, root) = fixture("local-row");
+        let row = local_account(&c, &root.join("standard"), "work");
+        let built = snapshot(&c, &root.join("standard"), false).unwrap();
+        assert_eq!(
+            row,
+            Account {
+                is_default: false,
+                ..built.accounts[1].clone()
+            }
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    fn installed_cli(c: &AppConfig) {
+        fs::create_dir_all(c.base_dir.join("bin")).unwrap();
+        fs::write(c.base_dir.join("bin").join(binary_name()), "").unwrap();
+    }
+
+    fn settings_of(c: &AppConfig, name: &str) -> serde_json::Value {
+        let raw = fs::read_to_string(c.account_path(name).join("settings.json")).unwrap();
+        serde_json::from_str(&raw).unwrap()
+    }
+
+    #[test]
+    fn the_status_line_is_added_beside_the_accounts_own_settings() {
+        let (c, root) = fixture("statusline");
+        let standard = root.join("standard");
+        installed_cli(&c);
+        let settings = c.account_path("work").join("settings.json");
+        fs::write(&settings, r#"{"model":"opus","env":{"A":"1"}}"#).unwrap();
+        install_statusline(&c, &standard, "work", false).unwrap();
+        let written = settings_of(&c, "work");
+        assert_eq!(written["model"], "opus");
+        assert_eq!(written["env"]["A"], "1");
+        assert_eq!(written["statusLine"], statusline::entry(&c.base_dir));
+        let bin = c.base_dir.join("bin").join(binary_name());
+        assert_eq!(
+            written["statusLine"]["command"],
+            format!("{} statusline", bin.display()).replace('\\', "/")
+        );
+        // Ours already: nothing to ask, nothing to change.
+        install_statusline(&c, &standard, "work", false).unwrap();
+        assert!(
+            !c.account_path("work")
+                .join("settings.json.claude-acc-tmp")
+                .exists()
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_status_line_of_the_users_own_is_replaced_only_when_asked() {
+        let (c, root) = fixture("statusline-own");
+        let standard = root.join("standard");
+        installed_cli(&c);
+        let settings = c.account_path("work").join("settings.json");
+        let theirs = r#"{"statusLine":{"type":"command","command":"~/my-line.sh"}}"#;
+        fs::write(&settings, theirs).unwrap();
+        assert_eq!(
+            install_statusline(&c, &standard, "work", false),
+            Err(GuiError::StatuslineExists)
+        );
+        assert_eq!(fs::read_to_string(&settings).unwrap(), theirs);
+        install_statusline(&c, &standard, "work", true).unwrap();
+        assert_eq!(
+            settings_of(&c, "work")["statusLine"],
+            statusline::entry(&c.base_dir)
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn unreadable_settings_or_no_installed_cli_change_nothing() {
+        let (c, root) = fixture("statusline-refused");
+        let standard = root.join("standard");
+        let settings = c.account_path("work").join("settings.json");
+        assert_eq!(
+            install_statusline(&c, &standard, "work", true),
+            Err(GuiError::CliNotInstalled)
+        );
+        assert!(!settings.exists());
+        installed_cli(&c);
+        // Regression guard: the CLI replaces these with a file holding only
+        // the status line, losing everything else in it.
+        for broken in ["{ not json", "[1, 2]"] {
+            fs::write(&settings, broken).unwrap();
+            assert_eq!(
+                install_statusline(&c, &standard, "work", true),
+                Err(GuiError::StorageUnreadable),
+                "{broken}"
+            );
+            assert_eq!(fs::read_to_string(&settings).unwrap(), broken);
+        }
+        assert_eq!(
+            install_statusline(&c, &standard, "ghost", true),
+            Err(GuiError::AccountMissing)
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn an_update_check_compares_each_known_version_with_the_latest() {
+        let check = |bundled, installed, tag: Option<&str>| {
+            check_update_with(bundled, installed, || tag.map(String::from))
+        };
+        assert_eq!(
+            check("0.21.0", Some("0.20.1"), Some("v0.21.0")),
+            Ok(UpdateCheck {
+                latest: "0.21.0".into(),
+                bundled: Some("0.21.0".into()),
+                bundled_outdated: false,
+                installed: Some("0.20.1".into()),
+                installed_outdated: true,
+            })
+        );
+        // Unknown is not up to date, it is unknown.
+        let unknown = check("unknown", None, Some("v1.0.0")).unwrap();
+        assert_eq!((unknown.bundled, unknown.bundled_outdated), (None, false));
+        assert_eq!(
+            (unknown.installed, unknown.installed_outdated),
+            (None, false)
+        );
+        // A newer local build is not behind an older release.
+        assert!(
+            !check("0.30.0", None, Some("v0.29.9"))
+                .unwrap()
+                .bundled_outdated
+        );
+        for tag in [None, Some("nightly")] {
+            assert_eq!(
+                check("0.21.0", None, tag),
+                Err(GuiError::UpdateCheckFailed),
+                "{tag:?}"
+            );
+        }
+    }
+
+    #[test]
     fn launch_policy_covers_every_action() {
         let (c, root) = fixture("launch");
         let standard = root.join("home").join(".claude");
@@ -854,7 +2012,23 @@ mod tests {
         assert_eq!(add("work"), Err(GuiError::AccountExists));
         assert_eq!(add("default"), Err(GuiError::InvalidAccount));
         assert_eq!(add("x; rm"), Err(GuiError::InvalidAccount));
+        // A seeded add is still an add: the same name rules.
+        let seeded = |name| check_launch(&c, &standard, name, LaunchAction::AddSeeded, None);
+        assert!(seeded("fresh").is_ok());
+        assert_eq!(seeded("work"), Err(GuiError::AccountExists));
+        assert_eq!(seeded("default"), Err(GuiError::InvalidAccount));
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_seeded_add_runs_add_with_seed_and_nothing_else_does() {
+        let action: LaunchAction = serde_json::from_str(r#""add_seeded""#).unwrap();
+        assert_eq!(action, LaunchAction::AddSeeded);
+        let runs = |a: LaunchAction| (a.command(), a.seeds());
+        assert_eq!(runs(LaunchAction::AddSeeded), ("add", true));
+        assert_eq!(runs(LaunchAction::Add), ("add", false));
+        assert_eq!(runs(LaunchAction::Run), ("run", false));
+        assert_eq!(runs(LaunchAction::Login), ("login", false));
     }
 
     #[test]
@@ -900,6 +2074,26 @@ mod tests {
         // A local read touches no credential store.
         assert_eq!(live_allowed(false, Some("/Users/x/.claude")), Ok(()));
         assert_eq!(live_allowed(false, None), Ok(()));
+    }
+
+    #[test]
+    fn the_resume_hook_is_stored_where_the_cli_reads_it() {
+        let (c, root) = fixture("resume-hook");
+        c.set_default("work").unwrap();
+        assert_eq!(resume_hook(&c), Ok(true));
+        set_resume_hook(&c, false).unwrap();
+        assert_eq!(c.get_setting("resume_hook").as_deref(), Some("off"));
+        assert_eq!(resume_hook(&c), Ok(false));
+        set_resume_hook(&c, true).unwrap();
+        assert_eq!(c.get_setting("resume_hook").as_deref(), Some("on"));
+        assert_eq!(resume_hook(&c), Ok(true));
+        // Other settings in the same file are left alone.
+        assert_eq!(c.get_default().unwrap().as_deref(), Some("work"));
+        fs::write(c.config_path(), [255, 254]).unwrap();
+        assert_eq!(resume_hook(&c), Err(GuiError::StorageUnreadable));
+        assert_eq!(set_resume_hook(&c, false), Err(GuiError::StorageUnreadable));
+        assert_eq!(fs::read(c.config_path()).unwrap(), vec![255, 254]);
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -999,6 +2193,30 @@ mod tests {
         assert_eq!(sample["snapshot"], serde_json::to_value(snapshot).unwrap());
         assert_eq!(sample["bindings"], serde_json::to_value(bindings).unwrap());
         assert_eq!(sample["sessions"], serde_json::to_value(sessions).unwrap());
+        let editors = vec![
+            Editor {
+                name: "VS Code".into(),
+                state: EditorState::Ours,
+                other_profiles: false,
+            },
+            Editor {
+                name: "Cursor".into(),
+                state: EditorState::Foreign,
+                other_profiles: true,
+            },
+        ];
+        assert_eq!(sample["editors"], serde_json::to_value(editors).unwrap());
+        let update_check = UpdateCheck {
+            latest: "0.22.0".into(),
+            bundled: Some("0.22.0".into()),
+            bundled_outdated: false,
+            installed: Some("0.21.0".into()),
+            installed_outdated: true,
+        };
+        assert_eq!(
+            sample["update_check"],
+            serde_json::to_value(update_check).unwrap()
+        );
         let codes = [
             GuiError::InvalidAccount,
             GuiError::AccountMissing,
@@ -1011,6 +2229,15 @@ mod tests {
             GuiError::DirectoryMissing,
             GuiError::SharedCredentialStore,
             GuiError::IdentityDrift,
+            GuiError::TrashUnavailable,
+            GuiError::NotSignedIn,
+            GuiError::SessionMissing,
+            GuiError::SessionExists,
+            GuiError::ImportSourceRefused,
+            GuiError::CliNotInstalled,
+            GuiError::StatuslineExists,
+            GuiError::UnsupportedPlatform,
+            GuiError::UpdateCheckFailed,
         ];
         assert_eq!(sample["gui_errors"], serde_json::to_value(codes).unwrap());
     }
@@ -1094,6 +2321,374 @@ mod tests {
         );
         std::os::unix::fs::symlink(&outside, standard.join("projects")).unwrap();
         assert!(sessions(&c, &standard).unwrap().is_empty());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_session_is_not_copied_through_a_symlink_in_the_destination() {
+        let (c, root) = fixture("copy-symlink");
+        let standard = root.join("standard");
+        let outside = root.join("outside");
+        fs::create_dir_all(&outside).unwrap();
+        fs::create_dir_all(c.account_path("home").join("projects")).unwrap();
+        transcript(&c.account_path("work"), "s-1", "{}\n");
+        // No sidecar: only the transcript's own path is in play.
+        fs::write(c.account_path("work").join("projects/-p/s-2.jsonl"), "{}\n").unwrap();
+        std::os::unix::fs::symlink(&outside, c.account_path("home").join("projects/-p")).unwrap();
+        for id in ["s-1", "s-2"] {
+            assert_eq!(
+                copy_session(&c, &standard, "work", "-p", id, "home", true),
+                Err(GuiError::SymlinkStorage),
+                "{id}"
+            );
+        }
+        assert_eq!(fs::read_dir(&outside).unwrap().count(), 0);
+
+        // Below the sidecar, on either side: nothing is written, the
+        // transcript included.
+        fs::remove_file(c.account_path("home").join("projects/-p")).unwrap();
+        let home_sidecar = c.account_path("home").join("projects/-p/s-1");
+        fs::create_dir_all(&home_sidecar).unwrap();
+        std::os::unix::fs::symlink(&outside, home_sidecar.join("subagents")).unwrap();
+        assert_eq!(
+            copy_session(&c, &standard, "work", "-p", "s-1", "home", true),
+            Err(GuiError::SymlinkStorage)
+        );
+        assert_eq!(fs::read_dir(&outside).unwrap().count(), 0);
+        assert!(
+            !c.account_path("home")
+                .join("projects/-p/s-1.jsonl")
+                .exists()
+        );
+        fs::remove_file(home_sidecar.join("subagents")).unwrap();
+        fs::write(outside.join("private"), "secret").unwrap();
+        std::os::unix::fs::symlink(
+            outside.join("private"),
+            c.account_path("work")
+                .join("projects/-p/s-1/subagents/b.jsonl"),
+        )
+        .unwrap();
+        assert_eq!(
+            copy_session(&c, &standard, "work", "-p", "s-1", "home", true),
+            Err(GuiError::SymlinkStorage)
+        );
+        assert!(!home_sidecar.join("subagents").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_seed_is_not_written_through_a_link_but_may_skip_one() {
+        let (c, root) = fixture("clone-symlink");
+        let standard = root.join("standard");
+        fs::create_dir_all(standard.join("skills")).unwrap();
+        fs::write(standard.join("settings.json"), "{}").unwrap();
+        fs::write(standard.join("skills").join("s.md"), "skill").unwrap();
+        let outside = root.join("outside");
+        fs::create_dir_all(&outside).unwrap();
+        let work = c.account_path("work");
+
+        // Points nowhere yet: the seed would create the file it points at.
+        std::os::unix::fs::symlink(outside.join("settings.json"), work.join("settings.json"))
+            .unwrap();
+        assert_eq!(
+            clone_settings(&c, &standard, "work"),
+            Err(GuiError::SymlinkStorage)
+        );
+        assert_eq!(fs::read_dir(&outside).unwrap().count(), 0);
+        fs::remove_file(work.join("settings.json")).unwrap();
+
+        // An empty plugin registry behind a link would be seeded through it.
+        fs::create_dir_all(standard.join("plugins")).unwrap();
+        fs::write(
+            standard.join("plugins/installed_plugins.json"),
+            r#"{"plugins":{"p@m":[{}]}}"#,
+        )
+        .unwrap();
+        std::os::unix::fs::symlink(&outside, work.join("plugins")).unwrap();
+        assert_eq!(
+            clone_settings(&c, &standard, "work"),
+            Err(GuiError::SymlinkStorage)
+        );
+        assert_eq!(fs::read_dir(&outside).unwrap().count(), 0);
+        fs::remove_file(work.join("plugins")).unwrap();
+
+        // A working link the seed skips is the account's own business.
+        let shared = root.join("shared-skills");
+        fs::create_dir_all(&shared).unwrap();
+        std::os::unix::fs::symlink(&shared, work.join("skills")).unwrap();
+        assert_eq!(
+            clone_settings(&c, &standard, "work").unwrap(),
+            ["settings.json", "plugins/"]
+        );
+        assert_eq!(fs::read_dir(&shared).unwrap().count(), 0);
+
+        // Links where the standard account has nothing to copy are never
+        // written through, so they do not hold the rest back.
+        fs::remove_dir_all(standard.join("plugins")).unwrap();
+        fs::remove_dir_all(work.join("plugins")).unwrap();
+        fs::remove_file(work.join("settings.json")).unwrap();
+        std::os::unix::fs::symlink(&outside, work.join("plugins")).unwrap();
+        std::os::unix::fs::symlink(outside.join("CLAUDE.md"), work.join("CLAUDE.md")).unwrap();
+        assert_eq!(
+            clone_settings(&c, &standard, "work").unwrap(),
+            ["settings.json"]
+        );
+        assert_eq!(fs::read_dir(&outside).unwrap().count(), 0);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_import_of_a_link_or_through_a_second_spelling_is_refused() {
+        let (c, root) = fixture("import-link");
+        let standard = root.join("home").join(".claude");
+        let src = config_dir(&root, ".claude-work");
+        let alias = root.join("alias");
+        std::os::unix::fs::symlink(&src, &alias).unwrap();
+        let import = |source: &Path, move_into| {
+            import_account_with(
+                &c,
+                &standard,
+                "fresh",
+                source.to_str().unwrap(),
+                move_into,
+                |_, _| (),
+            )
+        };
+        // Moved or copied as a link, the account would be a link.
+        assert_eq!(import(&alias, true), Err(GuiError::ImportSourceRefused));
+        assert_eq!(import(&alias, false), Err(GuiError::ImportSourceRefused));
+        assert!(alias.is_symlink() && src.is_dir());
+        // The switch directory reached by another name is still ours.
+        let switch_alias = root.join("switch-alias");
+        std::os::unix::fs::symlink(&c.base_dir, &switch_alias).unwrap();
+        assert_eq!(
+            import(&switch_alias.join("accounts").join("work"), false),
+            Err(GuiError::ImportSourceRefused)
+        );
+        assert!(!c.account_path("fresh").exists());
+
+        // A credential or identity file held as a link would make an account
+        // every other function here refuses.
+        fs::write(root.join("dotfiles.json"), "{}").unwrap();
+        std::os::unix::fs::symlink(root.join("dotfiles.json"), src.join(".claude.json")).unwrap();
+        assert_eq!(import(&src, false), Err(GuiError::ImportSourceRefused));
+        fs::remove_file(src.join(".claude.json")).unwrap();
+
+        // A link above the source is how the user spelled it, and the
+        // Keychain entry is named after that spelling, as in the CLI.
+        let home_alias = root.join("home-alias");
+        std::os::unix::fs::symlink(root.join("home"), &home_alias).unwrap();
+        let spelled = home_alias.join(".claude-work");
+        let mut seen = None;
+        import_account_with(
+            &c,
+            &standard,
+            "fresh",
+            spelled.to_str().unwrap(),
+            false,
+            |f, _| seen = Some(f.to_path_buf()),
+        )
+        .unwrap();
+        assert_eq!(seen, Some(spelled));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_first_import_of_the_home_folder_is_refused_through_a_linked_home() {
+        // Regression: before the switch directory existed it could not be
+        // resolved, so a home reached through a link was not seen to hold
+        // it, and a copy recursed into itself.
+        let (_, root) = fixture("import-first-run");
+        let real_home = root.join("real-home");
+        fs::create_dir_all(real_home.join(".claude")).unwrap();
+        let home = root.join("home");
+        std::os::unix::fs::symlink(&real_home, &home).unwrap();
+        let c = AppConfig {
+            base_dir: home.join(".claude-switch"),
+        };
+        assert!(!c.base_dir.exists());
+        assert_eq!(
+            import_account_with(
+                &c,
+                &home.join(".claude"),
+                "fresh",
+                real_home.to_str().unwrap(),
+                false,
+                |_, _| ()
+            ),
+            Err(GuiError::ImportSourceRefused)
+        );
+        assert!(!c.account_path("fresh").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn installing_the_status_line_keeps_a_private_settings_file_private() {
+        use std::os::unix::fs::PermissionsExt;
+        let (c, root) = fixture("statusline-mode");
+        installed_cli(&c);
+        let settings = c.account_path("work").join("settings.json");
+        fs::write(&settings, r#"{"env":{"ANTHROPIC_API_KEY":"x"}}"#).unwrap();
+        fs::set_permissions(&settings, fs::Permissions::from_mode(0o600)).unwrap();
+        install_statusline(&c, &root.join("standard"), "work", false).unwrap();
+        let mode = fs::metadata(&settings).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_settings_file_kept_as_a_link_is_not_replaced_by_a_copy() {
+        let (c, root) = fixture("statusline-link");
+        installed_cli(&c);
+        let dotfiles = root.join("dotfiles-settings.json");
+        fs::write(&dotfiles, "{}").unwrap();
+        let settings = c.account_path("work").join("settings.json");
+        std::os::unix::fs::symlink(&dotfiles, &settings).unwrap();
+        assert_eq!(
+            install_statusline(&c, &root.join("standard"), "work", true),
+            Err(GuiError::SymlinkStorage)
+        );
+        assert!(settings.is_symlink());
+        assert_eq!(fs::read_to_string(&dotfiles).unwrap(), "{}");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    /// An editors' config root holding VS Code (nothing set) and Cursor
+    /// (another tool's launcher, and a second profile).
+    #[cfg(unix)]
+    fn editors(root: &Path) -> PathBuf {
+        let editors = root.join("config");
+        fs::create_dir_all(editors.join("Code/User")).unwrap();
+        fs::create_dir_all(editors.join("Cursor/User/profiles/a1b2")).unwrap();
+        fs::write(
+            editors.join("Cursor/User/settings.json"),
+            r#"{"claudeCode.claudeProcessWrapper": "/opt/other"}"#,
+        )
+        .unwrap();
+        editors
+    }
+
+    #[cfg(unix)]
+    fn states(c: &AppConfig, editors: &Path) -> Vec<(String, EditorState)> {
+        vscode_editors_in(c, editors)
+            .into_iter()
+            .map(|e| (e.name, e.state))
+            .collect()
+    }
+
+    // Unix only: on Windows install refuses, as the CLI does.
+    #[cfg(unix)]
+    #[test]
+    fn vs_code_is_set_up_by_the_clis_rules_and_another_launcher_needs_force() {
+        let (c, root) = fixture("vscode");
+        let editors = editors(&root);
+        let ed = |name: &str, state| (name.to_string(), state);
+        assert_eq!(
+            vscode_install_in(&c, &editors, false),
+            Err(GuiError::CliNotInstalled)
+        );
+        assert!(!vscode::wrapper_path(&c.base_dir).exists());
+
+        installed_cli(&c);
+        let after = vscode_install_in(&c, &editors, false).unwrap();
+        assert_eq!(
+            after
+                .iter()
+                .map(|e| (e.name.clone(), e.state))
+                .collect::<Vec<_>>(),
+            [
+                ed("VS Code", EditorState::Ours),
+                ed("Cursor", EditorState::Foreign)
+            ]
+        );
+        assert_eq!(
+            after.iter().map(|e| e.other_profiles).collect::<Vec<_>>(),
+            [false, true]
+        );
+        assert!(vscode::wrapper_path(&c.base_dir).is_file());
+        vscode_install_in(&c, &editors, true).unwrap();
+        assert_eq!(
+            states(&c, &editors),
+            [
+                ed("VS Code", EditorState::Ours),
+                ed("Cursor", EditorState::Ours)
+            ]
+        );
+        vscode_uninstall_in(&c, &editors).unwrap();
+        assert_eq!(
+            states(&c, &editors),
+            [
+                ed("VS Code", EditorState::Unset),
+                ed("Cursor", EditorState::Unset)
+            ]
+        );
+        assert!(vscode_editors_in(&c, &root.join("no-editors")).is_empty());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_editor_that_cannot_be_written_does_not_stop_the_others() {
+        use std::os::unix::fs::PermissionsExt;
+        let (c, root) = fixture("vscode-partial");
+        let editors = editors(&root);
+        fs::write(editors.join("Cursor/User/settings.json"), "{}").unwrap();
+        installed_cli(&c);
+        // VS Code comes first, and nothing can be created in its folder.
+        let code = editors.join("Code/User");
+        fs::set_permissions(&code, fs::Permissions::from_mode(0o555)).unwrap();
+        let result = vscode_install_in(&c, &editors, false);
+        fs::set_permissions(&code, fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(result, Err(GuiError::StorageWriteFailed));
+        assert_eq!(states(&c, &editors)[1].1, EditorState::Ours);
+
+        // The same for taking it out again.
+        vscode_install_in(&c, &editors, false).unwrap();
+        fs::set_permissions(&code, fs::Permissions::from_mode(0o555)).unwrap();
+        let result = vscode_uninstall_in(&c, &editors);
+        fs::set_permissions(&code, fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(result, Err(GuiError::StorageWriteFailed));
+        assert_eq!(
+            states(&c, &editors)
+                .into_iter()
+                .map(|(_, s)| s)
+                .collect::<Vec<_>>(),
+            [EditorState::Ours, EditorState::Unset]
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unreadable_linked_and_foreign_settings_are_left_as_they_are() {
+        let (c, root) = fixture("vscode-kept");
+        let editors = editors(&root);
+        installed_cli(&c);
+        let code = editors.join("Code/User/settings.json");
+        fs::write(&code, "{ broken").unwrap();
+        // Uninstall never takes another tool's launcher away.
+        vscode_uninstall_in(&c, &editors).unwrap();
+        let cursor = editors.join("Cursor/User/settings.json");
+        assert!(fs::read_to_string(&cursor).unwrap().contains("/opt/other"));
+        // Force replaces a launcher, never a file that could not be read.
+        vscode_install_in(&c, &editors, true).unwrap();
+        assert_eq!(fs::read_to_string(&code).unwrap(), "{ broken");
+
+        let dotfiles = root.join("dotfiles-settings.json");
+        fs::write(&dotfiles, "{}").unwrap();
+        fs::remove_file(&code).unwrap();
+        std::os::unix::fs::symlink(&dotfiles, &code).unwrap();
+        assert_eq!(states(&c, &editors)[0].1, EditorState::Linked);
+        vscode_install_in(&c, &editors, true).unwrap();
+        vscode_uninstall_in(&c, &editors).unwrap();
+        assert!(code.is_symlink());
+        assert_eq!(fs::read_to_string(&dotfiles).unwrap(), "{}");
         fs::remove_dir_all(root).unwrap();
     }
 

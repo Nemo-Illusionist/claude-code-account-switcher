@@ -3,32 +3,44 @@ import { api } from "../api";
 import { Dialog, Icon, Meter } from "../components";
 import type { Account, Installation, LockStatus } from "../contract";
 import { freshness, usageLabel } from "../freshness";
-import { useCopy, type Messages } from "../i18n";
+import { list, useCopy, type Messages } from "../i18n";
 import { useLaunch, useNotices } from "../notices";
 
 const blocked = (lock: LockStatus) => lock === "drift" || lock === "corrupt";
 const title = (t: Messages, a: Account) =>
   a.name === "default" ? t.standardAccount : a.name;
 
-type Open = "details" | "login" | "default" | null;
+type Open =
+  | "details"
+  | "login"
+  | "default"
+  | "remove"
+  | "pin"
+  | "clone"
+  | "statusline"
+  | null;
 
 export function AccountCard({
   account: a,
   index,
   now,
   setDefault,
+  removeAccount,
+  pinAccount,
 }: {
   account: Account;
   index: number;
   now: number;
   setDefault: (name: string) => Promise<void>;
+  removeAccount: (name: string) => Promise<void>;
+  pinAccount: (name: string, force: boolean) => Promise<void>;
 }) {
   const t = useCopy();
   const [open, setOpen] = useState<Open>(null);
   const [launching, setLaunching] = useState(false);
   const menu = useRef<HTMLDetailsElement>(null);
   const launch = useLaunch();
-  const { fail } = useNotices();
+  const { fail, info } = useNotices();
   const close = () => setOpen(null);
 
   // A <details> menu stays open until toggled again; close it the way a
@@ -121,6 +133,22 @@ export function AccountCard({
             >
               {t.makeDefaultAction}
             </button>
+            {(a.lock === "unpinned" || blocked(a.lock)) && (
+              <button disabled={!a.available} onClick={() => setOpen("pin")}>
+                {blocked(a.lock) ? t.repinAction : t.pinAction}
+              </button>
+            )}
+            {a.name !== "default" && (
+              <button disabled={!a.available} onClick={() => setOpen("clone")}>
+                {t.cloneSettingsAction}
+              </button>
+            )}
+            <button disabled={!a.available} onClick={() => setOpen("statusline")}>
+              {t.statuslineAction}
+            </button>
+            {a.name !== "default" && (
+              <button onClick={() => setOpen("remove")}>{t.trashAction}</button>
+            )}
           </div>
         </details>
       </div>
@@ -145,7 +173,77 @@ export function AccountCard({
           <p>{t.defaultBody(<strong>{a.name}</strong>)}</p>
         </Dialog>
       )}
+      {open === "pin" && (
+        <Dialog
+          title={blocked(a.lock) ? t.repinTitle(a.name) : t.pinTitle(a.name)}
+          confirmLabel={blocked(a.lock) ? t.repinConfirm : t.pinConfirm}
+          onConfirm={() => pinAccount(a.name, blocked(a.lock))}
+          onClose={close}
+        >
+          <p>
+            {blocked(a.lock)
+              ? t.repinBody(<strong>{a.name}</strong>)
+              : t.pinBody(<strong>{a.name}</strong>)}
+          </p>
+        </Dialog>
+      )}
+      {open === "clone" && (
+        <Dialog
+          title={t.cloneSettingsTitle(a.name)}
+          confirmLabel={t.cloneSettingsConfirm}
+          onConfirm={async () => {
+            const copied = await api.cloneSettings(a.name);
+            info(
+              copied.length
+                ? t.cloneSettingsDone(a.name, list(t, copied))
+                : t.cloneSettingsNothing(a.name),
+            );
+          }}
+          onClose={close}
+        >
+          <p>{t.cloneSettingsBody(<strong>{a.name}</strong>)}</p>
+        </Dialog>
+      )}
+      {open === "statusline" && <StatuslineDialog name={a.name} onClose={close} />}
+      {open === "remove" && (
+        <Dialog
+          title={t.trashTitle(a.name)}
+          confirmLabel={t.trashConfirm}
+          onConfirm={() => removeAccount(a.name)}
+          onClose={close}
+        >
+          <p>{t.trashBody(<strong>{a.name}</strong>)}</p>
+        </Dialog>
+      )}
     </article>
+  );
+}
+
+/**
+ * Asks once; if the account turns out to have a status line of its own, the
+ * same dialog asks again to replace it.
+ */
+function StatuslineDialog({ name, onClose }: { name: string; onClose: () => void }) {
+  const t = useCopy();
+  const { info } = useNotices();
+  const [replace, setReplace] = useState(false);
+  return (
+    <Dialog
+      title={t.statuslineTitle(name)}
+      confirmLabel={replace ? t.statuslineReplaceConfirm : t.statuslineConfirm}
+      onConfirm={async () => {
+        try {
+          await api.installStatusline(name, replace);
+        } catch (failure) {
+          if (failure === "statusline_exists") setReplace(true);
+          throw failure;
+        }
+        info(t.statuslineDone(name));
+      }}
+      onClose={onClose}
+    >
+      <p>{t.statuslineBody(<strong>{name}</strong>)}</p>
+    </Dialog>
   );
 }
 
