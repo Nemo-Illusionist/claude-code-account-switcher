@@ -813,6 +813,8 @@ _claude_acc_remove() {
             # keeps holding the disk space, and an account dir is the kind
             # of thing someone may want off the machine rather than in a bin.
             --purge)    purge=true ;;
+            # The name follows, even one shaped like a flag.
+            --) shift; break ;;
             *) break ;;
         esac
         shift
@@ -912,6 +914,8 @@ _claude_acc_to_trash() {
 }
 
 _claude_acc_default() {
+    # `--` before the name, as the binary needs for `-work` and suggests.
+    [[ "${1:-}" == "--" ]] && shift
     local name="${1:-}"
     if [[ -z "$name" ]]; then
         local current email label
@@ -948,6 +952,8 @@ _claude_acc_default() {
 }
 
 _claude_acc_link() {
+    # `--` before the name, as the binary needs for `-work` and suggests.
+    [[ "${1:-}" == "--" ]] && shift
     local name="${1:-}"
     if [[ -z "$name" ]]; then
         _msg link_usage
@@ -2408,8 +2414,9 @@ _claude_acc_lock() {
     while (( $# )); do
         case "$1" in
             -f|--force) force=1; shift ;;
-            # As the binary needs for `-work` and suggests.
-            --) shift ;;
+            # As the binary needs for `-work` and suggests: everything after
+            # `--` is the name, even one shaped like a flag (`-f`).
+            --) shift; name="${1:-}"; break ;;
             *) name="$1"; shift ;;
         esac
     done

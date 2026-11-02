@@ -66,6 +66,23 @@ _claude_acc_desktop_remove -f -work >/dev/null 2>&1
 [[ ! -e "$CLAUDE_SWITCH_DESKTOP_DIR/-work" ]] || fail "desktop remove -f -work left the profile"
 [[ -d "$CLAUDE_SWITCH_DESKTOP_DIR/keep" ]] || fail "desktop remove touched keep"
 
+# After `--`, lock takes what follows as the name, even `-f`.
+mkdir -p "$CLAUDE_SWITCH_ACCOUNTS_DIR/-f"
+out=$(_claude_acc_lock -- -f 2>&1)
+[[ "$out" == *"'-f' has no signed-in identity"* ]] || fail "lock -- -f said: $out"
+out=$(_claude_acc_lock --force -- -f 2>&1)
+[[ "$out" == *"'-f' has no signed-in identity"* ]] || fail "lock --force -- -f said: $out"
+
+# An account literally named `--` must not be taken for the separator.
+mkdir -p "$CLAUDE_SWITCH_ACCOUNTS_DIR/--" "$CLAUDE_SWITCH_ACCOUNTS_DIR/-work"
+_claude_acc_default -- -work >/dev/null 2>&1
+grep -qx 'default=-work' "$CLAUDE_SWITCH_CONFIG" || fail "default -- -work set: $(grep '^default=' "$CLAUDE_SWITCH_CONFIG")"
+mkdir -p "$scratch/proj" && (cd "$scratch/proj" && _claude_acc_link -- -work >/dev/null 2>&1)
+grep -q "=-work$" "$CLAUDE_SWITCH_LINKS" 2>/dev/null || fail "link -- -work did not bind -work"
+_claude_acc_remove -f -- -work >/dev/null 2>&1
+[[ ! -e "$CLAUDE_SWITCH_ACCOUNTS_DIR/-work" && -d "$CLAUDE_SWITCH_ACCOUNTS_DIR/--" ]] ||
+    fail "remove -f -- -work removed the wrong account"
+
 if (( failures )); then
     print -r -- "name_leading_dash: $failures failure(s)"
     exit 1
