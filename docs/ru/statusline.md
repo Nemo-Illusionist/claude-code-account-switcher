@@ -14,6 +14,8 @@ work │ ⎇ main │ Opus 4.8 (1M context) │ my-repo │ ▓▓▓░░░�
 claude-acc statusline --install
 ```
 
+`settings.json`, который не является JSON-объектом, не переписывается — команда об этом сообщает; пустой файл заполняется.
+
 Потом перезапустите Claude Code. Команда читает session-JSON Claude Code со stdin — данные бесплатные, без запросов к API. Имя аккаунта берётся из `CLAUDE_CONFIG_DIR`. Цвета уважают `NO_COLOR`.
 
 ### Что показывает индикатор и чем он не является

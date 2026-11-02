@@ -277,6 +277,9 @@ fn command_path(bin: &Path) -> String {
 /// everything in it with the one key this command adds.
 fn settings_root(read: std::io::Result<String>) -> Option<Value> {
     match read {
+        // Empty or only whitespace holds nothing to lose, so it is treated
+        // as absent rather than refused.
+        Ok(text) if text.trim().is_empty() => Some(serde_json::json!({})),
         Ok(text) => serde_json::from_str::<Value>(&text)
             .ok()
             .filter(Value::is_object),
@@ -353,8 +356,16 @@ mod tests {
             settings_root(Err(std::io::ErrorKind::NotFound.into())),
             Some(serde_json::json!({}))
         );
-        for broken in [r#"{"theme": "dark","#, "[]", "\"text\"", ""] {
+        for broken in [r#"{"theme": "dark","#, "[]", "\"text\""] {
             assert_eq!(settings_root(read(broken)), None, "{broken:?}");
+        }
+        // Nothing in it, so nothing to lose: started fresh, as when absent.
+        for empty in ["", "  \n\t"] {
+            assert_eq!(
+                settings_root(read(empty)),
+                Some(serde_json::json!({})),
+                "{empty:?}"
+            );
         }
         assert_eq!(
             settings_root(Err(std::io::ErrorKind::PermissionDenied.into())),
