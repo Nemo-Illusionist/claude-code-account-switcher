@@ -790,6 +790,11 @@ dialog h2 {
   max-height: 60vh;
   overflow: auto;
 }
+.dialog-body label {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0;
+}
 .dialog-actions {
   margin-top: 24px;
   display: flex;

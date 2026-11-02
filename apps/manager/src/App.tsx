@@ -184,7 +184,9 @@ function Shell() {
           {tab === "projects" && (
             <ProjectsPage accounts={state.snapshot?.accounts ?? []} />
           )}
-          {tab === "sessions" && <SessionsPage />}
+          {tab === "sessions" && (
+            <SessionsPage accounts={state.snapshot?.accounts ?? []} />
+          )}
         </div>
         <footer>
           <span>
