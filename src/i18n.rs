@@ -223,12 +223,12 @@ impl I18n {
             (Msg::ReservedName(ref n), Lang::Ru) => format!("'{}' — зарезервированное имя.", n),
 
             // name validation
-            (Msg::NameInvalid, Lang::En) => {
-                s("Account name must contain only letters, digits, hyphens, and underscores.")
-            }
-            (Msg::NameInvalid, Lang::Ru) => {
-                s("Имя аккаунта может содержать только буквы, цифры, дефисы и подчёркивания.")
-            }
+            (Msg::NameInvalid, Lang::En) => s(
+                "Account name must contain only letters, digits, hyphens, and underscores, and must not start with a hyphen.",
+            ),
+            (Msg::NameInvalid, Lang::Ru) => s(
+                "Имя аккаунта может содержать только буквы, цифры, дефисы и подчёркивания и не может начинаться с дефиса.",
+            ),
 
             // install
             (Msg::InstallUpToDate(ref v), Lang::En) => format!("Already up to date (v{}).", v),
@@ -277,10 +277,10 @@ impl I18n {
             (Msg::DoctorHeader(n), Lang::En) => format!("Auditing {} account(s):", n),
             (Msg::DoctorHeader(n), Lang::Ru) => format!("Проверка {} аккаунт(ов):", n),
             (Msg::DoctorNoToken(ref name), Lang::En) => {
-                format!("no token (run: claude-acc login {})", name)
+                format!("no token (run: claude-acc login {})", arg(name))
             }
             (Msg::DoctorNoToken(ref name), Lang::Ru) => {
-                format!("нет токена (запустите: claude-acc login {})", name)
+                format!("нет токена (запустите: claude-acc login {})", arg(name))
             }
             (Msg::DoctorOffline, Lang::En) => s("token present, but API unreachable"),
             (Msg::DoctorOffline, Lang::Ru) => s("токен есть, API недоступен"),
@@ -581,10 +581,10 @@ impl I18n {
                 format!("Также скопировано транскриптов сабагентов: {}.", n)
             }
             (Msg::SessionResumeHint(ref acc, ref id), Lang::En) => {
-                format!("Continue it:  claude-acc run {} --resume {}", acc, id)
+                format!("Continue it:  claude-acc run {} --resume {}", arg(acc), id)
             }
             (Msg::SessionResumeHint(ref acc, ref id), Lang::Ru) => {
-                format!("Продолжить:  claude-acc run {} --resume {}", acc, id)
+                format!("Продолжить:  claude-acc run {} --resume {}", arg(acc), id)
             }
             (Msg::SessionCopyFailed(ref e), Lang::En) => {
                 format!("Could not copy the session: {}", e)
@@ -1031,25 +1031,33 @@ impl I18n {
                 "Account '{}' is pinned to {}, but is signed in as {}.\n  \
                  That is drift — the thing the pin exists to report. If the \
                  new identity is the one you want here, re-pin deliberately: \
-                 claude-acc lock {} --force",
-                n, old, new, n
+                 claude-acc lock --force {}",
+                n,
+                old,
+                new,
+                arg(n)
             ),
             (Msg::LockWouldReplace(ref n, ref old, ref new), Lang::Ru) => format!(
                 "Аккаунт '{}' закреплён за {}, а вход выполнен под {}.\n  \
                  Это и есть расхождение, ради которого закрепление и делается. \
                  Если новая личность здесь и нужна — закрепите её осознанно: \
-                 claude-acc lock {} --force",
-                n, old, new, n
+                 claude-acc lock --force {}",
+                n,
+                old,
+                new,
+                arg(n)
             ),
             (Msg::LockNoIdentity(ref n), Lang::En) => format!(
                 "Account '{}' has no signed-in identity to pin. Log in first: \
                  claude-acc login {}",
-                n, n
+                n,
+                arg(n)
             ),
             (Msg::LockNoIdentity(ref n), Lang::Ru) => format!(
                 "У аккаунта '{}' нет личности, которую можно закрепить — вход \
                  не выполнен. Сначала: claude-acc login {}",
-                n, n
+                n,
+                arg(n)
             ),
             (Msg::LockWriteFailed(ref e), Lang::En) => {
                 format!("Could not write the pin: {}", e)
@@ -1067,15 +1075,19 @@ impl I18n {
                 "Account '{}' has a pin that cannot be read: {}\n  Not \
                  replacing it — a corrupted pin is how this protection gets \
                  switched off unnoticed. Inspect it, then re-pin on purpose: \
-                 claude-acc lock {} --force",
-                n, p, n2
+                 claude-acc lock --force {}",
+                n,
+                p,
+                arg(n2)
             ),
             (Msg::LockCorrupt(ref n, ref p, ref n2), Lang::Ru) => format!(
                 "У аккаунта '{}' закрепление не читается: {}\n  Не заменяю — \
                  повреждённое закрепление это и есть способ незаметно \
                  отключить защиту. Посмотрите файл, потом закрепите осознанно: \
-                 claude-acc lock {} --force",
-                n, p, n2
+                 claude-acc lock --force {}",
+                n,
+                p,
+                arg(n2)
             ),
             (Msg::DoctorLockCorrupt, Lang::En) => {
                 s("⚠ pin unreadable — the drift check is off for this account")
@@ -1301,6 +1313,17 @@ impl I18n {
 
     pub fn print(&self, key: Msg) {
         println!("{}", self.msg(key));
+    }
+}
+
+/// An account name as an argument in a suggested command: after `--` when it
+/// starts with a hyphen, which `claude-acc` would otherwise read as a flag.
+/// Only an account made before such names were refused can have one.
+fn arg(name: &str) -> String {
+    if name.starts_with('-') {
+        format!("-- {name}")
+    } else {
+        name.to_string()
     }
 }
 
@@ -1595,6 +1618,24 @@ pub fn forward_duration(secs: u64, lang: Lang) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn suggested_commands_put_a_hyphenated_name_after_the_separator() {
+        // Regression: doctor advised `claude-acc login -work`, which the
+        // argument parser reads as the flag `-w`.
+        for lang in [Lang::En, Lang::Ru] {
+            let i18n = I18n { lang };
+            let advice = |name: &str| i18n.msg(Msg::DoctorNoToken(name.to_string()));
+            assert!(advice("-work").contains("claude-acc login -- -work"));
+            assert!(advice("work").contains("claude-acc login work"));
+            let repin = i18n.msg(Msg::LockWouldReplace(
+                "-work".into(),
+                "a".into(),
+                "b".into(),
+            ));
+            assert!(repin.contains("claude-acc lock --force -- -work"));
+        }
+    }
 
     #[test]
     fn forward_duration_sub_minute() {

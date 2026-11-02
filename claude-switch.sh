@@ -105,7 +105,7 @@ _claude_msg_en=(
     link_done           "%s → account '%s'"
     link_done_default   "%s → ~/.claude/ (default)"
     reserved_name       "'%s' is a reserved name."
-    name_invalid        "Account name must contain only letters, digits, hyphens, and underscores."
+    name_invalid        "Account name must contain only letters, digits, hyphens, and underscores, and must not start with a hyphen."
     seed_copied         "  copied: %s"
     seed_nothing        "  nothing to copy from ~/.claude/"
     lock_usage          "Usage: claude-acc lock <name> [--force]"
@@ -256,7 +256,7 @@ _claude_msg_ru=(
     link_done           "%s → аккаунт '%s'"
     link_done_default   "%s → ~/.claude/ (default)"
     reserved_name       "'%s' — зарезервированное имя."
-    name_invalid        "Имя аккаунта может содержать только буквы, цифры, дефисы и подчёркивания."
+    name_invalid        "Имя аккаунта может содержать только буквы, цифры, дефисы и подчёркивания и не может начинаться с дефиса."
     seed_copied         "  скопировано: %s"
     seed_nothing        "  нечего копировать из ~/.claude/"
     lock_usage          "Использование: claude-acc lock <name> [--force]"
@@ -382,10 +382,25 @@ _msg() {
 # that could be unsafe inside file paths or grep/sed patterns.
 _claude_validate_name() {
     local name="$1"
-    if [[ ! "$name" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+    # No leading hyphen, the same rule as the binary's `validate_name`: it
+    # reads `-work` as a flag, and here `-s` or `-f` would be taken as one.
+    if [[ ! "$name" =~ ^[a-zA-Z0-9_][a-zA-Z0-9_-]*$ ]]; then
         _msg name_invalid
         return 1
     fi
+}
+
+# `_claude_validate_name` for an account that already exists: a name from
+# before a leading hyphen was refused stays usable while its directory is
+# there, as the binary's `validate_existing_name` does. Creating one under
+# such a name is still refused. The directory to look in defaults to the
+# accounts; Desktop profiles pass theirs.
+_claude_validate_existing_name() {
+    local name="$1" dir="${2:-$CLAUDE_SWITCH_ACCOUNTS_DIR}"
+    if [[ "$name" =~ ^[a-zA-Z0-9_-]+$ && -d "$dir/$name" ]]; then
+        return 0
+    fi
+    _claude_validate_name "$name"
 }
 
 # --- Init ---
@@ -742,6 +757,8 @@ _claude_acc_add() {
 }
 
 _claude_acc_login() {
+    # `--` before the name, as the binary needs for `-work` and suggests.
+    [[ "${1:-}" == "--" ]] && shift
     local name="${1:-}"
     if [[ -z "$name" ]]; then
         _msg login_usage
@@ -765,7 +782,7 @@ _claude_acc_login() {
         return
     fi
 
-    _claude_validate_name "$name" || return 1
+    _claude_validate_existing_name "$name" || return 1
 
     local acc_dir="$CLAUDE_SWITCH_ACCOUNTS_DIR/$name"
     if [[ ! -d "$acc_dir" ]]; then
@@ -796,6 +813,8 @@ _claude_acc_remove() {
             # keeps holding the disk space, and an account dir is the kind
             # of thing someone may want off the machine rather than in a bin.
             --purge)    purge=true ;;
+            # The name follows, even one shaped like a flag.
+            --) shift; break ;;
             *) break ;;
         esac
         shift
@@ -812,7 +831,7 @@ _claude_acc_remove() {
         return 1
     fi
 
-    _claude_validate_name "$name" || return 1
+    _claude_validate_existing_name "$name" || return 1
 
     local acc_dir="$CLAUDE_SWITCH_ACCOUNTS_DIR/$name"
     if [[ ! -d "$acc_dir" ]]; then
@@ -895,6 +914,8 @@ _claude_acc_to_trash() {
 }
 
 _claude_acc_default() {
+    # `--` before the name, as the binary needs for `-work` and suggests.
+    [[ "${1:-}" == "--" ]] && shift
     local name="${1:-}"
     if [[ -z "$name" ]]; then
         local current email label
@@ -917,7 +938,7 @@ _claude_acc_default() {
         return
     fi
 
-    _claude_validate_name "$name" || return 1
+    _claude_validate_existing_name "$name" || return 1
 
     if [[ ! -d "$CLAUDE_SWITCH_ACCOUNTS_DIR/$name" ]]; then
         _msg default_not_found "$name"
@@ -931,6 +952,8 @@ _claude_acc_default() {
 }
 
 _claude_acc_link() {
+    # `--` before the name, as the binary needs for `-work` and suggests.
+    [[ "${1:-}" == "--" ]] && shift
     local name="${1:-}"
     if [[ -z "$name" ]]; then
         _msg link_usage
@@ -939,7 +962,7 @@ _claude_acc_link() {
     fi
 
     if [[ "$name" != "default" ]]; then
-        _claude_validate_name "$name" || return 1
+        _claude_validate_existing_name "$name" || return 1
     fi
 
     if [[ "$name" != "default" && ! -d "$CLAUDE_SWITCH_ACCOUNTS_DIR/$name" ]]; then
@@ -1169,6 +1192,8 @@ _claude_acc_clone_settings() {
 # the current shell's active account. `default` runs without
 # CLAUDE_CONFIG_DIR (standard ~/.claude/).
 _claude_acc_run() {
+    # `--` before the name, as the binary needs for `-work` and suggests.
+    [[ "${1:-}" == "--" ]] && shift
     local name="${1:-}"
     if [[ -z "$name" ]]; then
         _msg run_usage
@@ -1192,7 +1217,7 @@ _claude_acc_run() {
         return $?
     fi
 
-    _claude_validate_name "$name" || return 1
+    _claude_validate_existing_name "$name" || return 1
 
     local acc_dir="$CLAUDE_SWITCH_ACCOUNTS_DIR/$name"
     if [[ ! -d "$acc_dir" ]]; then
@@ -1341,7 +1366,9 @@ _claude_acc_desktop_name_ok() {
         _msg desktop_no_default
         return 1
     fi
-    _claude_validate_name "$name"
+    # `desktop add` still cannot create such a name: with the directory there
+    # it stops at desktop_exists.
+    _claude_validate_existing_name "$name" "$CLAUDE_SWITCH_DESKTOP_DIR"
 }
 
 _claude_acc_desktop_add() {
@@ -2387,6 +2414,9 @@ _claude_acc_lock() {
     while (( $# )); do
         case "$1" in
             -f|--force) force=1; shift ;;
+            # As the binary needs for `-work` and suggests: everything after
+            # `--` is the name, even one shaped like a flag (`-f`).
+            --) shift; name="${1:-}"; break ;;
             *) name="$1"; shift ;;
         esac
     done

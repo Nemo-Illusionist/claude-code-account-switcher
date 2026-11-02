@@ -43,7 +43,7 @@
 //! and anything above them, may be symlinks. There is no notion of a global
 //! "active" account; `is_default` is only the configured fallback for
 //! unbound directories.
-use crate::config::{AppConfig, validate_name};
+use crate::config::{AppConfig, validate_existing_name, validate_name};
 use crate::{identity, resolve, sessions};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -273,7 +273,7 @@ fn storage_root<'a>(config: &'a AppConfig, standard: &'a Path, name: &str) -> &'
 
 /// An existing account directory whose storage is safe to read secrets from.
 fn account_dir(config: &AppConfig, standard: &Path, name: &str) -> Result<PathBuf, GuiError> {
-    if !validate_name(name) {
+    if !validate_existing_name(config, name) {
         return Err(GuiError::InvalidAccount);
     }
     let path = account_path(config, standard, name);
@@ -477,7 +477,9 @@ pub fn snapshot(config: &AppConfig, standard: &Path, live: bool) -> Result<Snaps
     let mut names = config
         .list_accounts()
         .map_err(|_| GuiError::StorageUnreadable)?;
-    names.retain(|n| validate_name(n) && n != "default");
+    // Every name here is a directory, so an account made before leading
+    // hyphens were refused is still shown.
+    names.retain(|n| validate_existing_name(config, n) && n != "default");
     names.insert(0, "default".into());
     let now = now();
     let row = |name: &String| account(config, standard, name, &default, live, now);
@@ -684,6 +686,31 @@ mod tests {
             format!(r#"{{"uuid":"{pinned}"}}"#),
         )
         .unwrap();
+    }
+
+    #[test]
+    fn an_account_named_before_the_hyphen_rule_is_still_shown_and_usable() {
+        // Regression: once `-work` stopped passing `validate_name`, the
+        // snapshot dropped the account without a word, and nothing could
+        // address it. `work` is the control: it is listed either way.
+        let (c, root) = fixture("legacy-name");
+        let standard = root.join("standard");
+        fs::create_dir_all(c.account_path("-work")).unwrap();
+        let names: Vec<_> = snapshot(&c, &standard, false)
+            .unwrap()
+            .accounts
+            .into_iter()
+            .map(|a| a.name)
+            .collect();
+        assert_eq!(names, ["default", "-work", "work"]);
+        change_default(&c, &standard, "-work").unwrap();
+        assert_eq!(c.get_default().unwrap().as_deref(), Some("-work"));
+        // A name that is not on disk is still refused.
+        assert_eq!(
+            change_default(&c, &standard, "-gone"),
+            Err(GuiError::InvalidAccount)
+        );
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
