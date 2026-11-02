@@ -231,6 +231,17 @@ pub fn clear_wrapper(settings: &Path) -> std::io::Result<bool> {
 /// A `settings.json` that is a symlink, as dotfiles setups make it, is
 /// written where it points: renaming over the link itself would replace it
 /// with a plain file and leave the dotfiles copy behind, unchanged.
+/// The target of a symlinked `settings.json` that points at nothing, if it
+/// is one: what `write_atomically` cannot resolve, named so the error can
+/// say so rather than read as "settings.json is missing".
+pub fn dangling_link(settings: &Path) -> Option<PathBuf> {
+    let meta = fs::symlink_metadata(settings).ok()?;
+    if !meta.file_type().is_symlink() || settings.exists() {
+        return None;
+    }
+    fs::read_link(settings).ok()
+}
+
 fn write_atomically(settings: &Path, content: &str) -> std::io::Result<()> {
     let target = match fs::symlink_metadata(settings) {
         Ok(meta) if meta.file_type().is_symlink() => fs::canonicalize(settings)?,
@@ -990,6 +1001,35 @@ mod tests {
 
             fs::remove_dir_all(&dir).unwrap();
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_dangling_settings_link_is_named_and_left_alone() {
+        // Regression: the write failed with a bare NotFound, which read as
+        // "settings.json is missing" when it was there and its target was
+        // not. The link must also survive the attempt.
+        let dir = scratch("dangling");
+        let settings = dir.join("settings.json");
+        let gone = dir.join("dotfiles").join("vscode.json");
+        std::os::unix::fs::symlink(&gone, &settings).unwrap();
+        assert_eq!(dangling_link(&settings), Some(gone));
+        assert!(set_wrapper(&settings, &dir.join("bin").join(WRAPPER_NAME)).is_err());
+        assert!(
+            fs::symlink_metadata(&settings)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+        // A plain file, a working link and no file at all are not dangling.
+        let real = dir.join("real.json");
+        fs::write(&real, "{}").unwrap();
+        let good = dir.join("good.json");
+        std::os::unix::fs::symlink(&real, &good).unwrap();
+        for path in [&real, &good, &dir.join("none.json")] {
+            assert_eq!(dangling_link(path), None, "{path:?}");
+        }
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[cfg(unix)]

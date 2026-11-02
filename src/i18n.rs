@@ -1208,6 +1208,16 @@ impl I18n {
                  Не трогаю — добавьте настройку вручную.",
                 ed, p
             ),
+            (Msg::VscodeDanglingLink(ref ed, ref link, ref target), Lang::En) => format!(
+                "{}: {} is a symlink to {}, which does not exist. Left as it is; \
+                 point the link at a file, or replace it with one.",
+                ed, link, target
+            ),
+            (Msg::VscodeDanglingLink(ref ed, ref link, ref target), Lang::Ru) => format!(
+                "{}: {} — символическая ссылка на {}, которого нет. Оставлено как \
+                 есть; направьте ссылку на файл или замените её файлом.",
+                ed, link, target
+            ),
             (Msg::VscodeWriteFailed(ref ed, ref e), Lang::En) => {
                 format!("{}: could not write settings.json: {}", ed, e)
             }
@@ -1465,6 +1475,7 @@ pub enum Msg {
     VscodeForeignKept(String, String),
     VscodeUnreadable(String, String),
     VscodeWriteFailed(String, String),
+    VscodeDanglingLink(String, String, String),
     VscodeRemoved(String),
     VscodeNotConfigured(String),
     VscodeSideEffects,

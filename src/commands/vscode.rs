@@ -120,7 +120,7 @@ pub fn install(config: &AppConfig, i18n: &I18n, force: bool) -> i32 {
                 failed = true;
             }
             Err(e) => {
-                i18n.print(Msg::VscodeWriteFailed(ed.label.to_string(), e.to_string()));
+                report_write_failure(i18n, ed, &e);
                 failed = true;
             }
         }
@@ -171,7 +171,7 @@ pub fn uninstall(config: &AppConfig, i18n: &I18n) -> i32 {
             }
             Ok(false) => i18n.print(Msg::VscodeNotConfigured(ed.label.to_string())),
             Err(e) => {
-                i18n.print(Msg::VscodeWriteFailed(ed.label.to_string(), e.to_string()));
+                report_write_failure(i18n, ed, &e);
                 failed = true;
             }
         }
@@ -278,6 +278,20 @@ fn install_wrapper(
     // Unreachable: `install` returns early on Windows. Kept so the module
     // compiles there.
     Ok(vscode::wrapper_path(&config.base_dir))
+}
+
+/// Why an editor's `settings.json` could not be written. A symlink whose
+/// target is missing gets its own message: the bare `NotFound` would say the
+/// file is missing when it is the target that is.
+fn report_write_failure(i18n: &I18n, ed: &vscode::Editor, e: &std::io::Error) {
+    match vscode::dangling_link(&ed.settings) {
+        Some(target) => i18n.print(Msg::VscodeDanglingLink(
+            ed.label.to_string(),
+            ed.settings.display().to_string(),
+            target.display().to_string(),
+        )),
+        None => i18n.print(Msg::VscodeWriteFailed(ed.label.to_string(), e.to_string())),
+    }
 }
 
 #[cfg(test)]
