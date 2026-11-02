@@ -116,6 +116,12 @@ enum Contains {
 /// Whether `src` holds the accounts directory, or (for a move) the standard
 /// account's. Compared as physical paths, so a second spelling of the same
 /// directory (a symlink, `/tmp` against `/private/tmp`) cannot slip past.
+///
+/// A path that cannot be canonicalized is compared as given. For the
+/// accounts directory that is safe only because it always exists here:
+/// `main` runs `config.init()`, which creates it, before any command. Called
+/// before `init`, a symlinked home would hide the containment and this would
+/// return `None`.
 fn contains(
     src: &Path,
     accounts: &Path,
