@@ -163,6 +163,7 @@ The README is the overview. Each topic has its own page:
 | Continue a conversation under another account after hitting a limit | [Sessions across accounts](docs/sessions.md) |
 | Check which Anthropic account a config dir is really signed in as, and how much limit is left | [Identities: `doctor`, `lock`, `usage`](docs/identity.md) |
 | Run several Claude Desktop accounts side by side | [Claude Desktop profiles](docs/desktop.md) |
+| See accounts, usage and project bindings in a window and the menu bar (macOS) | [Claude Accounts: the manager](docs/manager/README.md) |
 | Show the active account in Claude Code's status bar | [Status line](docs/statusline.md) |
 | See how this compares to cswap, aisw and the direnv recipe | [Comparison with other tools](docs/comparison.md) |
 

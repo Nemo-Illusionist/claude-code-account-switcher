@@ -64,7 +64,7 @@ export type Session = {
   duplicate: boolean;
 };
 
-export type LaunchAction = "run" | "login" | "add";
+export type LaunchAction = "run" | "login" | "add" | "add_seeded";
 export type Launch = { state: "started" | "pending" };
 
 export type Installation = {
@@ -84,7 +84,12 @@ export type GuiError =
   | "unrepresentable_directory"
   | "directory_missing"
   | "shared_credential_store"
-  | "identity_drift";
+  | "identity_drift"
+  | "trash_unavailable"
+  | "not_signed_in"
+  | "session_missing"
+  | "session_exists"
+  | "import_source_refused";
 export type ManagerError =
   | "cli_missing"
   | "launcher_failed"

@@ -7,7 +7,11 @@
     "dev": "vite --host 127.0.0.1",
     "build": "tsc --noEmit && vite build",
     "test": "vitest run",
-    "check": "tsc --noEmit"
+    "check": "tsc --noEmit",
+    "tauri": "tauri",
+    "prepare:cli": "node scripts/prepare-cli.mjs",
+    "manager:dev": "npm run prepare:cli && tauri dev",
+    "manager:build": "npm run prepare:cli && tauri build"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
@@ -15,6 +19,7 @@
     "react-dom": "^19"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^2",
     "@testing-library/react": "^16",
     "@testing-library/user-event": "^14",
     "@types/react": "^19",
