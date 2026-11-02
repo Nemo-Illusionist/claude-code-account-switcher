@@ -28,7 +28,7 @@ pub fn run(config: &AppConfig, i18n: &I18n, name: &str, source: &str, move_into:
     let target = config.account_path(name);
 
     let standard = identity::standard_token_dir();
-    match contains(&src, &accounts_dir, standard.as_deref(), move_into) {
+    match contains(&src, &config.accounts_dir(), standard.as_deref(), move_into) {
         Some(Contains::Accounts) => {
             i18n.print(Msg::ImportSourceHoldsAccounts);
             return 1;
