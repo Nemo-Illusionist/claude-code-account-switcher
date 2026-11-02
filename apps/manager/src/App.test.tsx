@@ -18,9 +18,12 @@ vi.mock("./api", async (importOriginal) => ({
   api: {
     snapshot: vi.fn(),
     setDefault: vi.fn(),
+    removeAccount: vi.fn(),
+    pinAccount: vi.fn(),
     bindings: vi.fn(),
     bind: vi.fn(),
     sessions: vi.fn(),
+    copySession: vi.fn(),
     terminal: vi.fn(),
     installation: vi.fn(),
     chooseDirectory: vi.fn(),
@@ -118,6 +121,83 @@ describe("accounts", () => {
       expect(document.querySelector(".default-name")?.textContent).toBe("personal"),
     );
     expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("moves a managed account to the Trash only after confirmation", async () => {
+    const removed = snapshot();
+    removed.revision = 4;
+    removed.accounts = removed.accounts.filter((a) => a.name !== "personal");
+    vi.mocked(api.removeAccount).mockResolvedValue(removed);
+    render(<App />);
+    await screen.findByText("developer@example.test");
+    // Every managed account offers it; the standard `~/.claude` one does not.
+    expect(screen.getAllByText("Move to Trash…")).toHaveLength(2);
+    expect(document.querySelectorAll("article.account-card")).toHaveLength(3);
+    fireEvent.click(within(card("personal")).getByText("Move to Trash…"));
+    expect(api.removeAccount).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Move to Trash" }));
+    await waitFor(() => expect(api.removeAccount).toHaveBeenCalledWith("personal"));
+    await waitFor(() => expect(screen.queryByText("personal", { selector: "h3" })).toBeNull());
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("keeps the account and says why when the Trash refuses it", async () => {
+    vi.mocked(api.removeAccount).mockRejectedValue("trash_unavailable");
+    render(<App />);
+    await screen.findByText("developer@example.test");
+    fireEvent.click(within(card("personal")).getByText("Move to Trash…"));
+    fireEvent.click(screen.getByRole("button", { name: "Move to Trash" }));
+    const dialog = await screen.findByRole("dialog");
+    expect((await within(dialog).findByRole("alert")).textContent).toContain(
+      "nothing was removed",
+    );
+    expect(card("personal")).toBeTruthy();
+  });
+
+  it("re-pins a drifted account only with force, and unblocks its launch", async () => {
+    const pinned = snapshot();
+    pinned.revision = 4;
+    pinned.accounts.find((a) => a.name === "personal")!.lock = "matched";
+    vi.mocked(api.pinAccount).mockResolvedValue(pinned);
+    render(<App />);
+    await screen.findByText("developer@example.test");
+    // A matched pin offers neither action.
+    expect(within(card("work")).queryByText(/pin/i)).toBeNull();
+    const launch = () =>
+      within(card("personal")).getByRole("button", { name: /Open Claude/ }) as HTMLButtonElement;
+    expect(launch().disabled).toBe(true);
+    fireEvent.click(within(card("personal")).getByText("Re-pin to signed-in identity…"));
+    expect(api.pinAccount).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Re-pin" }));
+    await waitFor(() => expect(api.pinAccount).toHaveBeenCalledWith("personal", true));
+    await waitFor(() => expect(launch().disabled).toBe(false));
+  });
+
+  it("pins an unpinned account without force", async () => {
+    const unpinned = snapshot();
+    unpinned.accounts.find((a) => a.name === "work")!.lock = "unpinned";
+    vi.mocked(api.snapshot).mockResolvedValue(unpinned);
+    vi.mocked(api.pinAccount).mockResolvedValue(snapshot());
+    render(<App />);
+    await screen.findByText("developer@example.test");
+    fireEvent.click(within(card("work")).getByText("Pin identity…"));
+    fireEvent.click(screen.getByRole("button", { name: "Pin" }));
+    await waitFor(() => expect(api.pinAccount).toHaveBeenCalledWith("work", false));
+  });
+
+  it("says why an account that never signed in cannot be pinned", async () => {
+    const unpinned = snapshot();
+    unpinned.accounts.find((a) => a.name === "work")!.lock = "unpinned";
+    vi.mocked(api.snapshot).mockResolvedValue(unpinned);
+    vi.mocked(api.pinAccount).mockRejectedValue("not_signed_in");
+    render(<App />);
+    await screen.findByText("developer@example.test");
+    fireEvent.click(within(card("work")).getByText("Pin identity…"));
+    fireEvent.click(screen.getByRole("button", { name: "Pin" }));
+    const dialog = await screen.findByRole("dialog");
+    expect((await within(dialog).findByRole("alert")).textContent).toContain(
+      "never signed in",
+    );
   });
 
   it("closes an account's action menu once used, or on a click elsewhere", async () => {
@@ -269,6 +349,97 @@ describe("sessions", () => {
     expect(document.querySelectorAll(".session-row")).toHaveLength(100);
     fireEvent.click(screen.getByRole("button", { name: /Show more \(150/ }));
     expect(document.querySelectorAll(".session-row")).toHaveLength(200);
+  });
+
+  const openSessions = async () => {
+    render(<App />);
+    await screen.findByText("developer@example.test");
+    fireEvent.click(screen.getByRole("button", { name: /Sessions/ }));
+    await screen.findAllByText(sample.sessions[0].id);
+  };
+  const copyButton = () =>
+    screen.getByRole("button", {
+      name: `Copy session ${sample.sessions[0].id} from work to another account`,
+    }) as HTMLButtonElement;
+
+  it("copies a session to another available account and shows the new list", async () => {
+    const original = sample.sessions[0];
+    vi.mocked(api.sessions).mockResolvedValue([original]);
+    vi.mocked(api.copySession).mockResolvedValue([
+      { ...original, duplicate: true },
+      { ...original, account: "personal", duplicate: true },
+    ]);
+    await openSessions();
+    fireEvent.click(copyButton());
+    const dialog = await screen.findByRole("dialog");
+    // Not its own account, and not the unavailable standard one.
+    const options = within(dialog)
+      .getAllByRole("option")
+      .map((o) => o.textContent);
+    expect(options).toStrictEqual(["personal"]);
+    expect(within(dialog).queryByText(/already has a copy/)).toBeNull();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Copy session" }));
+    await waitFor(() =>
+      expect(api.copySession).toHaveBeenCalledWith(
+        "work",
+        original.project,
+        original.id,
+        "personal",
+        false,
+      ),
+    );
+    await waitFor(() => expect(document.querySelectorAll(".session-row")).toHaveLength(2));
+    expect(screen.getByText(/claude-acc run personal --resume/).textContent).toContain(
+      original.id,
+    );
+  });
+
+  it("asks before replacing a copy the destination already holds", async () => {
+    const original = sample.sessions[0];
+    const theirs = { ...original, account: "personal", duplicate: true };
+    vi.mocked(api.sessions).mockResolvedValue([{ ...original, duplicate: true }, theirs]);
+    vi.mocked(api.copySession).mockResolvedValue([original, theirs]);
+    await openSessions();
+    fireEvent.click(copyButton());
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText(/already has a copy/)).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Replace copy" }));
+    await waitFor(() =>
+      expect(api.copySession).toHaveBeenCalledWith(
+        "work",
+        original.project,
+        original.id,
+        "personal",
+        true,
+      ),
+    );
+  });
+
+  it("reloads the list when the destination gained a copy, so replacing is one click", async () => {
+    const original = sample.sessions[0];
+    const theirs = { ...original, account: "personal", duplicate: true };
+    vi.mocked(api.sessions)
+      .mockResolvedValueOnce([original])
+      .mockResolvedValue([{ ...original, duplicate: true }, theirs]);
+    vi.mocked(api.copySession).mockRejectedValue("session_exists");
+    await openSessions();
+    fireEvent.click(copyButton());
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Copy session" }));
+    expect((await within(dialog).findByRole("alert")).textContent).toContain(
+      "already has a copy",
+    );
+    expect(api.sessions).toHaveBeenCalledTimes(2);
+    expect(await within(dialog).findByRole("button", { name: "Replace copy" })).toBeTruthy();
+  });
+
+  it("offers no copy when no other account is available", async () => {
+    const alone = snapshot();
+    alone.accounts.find((a) => a.name === "personal")!.available = false;
+    vi.mocked(api.snapshot).mockResolvedValue(alone);
+    vi.mocked(api.sessions).mockResolvedValue([sample.sessions[0]]);
+    await openSessions();
+    expect(copyButton().disabled).toBe(true);
   });
 
   it("retries failed discovery on the same page", async () => {
