@@ -318,8 +318,11 @@ export function useCopy(): Messages {
  * string means the backend did answer, with something this window does not
  * recognise, so it must not be told the backend is unreachable. Only a
  * non-string, a request that never got an answer, is that. Tauri's own
- * rejections are expected to be strings of the second kind; nothing in this
- * frontend can observe that, so it is checked where the shell is added.
+ * rejections are strings of the second kind, read from tauri 2.12.4: its
+ * errors reach the window through `From<crate::Error> for InvokeError`
+ * (`ipc/mod.rs`) as `Value::String(error.to_string())`, bad arguments
+ * included, and an unknown command is rejected with
+ * `format!("Command {command} not found")` (`webview/mod.rs`).
  */
 export function describeError(t: Messages, error: unknown): string {
   if (typeof error !== "string") return t.unreachable;

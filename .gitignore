@@ -6,3 +6,6 @@
 # The optional manager (Claude Accounts)
 apps/manager/node_modules/
 apps/manager/dist/
+apps/manager/src-tauri/target/
+apps/manager/src-tauri/gen/
+apps/manager/src-tauri/binaries/claude-acc*
