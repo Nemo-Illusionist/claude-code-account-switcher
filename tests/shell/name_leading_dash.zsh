@@ -57,6 +57,15 @@ out=$(_claude_acc_lock -- -work 2>&1)
 _claude_acc_remove -f -work >/dev/null 2>&1
 [[ ! -e "$CLAUDE_SWITCH_ACCOUNTS_DIR/-work" ]] || fail "remove -f -work left the account"
 
+# Desktop profiles: the same rule, under their own directory. `keep` is the
+# control.
+mkdir -p "$CLAUDE_SWITCH_DESKTOP_DIR/-work" "$CLAUDE_SWITCH_DESKTOP_DIR/keep"
+_claude_acc_desktop_name_ok -work >/dev/null 2>&1 || fail "existing desktop profile -work refused"
+_claude_acc_desktop_name_ok -nope >/dev/null 2>&1 && fail "desktop -nope accepted with no directory"
+_claude_acc_desktop_remove -f -work >/dev/null 2>&1
+[[ ! -e "$CLAUDE_SWITCH_DESKTOP_DIR/-work" ]] || fail "desktop remove -f -work left the profile"
+[[ -d "$CLAUDE_SWITCH_DESKTOP_DIR/keep" ]] || fail "desktop remove touched keep"
+
 if (( failures )); then
     print -r -- "name_leading_dash: $failures failure(s)"
     exit 1

@@ -15,10 +15,17 @@ pub fn validate_name(name: &str) -> bool {
 /// accepted before a leading hyphen was refused (`-work`) stays reachable
 /// while its directory is there, so an account made then can still be
 /// listed, used and removed. Creating one under such a name is still
-/// refused: `add`, `import`, `clone-settings` and `desktop` keep
+/// refused: `add`, `import`, `clone-settings` and `desktop add` keep
 /// `validate_name`.
 pub fn validate_existing_name(config: &AppConfig, name: &str) -> bool {
-    validate_name(name) || (safe_chars(name) && config.account_path(name).is_dir())
+    validate_existing_name_in(&config.accounts_dir(), name)
+}
+
+/// The same rule for names that live as directories under `dir`: the
+/// accounts, or Claude Desktop's profiles. `safe_chars` is checked first, so
+/// a name like `../etc` never reaches the filesystem.
+pub fn validate_existing_name_in(dir: &Path, name: &str) -> bool {
+    validate_name(name) || (safe_chars(name) && dir.join(name).is_dir())
 }
 
 /// Letters, digits, hyphens and underscores, and at least one character:

@@ -393,10 +393,11 @@ _claude_validate_name() {
 # `_claude_validate_name` for an account that already exists: a name from
 # before a leading hyphen was refused stays usable while its directory is
 # there, as the binary's `validate_existing_name` does. Creating one under
-# such a name is still refused.
+# such a name is still refused. The directory to look in defaults to the
+# accounts; Desktop profiles pass theirs.
 _claude_validate_existing_name() {
-    local name="$1"
-    if [[ "$name" =~ ^[a-zA-Z0-9_-]+$ && -d "$CLAUDE_SWITCH_ACCOUNTS_DIR/$name" ]]; then
+    local name="$1" dir="${2:-$CLAUDE_SWITCH_ACCOUNTS_DIR}"
+    if [[ "$name" =~ ^[a-zA-Z0-9_-]+$ && -d "$dir/$name" ]]; then
         return 0
     fi
     _claude_validate_name "$name"
@@ -1359,7 +1360,9 @@ _claude_acc_desktop_name_ok() {
         _msg desktop_no_default
         return 1
     fi
-    _claude_validate_name "$name"
+    # `desktop add` still cannot create such a name: with the directory there
+    # it stops at desktop_exists.
+    _claude_validate_existing_name "$name" "$CLAUDE_SWITCH_DESKTOP_DIR"
 }
 
 _claude_acc_desktop_add() {

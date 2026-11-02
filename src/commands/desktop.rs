@@ -1,4 +1,4 @@
-use crate::config::{AppConfig, is_reserved_name, validate_name};
+use crate::config::{AppConfig, is_reserved_name, validate_existing_name_in};
 use crate::desktop;
 use crate::i18n::{I18n, Msg};
 use crate::identity;
@@ -26,13 +26,16 @@ fn require_app(i18n: &I18n) -> Option<PathBuf> {
 }
 
 /// A managed profile name: valid, not the reserved `default` (the app's own
-/// profile is not ours to manage).
-fn require_name(i18n: &I18n, name: &str) -> bool {
+/// profile is not ours to manage). A profile made before a leading hyphen
+/// was refused keeps its name while its directory is there; `add` still
+/// cannot create one, since with the directory there it stops at
+/// `DesktopExists` instead.
+fn require_name(config: &AppConfig, i18n: &I18n, name: &str) -> bool {
     if is_reserved_name(name) {
         i18n.print(Msg::DesktopNoDefault);
         return false;
     }
-    if !validate_name(name) {
+    if !validate_existing_name_in(&desktop::profiles_dir(config), name) {
         i18n.print(Msg::NameInvalid);
         return false;
     }
@@ -106,7 +109,7 @@ fn source_profile(
 ) -> Option<(PathBuf, String)> {
     match from {
         Some(name) => {
-            if !require_name(i18n, name) {
+            if !require_name(config, i18n, name) {
                 return None;
             }
             if !desktop::profile_exists(config, name) {
@@ -174,7 +177,7 @@ pub fn clone_config(
     from: Option<&str>,
     force: bool,
 ) -> i32 {
-    if !require_name(i18n, name) {
+    if !require_name(config, i18n, name) {
         return 1;
     }
     if !desktop::profile_exists(config, name) {
@@ -202,7 +205,7 @@ pub fn clone_runtime(
 ) -> i32 {
     use crate::desktop_runtime as runtime;
 
-    if !require_name(i18n, name) {
+    if !require_name(config, i18n, name) {
         return 1;
     }
     if !desktop::profile_exists(config, name) {
@@ -262,7 +265,7 @@ pub fn clone_runtime(
 }
 
 pub fn add(config: &AppConfig, i18n: &I18n, name: &str, seed: bool, force: bool) -> i32 {
-    if !require_name(i18n, name) {
+    if !require_name(config, i18n, name) {
         return 1;
     }
     if desktop::profile_exists(config, name) {
@@ -480,7 +483,7 @@ fn reason(result: crate::desktop_auth::TokenResult) -> Msg {
 }
 
 pub fn run(config: &AppConfig, i18n: &I18n, name: &str, force: bool) -> i32 {
-    if !require_name(i18n, name) {
+    if !require_name(config, i18n, name) {
         return 1;
     }
     if !desktop::profile_exists(config, name) {
@@ -503,7 +506,7 @@ pub fn run(config: &AppConfig, i18n: &I18n, name: &str, force: bool) -> i32 {
 }
 
 pub fn remove(config: &AppConfig, i18n: &I18n, name: &str, force: bool) -> i32 {
-    if !require_name(i18n, name) {
+    if !require_name(config, i18n, name) {
         return 1;
     }
     let profile = desktop::profile_path(config, name);
@@ -688,19 +691,48 @@ mod tests {
     fn default_is_rejected_as_a_profile_name() {
         // The app's own profile is not managed by this tool — there is
         // nothing to add, launch, or delete for it.
-        assert!(!require_name(&i18n(), "default"));
+        assert!(!require_name(
+            &scratch_config("default"),
+            &i18n(),
+            "default"
+        ));
     }
 
     #[test]
     fn invalid_names_are_rejected() {
-        assert!(!require_name(&i18n(), "../etc"));
-        assert!(!require_name(&i18n(), "a b"));
-        assert!(!require_name(&i18n(), ""));
+        let config = scratch_config("invalid");
+        assert!(!require_name(&config, &i18n(), "../etc"));
+        assert!(!require_name(&config, &i18n(), "a b"));
+        assert!(!require_name(&config, &i18n(), ""));
     }
 
     #[test]
     fn ordinary_names_are_accepted() {
-        assert!(require_name(&i18n(), "work"));
-        assert!(require_name(&i18n(), "personal-2"));
+        let config = scratch_config("ordinary");
+        assert!(require_name(&config, &i18n(), "work"));
+        assert!(require_name(&config, &i18n(), "personal-2"));
+    }
+
+    fn scratch_config(tag: &str) -> AppConfig {
+        let base =
+            std::env::temp_dir().join(format!("cc-desktop-name-{tag}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        AppConfig { base_dir: base }
+    }
+
+    #[test]
+    fn a_profile_named_before_the_hyphen_rule_stays_manageable() {
+        // Regression: tightening `validate_name` left a Desktop profile
+        // named `-work` listed but refused by `run`, `remove` and the
+        // clones. `keep` is the control.
+        let config = scratch_config("legacy");
+        assert!(!require_name(&config, &i18n(), "-work"));
+        fs::create_dir_all(desktop::profile_path(&config, "-work")).unwrap();
+        assert!(require_name(&config, &i18n(), "-work"));
+        assert!(require_name(&config, &i18n(), "keep"));
+        // An account directory of that name does not count for profiles.
+        fs::create_dir_all(config.account_path("-acc")).unwrap();
+        assert!(!require_name(&config, &i18n(), "-acc"));
+        let _ = fs::remove_dir_all(&config.base_dir);
     }
 }
