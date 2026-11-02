@@ -19,7 +19,7 @@ export function AccountsPage({
   setAdding: (adding: boolean) => void;
 }) {
   const t = useCopy();
-  const { snapshot, error, loading, refresh, setDefault } = state;
+  const { snapshot, error, loading, refresh, setDefault, removeAccount, pinAccount } = state;
   const [search, setSearch] = useState("");
   const now = useNow();
   const accounts = snapshot?.accounts ?? [];
@@ -92,6 +92,8 @@ export function AccountsPage({
               index={i}
               now={now}
               setDefault={setDefault}
+              removeAccount={removeAccount}
+              pinAccount={pinAccount}
             />
           ))}
         </div>
@@ -106,6 +108,7 @@ function AddAccount({ onDone }: { onDone: () => void }) {
   const [name, setName] = useState("");
   const [invalid, setInvalid] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [seed, setSeed] = useState(false);
   const launch = useLaunch();
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -144,12 +147,20 @@ function AddAccount({ onDone }: { onDone: () => void }) {
           title={t.addTitle(name)}
           confirmLabel={t.addConfirm}
           onConfirm={async () => {
-            await launch(name, null, "add");
+            await launch(name, null, seed ? "add_seeded" : "add");
             onDone();
           }}
           onClose={() => setConfirming(false)}
         >
           <p>{t.addBody}</p>
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={seed}
+              onChange={(e) => setSeed(e.target.checked)}
+            />
+            {t.addSeedLabel}
+          </label>
         </Dialog>
       )}
     </>
