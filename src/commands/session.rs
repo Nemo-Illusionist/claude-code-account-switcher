@@ -260,14 +260,9 @@ fn plan_resume(found: &[SessionRef], target: &str) -> ResumePlan {
     }
 }
 
-/// Config-file key controlling whether the generated `claude` wrapper runs
-/// the `--resume` preflight.
-pub const RESUME_HOOK_SETTING: &str = "resume_hook";
-
-/// Whether the wrapper preflight should run. On unless explicitly turned off
-/// — it costs nothing unless `--resume <id>` is actually present, and the
-/// case it catches is otherwise invisible. `CLAUDE_ACC_NO_RESUME_HOOK` turns
-/// it off for a single invocation without touching the config.
+/// Whether the wrapper preflight should run: the stored setting
+/// (`sessions::resume_hook_stored_on`), unless `CLAUDE_ACC_NO_RESUME_HOOK`
+/// turns it off for a single invocation without touching the config.
 pub fn hook_enabled(config: &AppConfig) -> bool {
     if let Ok(v) = std::env::var("CLAUDE_ACC_NO_RESUME_HOOK")
         && !v.is_empty()
@@ -275,7 +270,7 @@ pub fn hook_enabled(config: &AppConfig) -> bool {
     {
         return false;
     }
-    config.get_setting(RESUME_HOOK_SETTING).as_deref() != Some("off")
+    sessions::resume_hook_stored_on(config)
 }
 
 /// Entry point for the generated `claude` wrapper. `args` are the arguments

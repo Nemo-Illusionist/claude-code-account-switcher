@@ -64,7 +64,42 @@ export type Session = {
   duplicate: boolean;
 };
 
-export type LaunchAction = "run" | "login" | "add";
+export type EditorState = "ours" | "unset" | "foreign" | "unreadable" | "linked";
+
+export type Editor = {
+  name: string;
+  state: EditorState;
+  other_profiles: boolean;
+};
+
+export type UpdateCheck = {
+  latest: string;
+  bundled: string | null;
+  bundled_outdated: boolean;
+  installed: string | null;
+  installed_outdated: boolean;
+};
+
+export type DesktopProfile = {
+  name: string;
+  signed_in: boolean;
+  email: string | null;
+};
+
+export type DesktopProfiles = {
+  profiles: DesktopProfile[];
+  app_profile_exists: boolean;
+};
+
+export type RuntimeCloned = {
+  items: number;
+  logical: number;
+  on_disk: number | null;
+};
+
+export type DesktopAction = "open" | "add" | "add_seeded";
+
+export type LaunchAction = "run" | "login" | "add" | "add_seeded";
 export type Launch = { state: "started" | "pending" };
 
 export type Installation = {
@@ -84,7 +119,22 @@ export type GuiError =
   | "unrepresentable_directory"
   | "directory_missing"
   | "shared_credential_store"
-  | "identity_drift";
+  | "identity_drift"
+  | "trash_unavailable"
+  | "not_signed_in"
+  | "session_missing"
+  | "session_exists"
+  | "import_source_refused"
+  | "cli_not_installed"
+  | "statusline_exists"
+  | "unsupported_platform"
+  | "update_check_failed"
+  | "desktop_running"
+  | "desktop_app_missing"
+  | "desktop_launch_failed"
+  | "desktop_nothing_to_copy"
+  | "desktop_already_has"
+  | "desktop_runtime_would_copy";
 export type ManagerError =
   | "cli_missing"
   | "launcher_failed"
