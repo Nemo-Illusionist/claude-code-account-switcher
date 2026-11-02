@@ -271,6 +271,20 @@ fn command_path(bin: &Path) -> String {
     }
 }
 
+/// The settings object to add `statusLine` to: empty when there is no file
+/// yet, the file's own object otherwise. `None` for a file that exists but is
+/// not a JSON object, or cannot be read: writing over it would replace
+/// everything in it with the one key this command adds.
+fn settings_root(read: std::io::Result<String>) -> Option<Value> {
+    match read {
+        Ok(text) => serde_json::from_str::<Value>(&text)
+            .ok()
+            .filter(Value::is_object),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Some(serde_json::json!({})),
+        Err(_) => None,
+    }
+}
+
 fn install_into_settings(config: &AppConfig, i18n: &I18n) -> i32 {
     let cwd = std::env::current_dir().unwrap_or_default();
     // The account this directory currently resolves to (managed account or the
@@ -289,11 +303,12 @@ fn install_into_settings(config: &AppConfig, i18n: &I18n) -> i32 {
     }
     let settings_path = settings_dir.join("settings.json");
 
-    let mut root = std::fs::read_to_string(&settings_path)
-        .ok()
-        .and_then(|s| serde_json::from_str::<Value>(&s).ok())
-        .filter(Value::is_object)
-        .unwrap_or_else(|| serde_json::json!({}));
+    let Some(mut root) = settings_root(std::fs::read_to_string(&settings_path)) else {
+        i18n.print(Msg::StatuslineSettingsUnreadable(
+            settings_path.display().to_string(),
+        ));
+        return 1;
+    };
 
     let bin = config.base_dir.join("bin").join(binary_name());
     root["statusLine"] = serde_json::json!({
@@ -324,6 +339,28 @@ fn install_into_settings(config: &AppConfig, i18n: &I18n) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_a_missing_file_or_a_json_object_is_edited() {
+        // Regression: a settings.json that did not parse was replaced by
+        // `{"statusLine": …}`, and everything else in it was lost.
+        let read = |text: &str| Ok(text.to_string());
+        assert_eq!(
+            settings_root(read(r#"{"theme":"dark"}"#)),
+            Some(serde_json::json!({"theme": "dark"}))
+        );
+        assert_eq!(
+            settings_root(Err(std::io::ErrorKind::NotFound.into())),
+            Some(serde_json::json!({}))
+        );
+        for broken in [r#"{"theme": "dark","#, "[]", "\"text\"", ""] {
+            assert_eq!(settings_root(read(broken)), None, "{broken:?}");
+        }
+        assert_eq!(
+            settings_root(Err(std::io::ErrorKind::PermissionDenied.into())),
+            None
+        );
+    }
 
     #[test]
     fn usage_segment_includes_rounded_percent() {

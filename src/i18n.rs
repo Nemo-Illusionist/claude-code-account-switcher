@@ -324,6 +324,18 @@ impl I18n {
             (Msg::ImportSourceManaged, Lang::Ru) => {
                 s("Этот путь уже внутри ~/.claude-switch/accounts/.")
             }
+            (Msg::ImportSourceHoldsAccounts, Lang::En) => {
+                s("That path holds ~/.claude-switch/accounts/, so it cannot be imported into it.")
+            }
+            (Msg::ImportSourceHoldsAccounts, Lang::Ru) => s(
+                "Этот путь содержит ~/.claude-switch/accounts/, поэтому его нельзя импортировать туда.",
+            ),
+            (Msg::ImportMoveStandard, Lang::En) => s(
+                "Not moving a directory that holds ~/.claude, the standard account. Import it without --move.",
+            ),
+            (Msg::ImportMoveStandard, Lang::Ru) => s(
+                "Директория содержит ~/.claude, стандартный аккаунт, и не будет перемещена. Импортируйте её без --move.",
+            ),
             (Msg::ImportFailed(ref e), Lang::En) => format!("Import failed: {}", e),
             (Msg::ImportFailed(ref e), Lang::Ru) => format!("Импорт не удался: {}", e),
             (Msg::ImportDone(ref n, ref p), Lang::En) => format!("Imported '{}' → {}", n, p),
@@ -427,6 +439,14 @@ impl I18n {
             (Msg::StatuslineInstalled(ref acc, ref path), Lang::Ru) => format!(
                 "Панель установлена для аккаунта '{}': {}\n(Перезапустите Claude Code, чтобы увидеть.)",
                 acc, path
+            ),
+            (Msg::StatuslineSettingsUnreadable(ref path), Lang::En) => format!(
+                "Not changing {}: it could not be read as a JSON object, and rewriting it would lose what is in it. Fix it, then run this again.",
+                path
+            ),
+            (Msg::StatuslineSettingsUnreadable(ref path), Lang::Ru) => format!(
+                "{} не изменён: его не удалось прочитать как JSON-объект, а перезапись потеряла бы его содержимое. Исправьте файл и запустите команду снова.",
+                path
             ),
             (Msg::StatuslineInstallFailed(ref e), Lang::En) => {
                 format!("Could not install the status line: {}", e)
@@ -1381,6 +1401,7 @@ pub enum Msg {
     UsageAvailableNow,
     StatuslineInstalled(String, String),
     StatuslineInstallFailed(String),
+    StatuslineSettingsUnreadable(String),
     UpdateUpToDate(String),
     UpdateAvailable(String, String),
     UpdateDowngrading(String, String),
@@ -1398,6 +1419,8 @@ pub enum Msg {
     UpdateWrapperFailed(String),
     ImportSourceNotDir(String),
     ImportSourceManaged,
+    ImportSourceHoldsAccounts,
+    ImportMoveStandard,
     ImportFailed(String),
     ImportDone(String, String),
     ImportRekeyed,
