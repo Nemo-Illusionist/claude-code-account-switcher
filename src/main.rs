@@ -1,19 +1,16 @@
 mod chrome;
 mod commands;
-mod desktop;
-mod desktop_auth;
-// APFS clonefile and /bin/cp -c; the whole mechanism is macOS's.
-#[cfg(target_os = "macos")]
-mod desktop_runtime;
 mod i18n;
 mod ide;
-mod seed;
-mod trash;
-mod vscode;
 mod windows_invocation;
 
 use clap::{Parser, Subcommand};
-use claude_acc::{config, environment, identity, quoting, resolve, sessions};
+#[cfg(target_os = "macos")]
+use claude_acc::desktop_runtime;
+use claude_acc::{
+    config, desktop, desktop_auth, environment, identity, import, quoting, resolve, seed, sessions,
+    statusline, trash, update, vscode,
+};
 use commands::activate::ShellSyntax;
 use config::AppConfig;
 use i18n::I18n;

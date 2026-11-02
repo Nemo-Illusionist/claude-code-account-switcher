@@ -4,6 +4,7 @@ import { Dialog, Empty, Failure, Icon } from "../components";
 import type { Account, Binding, Bindings } from "../contract";
 import { useCopy } from "../i18n";
 import { useLaunch, useNotices } from "../notices";
+import { VscodePanel } from "./VscodePanel";
 
 type Pending = { kind: "save"; account: string } | { kind: "remove"; binding: Binding } | null;
 
@@ -180,6 +181,7 @@ export function ProjectsPage({ accounts }: { accounts: Account[] }) {
         </div>
       )}
       <p className="footnote">{t.projectsFootnote}</p>
+      <VscodePanel />
       {pending?.kind === "save" && selected && (
         <Dialog
           title={t.saveTitle}

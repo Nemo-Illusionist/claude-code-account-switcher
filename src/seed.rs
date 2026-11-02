@@ -30,16 +30,35 @@
 use std::fs;
 use std::path::Path;
 
-const COPYABLE_FILES: &[&str] = &["settings.json", "CLAUDE.md"];
-const COPYABLE_DIRS: &[&str] = &["agents", "commands", "output-styles", "skills"];
+pub const COPYABLE_FILES: &[&str] = &["settings.json", "CLAUDE.md"];
+pub const COPYABLE_DIRS: &[&str] = &["agents", "commands", "output-styles", "skills"];
 
 /// The plugin registry files, and the JSON keys in them that hold a path
 /// into the config dir. Both are rewritten when plugins are seeded.
 const PLUGIN_REGISTRIES: &[&str] = &["installed_plugins.json", "known_marketplaces.json"];
 const PLUGIN_PATH_KEYS: &[&str] = &["installPath", "installLocation"];
 
+/// One thing a seed copied: a file, or a directory and how many files were
+/// in it.
+#[derive(Debug, PartialEq)]
+pub struct Seeded {
+    pub name: &'static str,
+    /// `None` for a file.
+    pub files: Option<usize>,
+}
+
+/// How the CLI lists it: `settings.json`, or `agents/ (3 files)`.
+impl std::fmt::Display for Seeded {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.files {
+            None => f.write_str(self.name),
+            Some(n) => write!(f, "{}/ ({} file{})", self.name, n, plural(n)),
+        }
+    }
+}
+
 pub struct CopyReport {
-    pub copied: Vec<String>,
+    pub copied: Vec<Seeded>,
 }
 
 impl CopyReport {
@@ -49,10 +68,15 @@ impl CopyReport {
 }
 
 pub fn copy_user_config(target: &Path) -> std::io::Result<CopyReport> {
-    let source = match dirs::home_dir() {
-        Some(h) => h.join(".claude"),
-        None => return Err(std::io::Error::other("cannot determine home directory")),
-    };
+    match dirs::home_dir() {
+        Some(h) => copy_user_config_from(&h.join(".claude"), target),
+        None => Err(std::io::Error::other("cannot determine home directory")),
+    }
+}
+
+/// [`copy_user_config`] from a given standard config dir rather than the
+/// one under the home directory.
+pub fn copy_user_config_from(source: &Path, target: &Path) -> std::io::Result<CopyReport> {
     let mut report = CopyReport { copied: vec![] };
 
     if !source.exists() {
@@ -64,7 +88,10 @@ pub fn copy_user_config(target: &Path) -> std::io::Result<CopyReport> {
         let dst = target.join(f);
         if src.is_file() && !dst.exists() {
             fs::copy(&src, &dst)?;
-            report.copied.push((*f).to_string());
+            report.copied.push(Seeded {
+                name: f,
+                files: None,
+            });
         }
     }
 
@@ -80,15 +107,17 @@ pub fn copy_user_config(target: &Path) -> std::io::Result<CopyReport> {
             continue;
         }
         let count = copy_dir_recursive(&src, &dst)?;
-        report
-            .copied
-            .push(format!("{}/ ({} file{})", d, count, plural(count)));
+        report.copied.push(Seeded {
+            name: d,
+            files: Some(count),
+        });
     }
 
-    if let Some(count) = copy_plugins(&source, target)? {
-        report
-            .copied
-            .push(format!("plugins/ ({} file{})", count, plural(count)));
+    if let Some(count) = copy_plugins(source, target)? {
+        report.copied.push(Seeded {
+            name: "plugins",
+            files: Some(count),
+        });
     }
 
     Ok(report)
@@ -129,7 +158,7 @@ pub fn copy_plugins(source: &Path, target: &Path) -> std::io::Result<Option<usiz
 /// Whether a `plugins/` directory has anything installed. A directory Claude
 /// Code created but never filled has an empty `plugins` map, and counts as
 /// nothing installed.
-fn has_plugins(plugins_dir: &Path) -> bool {
+pub fn has_plugins(plugins_dir: &Path) -> bool {
     let Ok(raw) = fs::read_to_string(plugins_dir.join("installed_plugins.json")) else {
         return false;
     };
@@ -400,6 +429,14 @@ mod tests {
         // Better to seed nothing than to copy over a registry we could not
         // parse and cannot reason about.
         assert!(registry_lists_a_plugin("{ broken"));
+    }
+
+    #[test]
+    fn the_cli_lists_what_was_seeded_as_it_always_has() {
+        let line = |name, files| Seeded { name, files }.to_string();
+        assert_eq!(line("settings.json", None), "settings.json");
+        assert_eq!(line("agents", Some(3)), "agents/ (3 files)");
+        assert_eq!(line("plugins", Some(1)), "plugins/ (1 file)");
     }
 
     #[test]
