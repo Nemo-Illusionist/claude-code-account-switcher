@@ -22,6 +22,17 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// name the other commands accept.
 pub const DEFAULT_LABEL: &str = "default";
 
+/// Config-file key controlling whether the generated `claude` wrapper runs
+/// the `--resume` preflight.
+pub const RESUME_HOOK_SETTING: &str = "resume_hook";
+
+/// Whether the stored setting leaves the wrapper's `--resume` preflight on.
+/// On unless explicitly turned off — it costs nothing unless `--resume <id>`
+/// is actually present, and the case it catches is otherwise invisible.
+pub fn resume_hook_stored_on(config: &AppConfig) -> bool {
+    config.get_setting(RESUME_HOOK_SETTING).as_deref() != Some("off")
+}
+
 /// One session transcript belonging to one account.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SessionRef {
@@ -365,6 +376,22 @@ pub fn human_size(bytes: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_resume_hook_is_on_unless_stored_off() {
+        let base = std::env::temp_dir().join(format!("cc-resume-setting-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let config = AppConfig {
+            base_dir: base.clone(),
+        };
+        config.init().unwrap();
+        assert!(resume_hook_stored_on(&config), "absent");
+        for (stored, on) in [("off", false), ("on", true), ("", true)] {
+            config.set_setting(RESUME_HOOK_SETTING, stored).unwrap();
+            assert_eq!(resume_hook_stored_on(&config), on, "{stored:?}");
+        }
+        let _ = fs::remove_dir_all(&base);
+    }
 
     #[test]
     fn project_slug_replaces_separators() {

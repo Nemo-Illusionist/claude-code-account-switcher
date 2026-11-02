@@ -24,7 +24,7 @@ pub fn run(config: &AppConfig, i18n: &I18n, name: &str) {
         }
         Ok(report) => {
             for entry in &report.copied {
-                i18n.print(Msg::SeedCopied(entry.clone()));
+                i18n.print(Msg::SeedCopied(entry.to_string()));
             }
         }
         Err(e) => {
