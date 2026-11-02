@@ -14,6 +14,8 @@ Install it into the active account's `settings.json` with one command:
 claude-acc statusline --install
 ```
 
+A `settings.json` that isn't a JSON object is reported and left alone; an empty one is filled in.
+
 Then restart Claude Code. The command reads Claude Code's session JSON on stdin, so the data is free — no API calls. The account badge comes from `CLAUDE_CONFIG_DIR`. Colors honor `NO_COLOR`.
 
 ### What the meter is, and is not
