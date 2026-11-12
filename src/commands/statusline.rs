@@ -118,7 +118,17 @@ fn cwd_of(v: &Value) -> Option<&str> {
         .or_else(|| v.get("cwd").and_then(Value::as_str))
 }
 
-/// Default share of the context window Claude Code reserves for auto-compaction.
+/// The margin this meter keeps back for auto-compaction, as a share of the
+/// window, for the colour only.
+///
+/// It is our own figure, not Claude Code's. Claude Code keeps back a token
+/// count, not a share: in 2.1.322 the compaction trigger sits at the window
+/// less `min(maxOutputTokens, 20000)`, and `maxOutputTokens` is not in the
+/// status line payload. So 16.5% is a stand-in — about right on a 200k
+/// window, far too cautious on a 1M one, where it turns the bar red with a
+/// third of the window still free. Worth replacing with the real reserve;
+/// that is a change to the colour, not to the digits, and belongs in its own
+/// change with its own measurements.
 const AUTO_COMPACT_BUFFER_PCT: f64 = 16.5;
 
 /// The range Claude Code accepts for an auto-compact window, in tokens.
@@ -179,8 +189,25 @@ fn context_segment(v: &Value) -> Option<String> {
         .unwrap_or(1_000_000.0);
 
     let effective = effective_window(total, configured_window(v));
-    let shown = used_of_window(remaining, total, effective);
+    let shown = used_share(used_tokens(v, remaining, total), effective);
     Some(usage_segment(shown, used_of_usable(100.0 - shown)))
+}
+
+/// Tokens in the context window right now.
+///
+/// `total_input_tokens` is the exact count, and it is the same sum Claude
+/// Code divides by the window for the percentages beside it — `input_tokens +
+/// cache_creation_input_tokens + cache_read_input_tokens` (2.1.322). The
+/// percentage is that ratio **rounded to a whole number**, so recovering
+/// tokens from it costs up to half a point of the window — 5k on a 1M window
+/// — and scaling to a smaller window multiplies that error by
+/// `total / effective`. So the token count is preferred, and the percentage
+/// stays only as the fallback for a payload without it.
+fn used_tokens(v: &Value, remaining: f64, total: f64) -> f64 {
+    v.pointer("/context_window/total_input_tokens")
+        .and_then(Value::as_f64)
+        .filter(|t| t.is_finite() && *t >= 0.0)
+        .unwrap_or_else(|| (100.0 - remaining).clamp(0.0, 100.0) / 100.0 * total)
 }
 
 /// The window this session is held to: the configured auto-compact window,
@@ -193,17 +220,12 @@ fn effective_window(total: f64, configured: Option<f64>) -> f64 {
     }
 }
 
-/// Used share of `effective`, 0–100, from the payload's percentage of `total`.
-///
-/// The used token count is recovered from Claude Code's own percentage rather
-/// than from `total_input_tokens`, so the two can never disagree about what
-/// counts as used.
-fn used_of_window(remaining: f64, total: f64, effective: f64) -> f64 {
-    if effective <= 0.0 {
+/// Used share of `window`, 0–100.
+fn used_share(used: f64, window: f64) -> f64 {
+    if window <= 0.0 {
         return 0.0;
     }
-    let used_tokens = (100.0 - remaining).clamp(0.0, 100.0) / 100.0 * total;
-    (used_tokens / effective * 100.0).clamp(0.0, 100.0)
+    (used / window * 100.0).clamp(0.0, 100.0)
 }
 
 /// How much of the *usable* window is spent, 0–100 — the window minus the
@@ -241,7 +263,7 @@ fn configured_window(v: &Value) -> Option<f64> {
         .unwrap_or_default();
 
     if let Ok(raw) = std::env::var("CLAUDE_CODE_AUTO_COMPACT_WINDOW")
-        && let Some(tokens) = raw.trim().parse::<f64>().ok().filter(|t| *t > 0.0)
+        && let Some(tokens) = env_window(&raw)
     {
         return Some(tokens);
     }
@@ -318,6 +340,39 @@ fn window_setting(value: &Value) -> Option<WindowSetting> {
     } else {
         None
     }
+}
+
+/// `CLAUDE_CODE_AUTO_COMPACT_WINDOW` read the way Claude Code reads it.
+///
+/// Transcribed from 2.1.322: a trailing `k` or `m` multiplies by 1000 or
+/// 1000000; under one token, or unparseable, it is ignored — "isn't a usable
+/// size, so Claude Code ignores it" — and outside the 100000..=1000000 bounds
+/// it is **clamped** to the nearer bound rather than dropped.
+///
+/// Reading it as a plain integer, as this did first, ignored `400k`
+/// altogether and took `1` for a one-token window, which pinned the meter at
+/// 100% on an empty context.
+///
+/// A settings value is deliberately not run through this: Claude Code
+/// validates those against the same bounds when it loads the file and drops
+/// an out-of-range one, where the environment variable is clamped. The
+/// asymmetry is theirs.
+fn env_window(raw: &str) -> Option<f64> {
+    let s = raw.trim();
+    let (digits, scale) = match s.chars().last()?.to_ascii_lowercase() {
+        'm' => (&s[..s.len() - 1], 1_000_000.0),
+        'k' => (&s[..s.len() - 1], 1_000.0),
+        _ => (s, 1.0),
+    };
+    let tokens = digits.trim().parse::<f64>().ok()? * scale;
+    if !tokens.is_finite() || tokens < 1.0 {
+        return None;
+    }
+    Some(
+        tokens
+            .round()
+            .clamp(AUTO_COMPACT_WINDOW_MIN, AUTO_COMPACT_WINDOW_MAX),
+    )
 }
 
 /// Whether a `modelSettings` key addresses the model this session runs on.
@@ -596,14 +651,14 @@ mod tests {
         // is all but full: 393.5 / 400 = 98.375%.
         let effective = effective_window(1_000_000.0, Some(400_000.0));
         assert_eq!(effective, 400_000.0);
-        let shown = used_of_window(60.65, 1_000_000.0, effective);
+        let shown = used_share(393_500.0, effective);
         assert!((shown - 98.375).abs() < 0.01, "got {shown}");
 
-        // Nothing configured: the model window stands and the percentage is
+        // Nothing configured: the model window stands and the share is
         // Claude Code's own, unscaled.
         let plain = effective_window(1_000_000.0, None);
         assert_eq!(plain, 1_000_000.0);
-        assert!((used_of_window(60.65, 1_000_000.0, plain) - 39.35).abs() < 0.01);
+        assert!((used_share(393_500.0, plain) - 39.35).abs() < 0.01);
     }
 
     // Claude Code clamps the configured window to the model's own, so a
@@ -613,17 +668,83 @@ mod tests {
         assert_eq!(effective_window(200_000.0, Some(1_000_000.0)), 200_000.0);
         // And a nonsensical one is ignored rather than dividing by it.
         assert_eq!(effective_window(200_000.0, Some(0.0)), 200_000.0);
-        assert_eq!(used_of_window(50.0, 200_000.0, 0.0), 0.0);
+        assert_eq!(used_share(100_000.0, 0.0), 0.0);
     }
 
     #[test]
     fn the_shown_share_never_leaves_the_scale() {
-        // Past the configured window (the model window is what Claude Code
-        // measures, and it can hold more than the compaction trigger).
-        assert_eq!(used_of_window(50.0, 1_000_000.0, 400_000.0), 100.0);
-        // An empty context, and a payload claiming more than 100% remaining.
-        assert_eq!(used_of_window(100.0, 1_000_000.0, 400_000.0), 0.0);
-        assert_eq!(used_of_window(140.0, 1_000_000.0, 400_000.0), 0.0);
+        // Past the configured window — the model window is what Claude Code
+        // holds the session to, and it is larger than the compaction trigger.
+        assert_eq!(used_share(500_000.0, 400_000.0), 100.0);
+        // An empty context, and a count that cannot be right.
+        assert_eq!(used_share(0.0, 400_000.0), 0.0);
+        assert_eq!(used_share(-5.0, 400_000.0), 0.0);
+    }
+
+    // `remaining_percentage` is rounded to a whole number before it is sent,
+    // so recovering tokens from it and then scaling to a smaller window
+    // multiplies the rounding error by total/effective: one point of a 1M
+    // window is 10k tokens, which is 2.5 points of a 400k window. The exact
+    // count in `total_input_tokens` is the same sum Claude Code divides, so
+    // it is used when present.
+    #[test]
+    fn the_exact_token_count_is_preferred_to_the_rounded_percentage() {
+        let exact = serde_json::json!({
+            "context_window": {
+                "remaining_percentage": 61.0,
+                "context_window_size": 1_000_000,
+                "total_input_tokens": 393_500,
+            }
+        });
+        assert_eq!(used_tokens(&exact, 61.0, 1_000_000.0), 393_500.0);
+        assert!(
+            (used_share(used_tokens(&exact, 61.0, 1_000_000.0), 400_000.0) - 98.375).abs() < 0.01
+        );
+
+        // Without it, the rounded percentage is all there is: 39% of 1M is
+        // 390k, which is 97.5% of a 400k window — a point adrift, and the
+        // reason the exact count is preferred.
+        let rounded = serde_json::json!({
+            "context_window": { "remaining_percentage": 61.0, "context_window_size": 1_000_000 }
+        });
+        assert_eq!(used_tokens(&rounded, 61.0, 1_000_000.0), 390_000.0);
+        assert_eq!(
+            used_share(used_tokens(&rounded, 61.0, 1_000_000.0), 400_000.0),
+            97.5
+        );
+
+        // A nonsense count falls back rather than poisoning the meter.
+        let bad = serde_json::json!({
+            "context_window": {
+                "remaining_percentage": 61.0,
+                "context_window_size": 1_000_000,
+                "total_input_tokens": -1,
+            }
+        });
+        assert_eq!(used_tokens(&bad, 61.0, 1_000_000.0), 390_000.0);
+    }
+
+    // The environment variable is parsed the way Claude Code parses it: a
+    // k/m suffix, a clamp to 100000..=1000000, and an unusable size ignored.
+    // Read as a plain integer, `400k` was ignored and `1` became a one-token
+    // window that pinned the meter at 100% on an empty context.
+    #[test]
+    fn the_environment_window_is_parsed_the_way_claude_code_parses_it() {
+        assert_eq!(env_window("400000"), Some(400_000.0));
+        assert_eq!(env_window(" 400000 "), Some(400_000.0));
+        assert_eq!(env_window("400k"), Some(400_000.0));
+        assert_eq!(env_window("400K"), Some(400_000.0));
+        assert_eq!(env_window("0.5m"), Some(500_000.0));
+        // Clamped to the bounds, not dropped.
+        assert_eq!(env_window("50000"), Some(100_000.0));
+        assert_eq!(env_window("1"), Some(100_000.0));
+        assert_eq!(env_window("2m"), Some(1_000_000.0));
+        // Not a usable size.
+        assert_eq!(env_window("0"), None);
+        assert_eq!(env_window(""), None);
+        assert_eq!(env_window("lots"), None);
+        assert_eq!(env_window("k"), None);
+        assert_eq!(env_window("-400000"), None);
     }
 
     #[test]
