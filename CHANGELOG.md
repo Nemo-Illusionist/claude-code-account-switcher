@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.22.0](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.21.0...v0.22.0) (2026-11-12)
+
+
+### Features
+
+* add the manager's React frontend, with every piece of prose in one typed table ([#172](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/172)) ([bb3446a](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/bb3446ab4f2f1cab69b193903bb4bd3e10c6839a))
+* expose a typed, secret-free account interface for GUI consumers ([#170](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/170)) ([bfa2921](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/bfa29210cb6f89cc393bb5f533c41ae434f56957))
+
+
+### Bug Fixes
+
+* count the context meter against the session's auto-compact window ([#199](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/199)) ([dda1f5a](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/dda1f5adeb98db8a97c17c602586063c12a37754))
+* give each writer its own staging file, and write down what the lock does not promise ([#168](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/168)) ([dbf2e15](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/dbf2e156eb478713733e5acbc80a0df70fc1f744))
+* leave a settings.json that does not parse alone when installing the status line ([#177](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/177)) ([86fd6c9](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/86fd6c9ef7008b571d12b8bd8d52199922708616))
+* refuse to import a directory that holds the accounts or, moved, ~/.claude ([#176](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/176)) ([342cd86](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/342cd863de5d7d04e1c39da1b5baa46c3a94d845))
+* stop a modelSettings key matching a model it does not name ([#200](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/200)) ([14c2bc3](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/14c2bc305d71f0c6d3807749927fdbbb8dec33bb))
+* stop concurrent writers losing directory bindings and the default account ([#160](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/160)) ([94c19a2](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/94c19a2f93deb08c442d89772d8740e15333184a))
+* write a symlinked VS Code settings.json where it points ([#178](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/178)) ([91b75bb](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/91b75bb5bf2e73c2da1f78ab653aaa66507b7997))
+
+
+### Refactors
+
+* build the binary from a library of its own modules ([#169](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/169)) ([daf6275](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/daf6275bd44585cdb497013cd0ff56482461dac1))
+
 ## [0.21.0](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.20.0...v0.21.0) (2026-10-15)
 
 

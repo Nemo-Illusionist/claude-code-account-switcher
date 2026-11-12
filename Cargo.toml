@@ -1,6 +1,6 @@
 [package]
 name = "claude-acc"
-version = "0.21.0"
+version = "0.22.0"
 edition = "2024"
 # `File::lock`, which `config::locked` uses to keep two writers from dropping
 # each other's edit, is stable since 1.89.0 — verified in the stdlib source:
