@@ -840,15 +840,16 @@ mod tests {
     #[test]
     fn the_settings_files_are_read_highest_precedence_first() {
         let files = settings_files_in(Some("/w/proj"), Some(Path::new("/h/.claude")));
+        // Compared as paths, not as strings: `Path`'s equality is
+        // component-wise, where a rendered string carries the platform's
+        // separator and this test failed on Windows for saying `\` where it
+        // meant "the next component".
         assert_eq!(
-            files
-                .iter()
-                .map(|p| p.display().to_string())
-                .collect::<Vec<_>>(),
+            files,
             vec![
-                "/w/proj/.claude/settings.local.json".to_string(),
-                "/w/proj/.claude/settings.json".to_string(),
-                "/h/.claude/settings.json".to_string(),
+                Path::new("/w/proj/.claude/settings.local.json").to_path_buf(),
+                Path::new("/w/proj/.claude/settings.json").to_path_buf(),
+                Path::new("/h/.claude/settings.json").to_path_buf(),
             ]
         );
 
