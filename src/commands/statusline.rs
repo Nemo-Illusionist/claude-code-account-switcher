@@ -277,24 +277,40 @@ fn configured_window(v: &Value) -> Option<f64> {
     window_from_docs(&docs, model)
 }
 
-/// Claude Code's settings files, highest precedence first: the project's local
-/// settings, the project's shared settings, then the account's own
-/// `settings.json` — `CLAUDE_CONFIG_DIR` for a managed account, `~/.claude`
-/// otherwise, which is the same file `statusline --install` writes to.
+/// Claude Code's settings files, highest precedence first.
+///
+/// The account's own settings directory is `CLAUDE_CONFIG_DIR` when it is set
+/// — a managed account — and `~/.claude` otherwise, which is the same file
+/// `statusline --install` writes to. Reading the environment is all this
+/// does; the order itself is in `settings_files_in`, where it can be
+/// asserted without touching process-wide state.
 fn settings_files(v: &Value) -> Vec<std::path::PathBuf> {
+    let user = std::env::var_os("CLAUDE_CONFIG_DIR")
+        .map(std::path::PathBuf::from)
+        .or_else(|| dirs::home_dir().map(|h| h.join(".claude")));
+    settings_files_in(
+        v.pointer("/workspace/project_dir")
+            .and_then(Value::as_str)
+            .or_else(|| cwd_of(v)),
+        user.as_deref(),
+    )
+}
+
+/// The files, highest precedence first: the project's local settings, the
+/// project's shared settings, then the account's own `settings.json`.
+///
+/// That is Claude Code's order read backwards. Its own source list runs from
+/// lowest precedence to highest — `userSettings`, `projectSettings`,
+/// `localSettings`, `flagSettings`, `policySettings` (2.1.322) — and it
+/// merges in that direction, so the last to speak wins. The first three are
+/// the ones here, reversed; the two above them are not read.
+fn settings_files_in(project: Option<&str>, user: Option<&Path>) -> Vec<std::path::PathBuf> {
     let mut out = Vec::new();
-    if let Some(project) = v
-        .pointer("/workspace/project_dir")
-        .and_then(Value::as_str)
-        .or_else(|| cwd_of(v))
-    {
+    if let Some(project) = project {
         let dir = Path::new(project).join(".claude");
         out.push(dir.join("settings.local.json"));
         out.push(dir.join("settings.json"));
     }
-    let user = std::env::var_os("CLAUDE_CONFIG_DIR")
-        .map(std::path::PathBuf::from)
-        .or_else(|| dirs::home_dir().map(|h| h.join(".claude")));
     if let Some(user) = user {
         out.push(user.join("settings.json"));
     }
@@ -816,6 +832,34 @@ mod tests {
         assert_eq!(used_of_usable(100.0), 0.0);
         // Past the trigger it stays pinned at the top of the scale.
         assert_eq!(used_of_usable(0.0), 100.0);
+    }
+
+    // The order of these three files is what decides which window wins, and
+    // it used to rest on the order of two `push` calls that no test read:
+    // swapping them left every test green.
+    #[test]
+    fn the_settings_files_are_read_highest_precedence_first() {
+        let files = settings_files_in(Some("/w/proj"), Some(Path::new("/h/.claude")));
+        assert_eq!(
+            files
+                .iter()
+                .map(|p| p.display().to_string())
+                .collect::<Vec<_>>(),
+            vec![
+                "/w/proj/.claude/settings.local.json".to_string(),
+                "/w/proj/.claude/settings.json".to_string(),
+                "/h/.claude/settings.json".to_string(),
+            ]
+        );
+
+        // Either end may be missing: a payload without a directory, and a
+        // machine where neither `CLAUDE_CONFIG_DIR` nor a home dir resolves.
+        assert_eq!(
+            settings_files_in(None, Some(Path::new("/h/.claude"))),
+            vec![std::path::PathBuf::from("/h/.claude/settings.json")]
+        );
+        assert_eq!(settings_files_in(Some("/w/proj"), None).len(), 2);
+        assert!(settings_files_in(None, None).is_empty());
     }
 
     #[test]
