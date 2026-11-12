@@ -253,9 +253,10 @@ fn used_of_usable(remaining: f64) -> f64 {
 /// setting)". It used to be read here as a reserve to subtract, which made a
 /// 400k setting look like a 40% reserve on a 1M window.
 ///
-/// Not read: an organisation's managed (policy) settings, and the
-/// server-side and experiment defaults below the settings in Claude Code's
-/// order. A window lowered by one of those is not reflected in the meter.
+/// Not read: an organisation's managed (policy) settings, the flag settings a
+/// host passes in — Claude Code's own order is `userSettings`,
+/// `projectSettings`, `localSettings`, `flagSettings`, `policySettings` — and
+/// the server-side and experiment defaults it consults below the settings. A window lowered by one of those is not reflected in the meter.
 fn configured_window(v: &Value) -> Option<f64> {
     let model = v
         .pointer("/model/id")
@@ -335,7 +336,11 @@ fn window_setting(value: &Value) -> Option<WindowSetting> {
         return Some(WindowSetting::Auto);
     }
     let tokens = value.as_f64()?;
-    if (AUTO_COMPACT_WINDOW_MIN..=AUTO_COMPACT_WINDOW_MAX).contains(&tokens) {
+    // Claude Code's schema is `int().min(100000).max(1000000)`, so a
+    // fractional value fails it and the key reads as absent.
+    if tokens.fract() == 0.0
+        && (AUTO_COMPACT_WINDOW_MIN..=AUTO_COMPACT_WINDOW_MAX).contains(&tokens)
+    {
         Some(WindowSetting::Tokens(tokens))
     } else {
         None
@@ -382,29 +387,48 @@ fn env_window(raw: &str) -> Option<f64> {
 /// `claude-opus-5[1m]`, `claude-opus-5-20260301`,
 /// `us.anthropic.claude-opus-5-v1:0` and `claude-opus-5@20260301`, while
 /// staying off `claude-opus-5-5`, which is a different model.
+///
+/// **An alias is not understood here.** A key written `opus`, `sonnet` or
+/// `opusplan` is resolved by Claude Code through its model registry, which
+/// this has no access to — and guessing (reading `opus` as any opus model)
+/// would apply a window Claude Code did not apply. Such a key is left
+/// unmatched, so the meter falls back to the model's own window; the guides
+/// say to write the canonical name.
 fn model_key_matches(key: &str, model_id: &str) -> bool {
     key == model_id || canonical_model(key) == canonical_model(model_id)
 }
 
 /// A model id reduced to its canonical name.
+///
+/// Every strip here is deliberately narrow. Claude Code canonicalises through
+/// its model registry; this is string surgery, and a strip one character too
+/// eager silently applies one model's window to another. Two were: cutting at
+/// any `.` made the key `foo.claude-opus-5` match `claude-opus-5`, and
+/// cutting any `-v<digits>` collapsed Vertex's `claude-3-5-sonnet-v2` onto
+/// `claude-3-5-sonnet`, a different model.
 fn canonical_model(id: &str) -> String {
     let mut s = id.trim();
     // `claude-opus-5[1m]`, and Vertex's `claude-opus-5@20260301`.
     if let Some(i) = s.find(['[', '@']) {
         s = &s[..i];
     }
-    // Bedrock's `us.anthropic.claude-opus-5-v1:0`.
-    if let Some(i) = s.rfind('.') {
+    // Bedrock's `us.anthropic.claude-opus-5-v1:0`, and the same name inside an
+    // inference-profile ARN. Only a prefix ending in `anthropic` is a provider
+    // prefix; anything else is part of whatever name this is.
+    if let Some(i) = s.rfind('.')
+        && s[..i].ends_with("anthropic")
+    {
         s = &s[i + 1..];
     }
     let mut out = s.to_string();
-    // ... and its `-v1:0` revision suffix.
+    // ... and Bedrock's `-v1:0` revision suffix, which always carries the `:`.
+    // Vertex's `-v2` does not, and there it names the model.
     if let Some(i) = out.rfind("-v")
-        && out[i + 2..].chars().all(|c| c.is_ascii_digit() || c == ':')
-        && out[i + 2..]
-            .chars()
-            .next()
-            .is_some_and(|c| c.is_ascii_digit())
+        && let Some((rev, minor)) = out[i + 2..].split_once(':')
+        && !rev.is_empty()
+        && rev.chars().all(|c| c.is_ascii_digit())
+        && !minor.is_empty()
+        && minor.chars().all(|c| c.is_ascii_digit())
     {
         out.truncate(i);
     }
@@ -862,6 +886,42 @@ mod tests {
         assert!(!model_key_matches("claude-opus-5", "claude-sonnet-5"));
         // And the key may itself be written in one of those spellings.
         assert!(model_key_matches("claude-opus-5[1m]", "claude-opus-5"));
+        // A Bedrock inference-profile ARN carries the same name.
+        assert!(model_key_matches(
+            "claude-opus-5",
+            "arn:aws:bedrock:us-east-1:1:inference-profile/us.anthropic.claude-opus-5-v1:0"
+        ));
+    }
+
+    // Every strip in `canonical_model` is string surgery standing in for
+    // Claude Code's model registry, and two of them used to reach too far:
+    // one model's window was applied to another.
+    #[test]
+    fn a_key_that_is_merely_similar_is_not_the_same_model() {
+        // `-v2` in a Vertex name is part of the model, not a Bedrock
+        // revision — those always carry the `:`, as in `-v1:0`.
+        assert!(!model_key_matches(
+            "claude-3-5-sonnet",
+            "claude-3-5-sonnet-v2@20240620"
+        ));
+        assert!(!model_key_matches("claude-opus-5-v2", "claude-opus-5"));
+        assert!(model_key_matches(
+            "claude-3-5-sonnet-v2",
+            "claude-3-5-sonnet-v2@20240620"
+        ));
+
+        // A dotted prefix is a provider prefix only when it ends in
+        // `anthropic`; `foo.claude-opus-5` is not this model.
+        assert!(!model_key_matches("foo.claude-opus-5", "claude-opus-5"));
+        assert!(model_key_matches(
+            "us.anthropic.claude-opus-5-v1:0",
+            "claude-opus-5"
+        ));
+
+        // An alias goes through Claude Code's registry, which is not
+        // reachable from here, so it matches nothing rather than guessing.
+        assert!(!model_key_matches("opus", "claude-opus-5"));
+        assert!(!model_key_matches("sonnet", "claude-sonnet-5"));
     }
 
     // Out of Claude Code's accepted 100000..=1000000, a value is reported as
@@ -874,6 +934,8 @@ mod tests {
             serde_json::json!({ "autoCompactWindow": 2_000_000 }),
             serde_json::json!({ "autoCompactWindow": "400k" }),
             serde_json::json!({ "autoCompactWindow": true }),
+            // Claude Code's schema is `int()`, so a fractional size fails it.
+            serde_json::json!({ "autoCompactWindow": 400_000.5 }),
             serde_json::json!({ "autoCompactWindow": null }),
         ] {
             assert_eq!(settings_window(&bad, "claude-opus-5"), None, "{bad}");

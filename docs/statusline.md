@@ -31,7 +31,11 @@ Hold a session to a smaller window and that is what the meter counts against. Th
 | environment | `CLAUDE_CODE_AUTO_COMPACT_WINDOW`, a window in tokens — `400k` and `0.5m` are accepted, a value outside the bounds is clamped into them, and it takes precedence over every setting |
 | `<project>/.claude/settings.local.json`, then `.claude/settings.json`, then the account's `settings.json` | `modelSettings.<model>.autoCompactWindow` for one model, else the top-level `autoCompactWindow` |
 
-A *setting* outside the 100000–1000000 Claude Code accepts is ignored here as it is there — only the environment variable is clamped, which is Claude Code's own asymmetry — and `"auto"` means the model keeps its own window. Two sources are **not** read: an organisation's managed settings, and the server-side and experiment defaults Claude Code consults below the settings files. A window lowered through one of those leaves the meter reading low.
+A *setting* outside the 100000–1000000 Claude Code accepts is ignored here as it is there, and a fractional one with it — only the environment variable is clamped, which is Claude Code's own asymmetry — and `"auto"` means the model keeps its own window.
+
+Key the model block by its canonical name. `claude-opus-5` also matches that model's dated, `[1m]`, Bedrock and Vertex spellings, but an **alias** — `opus`, `sonnet`, `opusplan` — is resolved by Claude Code through its model registry, which the status line cannot reach, so a window keyed that way is not seen here.
+
+Three sources are **not** read: an organisation's managed settings, the flag settings a host passes in, and the server-side and experiment defaults Claude Code consults below the settings files. A window lowered through one of those leaves the meter reading low.
 
 The colour is the part that knows about auto-compaction: a slice of that window is kept back for the compaction summary, so the wall arrives before the bar is full. Severity is measured against the window less a 16.5% margin rather than against the whole of it, which keeps red meaning "compaction is about to kick in" rather than an arbitrary fraction:
 
