@@ -24,6 +24,18 @@ pub struct AppConfig {
     pub base_dir: PathBuf,
 }
 
+// Required, not gratuitous: since `config` became a library module, `new()`
+// is reachable as library API, so `clippy::new_without_default` fires and
+// `-D warnings` fails the build without this impl. Note it inherits `new()`'s
+// `expect("Cannot determine home directory")`: unlike most `Default` impls it
+// can panic. That is not new behaviour, since every caller of `new()` already
+// panics there.
+impl Default for AppConfig {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AppConfig {
     pub fn new() -> Self {
         let home = dirs::home_dir().expect("Cannot determine home directory");
