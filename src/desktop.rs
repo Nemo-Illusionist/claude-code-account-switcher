@@ -16,6 +16,47 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::config::AppConfig;
+use crate::identity;
+use std::collections::HashMap;
+
+/// `accountUuid` -> email for every account this tool manages, read from each
+/// config dir's own `.claude.json`.
+///
+/// A Desktop profile records the uuid it last signed in as, but not the
+/// email; the CLI side has both. When the same person is signed into a
+/// profile and into an account here, matching the two is enough to name the
+/// profile — a couple of local JSON reads, no Keychain prompt and no network,
+/// which is the whole reason it belongs in `list` rather than in `usage`.
+pub fn cli_identities(config: &AppConfig) -> HashMap<String, String> {
+    let mut known = HashMap::new();
+    let dirs = config
+        .list_accounts()
+        .unwrap_or_default()
+        .iter()
+        .map(|a| config.account_path(a))
+        .chain(identity::standard_token_dir())
+        .collect::<Vec<_>>();
+    for dir in dirs {
+        if let Some(id) = identity::local_identity(&dir)
+            && let Some(email) = id.email
+        {
+            known.insert(id.uuid.to_lowercase(), email);
+        }
+    }
+    known
+}
+
+/// The email of the account `uuid` belongs to, if this tool manages it.
+///
+/// Compared case-insensitively: Claude Desktop writes the uuid into its
+/// `config.json` and Claude Code writes it into `.claude.json`, and nothing
+/// promises the two agree on case.
+pub fn borrowed_email<'a>(
+    uuid: Option<&str>,
+    known: &'a HashMap<String, String>,
+) -> Option<&'a str> {
+    known.get(&uuid?.to_lowercase()).map(String::as_str)
+}
 
 /// Overrides the located `Claude.app`. For testing, and for anyone whose app
 /// lives somewhere the search below doesn't reach.
@@ -321,6 +362,25 @@ fn launch_argv(app: &Path, profile: &Path, via_open: bool) -> (PathBuf, Vec<Stri
     (app.to_path_buf(), vec![switch])
 }
 
+/// Open the app on `profile`. The error is the OS's or the exit status's own
+/// text, for the caller to show.
+pub fn launch(app: &Path, profile: &Path) -> Result<(), String> {
+    let mut cmd = launch_command(app, profile);
+    if !launch_detaches() {
+        // The app itself is the child here, and it lives as long as its
+        // window does — waiting would hang the caller for the session.
+        return cmd.spawn().map(|_| ()).map_err(|e| e.to_string());
+    }
+    // `open` returns as soon as the app is up, so waiting costs a moment and
+    // buys a real exit status — spawning instead would report success even
+    // when the app failed to start.
+    match cmd.status() {
+        Ok(status) if status.success() => Ok(()),
+        Ok(status) => Err(status.to_string()),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
 /// Whether the launch detaches on its own. `open` returns as soon as the app
 /// is up, so waiting on it is cheap and reports real failures; running the
 /// executable directly means waiting would block for as long as the app is
@@ -396,6 +456,35 @@ pub fn is_signed_in(profile: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn known(uuid: &str, email: &str) -> HashMap<String, String> {
+        HashMap::from([(uuid.to_string(), email.to_string())])
+    }
+
+    #[test]
+    fn the_uuid_match_ignores_case() {
+        // Two different files written by two different programs; nothing
+        // promises they agree on case.
+        let map = known("aa6c22d5-f7d1-4ac1-bb29-22abc90481c1", "a@b.com");
+        assert_eq!(
+            borrowed_email(Some("AA6C22D5-F7D1-4AC1-BB29-22ABC90481C1"), &map),
+            Some("a@b.com")
+        );
+    }
+
+    #[test]
+    fn nothing_to_match_borrows_nothing() {
+        let map = known("aa6c22d5-f7d1-4ac1-bb29-22abc90481c1", "a@b.com");
+        assert_eq!(borrowed_email(None, &map), None);
+        assert_eq!(borrowed_email(Some("aa6c22d5"), &map), None);
+        assert_eq!(
+            borrowed_email(
+                Some("aa6c22d5-f7d1-4ac1-bb29-22abc90481c1"),
+                &HashMap::new()
+            ),
+            None
+        );
+    }
 
     fn temp_config(tag: &str) -> AppConfig {
         let base = std::env::temp_dir().join(format!("cc-desktop-{}-{}", tag, std::process::id()));

@@ -9,12 +9,32 @@ pub mod gui;
 #[doc(hidden)]
 pub mod config;
 #[doc(hidden)]
+pub mod desktop;
+#[doc(hidden)]
+pub mod desktop_auth;
+// APFS clonefile and /bin/cp -c; the whole mechanism is macOS's.
+#[cfg(target_os = "macos")]
+#[doc(hidden)]
+pub mod desktop_runtime;
+#[doc(hidden)]
 pub mod environment;
 #[doc(hidden)]
 pub mod identity;
+#[doc(hidden)]
+pub mod import;
 #[doc(hidden)]
 pub mod quoting;
 #[doc(hidden)]
 pub mod resolve;
 #[doc(hidden)]
+pub mod seed;
+#[doc(hidden)]
 pub mod sessions;
+#[doc(hidden)]
+pub mod statusline;
+#[doc(hidden)]
+pub mod trash;
+#[doc(hidden)]
+pub mod update;
+#[doc(hidden)]
+pub mod vscode;

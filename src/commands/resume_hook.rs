@@ -17,7 +17,7 @@ pub fn run(config: &AppConfig, i18n: &I18n, state: Option<&str>) -> i32 {
     };
 
     let value = if on { "on" } else { "off" };
-    if let Err(e) = config.set_setting(super::session::RESUME_HOOK_SETTING, value) {
+    if let Err(e) = config.set_setting(sessions::RESUME_HOOK_SETTING, value) {
         i18n.print(Msg::ResumeHookWriteFailed(e.to_string()));
         return 1;
     }
@@ -32,24 +32,17 @@ pub fn run(config: &AppConfig, i18n: &I18n, state: Option<&str>) -> i32 {
 
 fn print_state(config: &AppConfig, i18n: &I18n) {
     let stored = config
-        .get_setting(super::session::RESUME_HOOK_SETTING)
+        .get_setting(sessions::RESUME_HOOK_SETTING)
         .unwrap_or_else(|| "on".to_string());
     i18n.print(Msg::ResumeHookState(stored));
     // The env override wins over the stored value, so say so rather than
     // letting the two disagree silently.
-    if !super::session::hook_enabled(config) && !is_off(config) {
+    if !super::session::hook_enabled(config) && sessions::resume_hook_stored_on(config) {
         i18n.print(Msg::ResumeHookEnvOverride);
     }
     if !sessions::account_config_dirs(config).is_empty() {
         i18n.print(Msg::ResumeHookHint);
     }
-}
-
-fn is_off(config: &AppConfig) -> bool {
-    config
-        .get_setting(super::session::RESUME_HOOK_SETTING)
-        .as_deref()
-        == Some("off")
 }
 
 /// Accept the spellings people actually type. Returns `None` for anything
