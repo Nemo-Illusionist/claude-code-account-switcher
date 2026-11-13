@@ -10,18 +10,22 @@ const blocked = (lock: LockStatus) => lock === "drift" || lock === "corrupt";
 const title = (t: Messages, a: Account) =>
   a.name === "default" ? t.standardAccount : a.name;
 
-type Open = "details" | "login" | "default" | null;
+type Open = "details" | "login" | "default" | "remove" | "pin" | null;
 
 export function AccountCard({
   account: a,
   index,
   now,
   setDefault,
+  removeAccount,
+  pinAccount,
 }: {
   account: Account;
   index: number;
   now: number;
   setDefault: (name: string) => Promise<void>;
+  removeAccount: (name: string) => Promise<void>;
+  pinAccount: (name: string, force: boolean) => Promise<void>;
 }) {
   const t = useCopy();
   const [open, setOpen] = useState<Open>(null);
@@ -121,6 +125,14 @@ export function AccountCard({
             >
               {t.makeDefaultAction}
             </button>
+            {(a.lock === "unpinned" || blocked(a.lock)) && (
+              <button disabled={!a.available} onClick={() => setOpen("pin")}>
+                {blocked(a.lock) ? t.repinAction : t.pinAction}
+              </button>
+            )}
+            {a.name !== "default" && (
+              <button onClick={() => setOpen("remove")}>{t.trashAction}</button>
+            )}
           </div>
         </details>
       </div>
@@ -143,6 +155,30 @@ export function AccountCard({
           onClose={close}
         >
           <p>{t.defaultBody(<strong>{a.name}</strong>)}</p>
+        </Dialog>
+      )}
+      {open === "pin" && (
+        <Dialog
+          title={blocked(a.lock) ? t.repinTitle(a.name) : t.pinTitle(a.name)}
+          confirmLabel={blocked(a.lock) ? t.repinConfirm : t.pinConfirm}
+          onConfirm={() => pinAccount(a.name, blocked(a.lock))}
+          onClose={close}
+        >
+          <p>
+            {blocked(a.lock)
+              ? t.repinBody(<strong>{a.name}</strong>)
+              : t.pinBody(<strong>{a.name}</strong>)}
+          </p>
+        </Dialog>
+      )}
+      {open === "remove" && (
+        <Dialog
+          title={t.trashTitle(a.name)}
+          confirmLabel={t.trashConfirm}
+          onConfirm={() => removeAccount(a.name)}
+          onClose={close}
+        >
+          <p>{t.trashBody(<strong>{a.name}</strong>)}</p>
         </Dialog>
       )}
     </article>
