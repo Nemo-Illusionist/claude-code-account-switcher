@@ -1,3 +1,4 @@
+use std::ffi::OsStr;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -65,34 +66,37 @@ fn render(config: &AppConfig) {
 /// settings files the context meter consults, and where `--install` writes
 /// — and they have to agree, so the reading happens once.
 ///
-/// Empty counts as unset because that is what Claude Code does with it.
-/// Every read that resolves the config dir out of the process environment
-/// is `process.env.CLAUDE_CONFIG_DIR || <fallback>` (read out of Claude Code
-/// 2.1.332), and `""` is falsy in JavaScript, so the app takes the
-/// fallback. Taken literally instead, `""` is the working directory:
+/// Empty is treated as unset, and that is our decision rather than a copy
+/// of Claude Code's. Its resolver keeps an empty value — `(ORe() ??
+/// join(home, ".claude")).normalize("NFC")`, and `""` is not nullish, so
+/// there is no fallback — and the build then has a hard error for the state
+/// that produces, "CLAUDE_CONFIG_DIR is set but empty. Unset it or set it
+/// to a folder you can write to", plus a path that works the directory out
+/// from "the current one, the one where Claude Code was started and the
+/// home folder" (all read out of Claude Code 2.1.332). So there is no one
+/// directory to describe, and the literal reading is actively harmful here:
 /// `create_dir_all("")` succeeds, so `--install` would write a
 /// `settings.json` beside whatever the user was standing in, and the meter
 /// would look for one there.
 ///
-/// A value that is only blanks is **not** trimmed away, deliberately: `" "`
-/// is truthy, so those reads use it as a path, and this command's job is to
-/// describe the session the app is actually running.
+/// A value that is only blanks is kept, not trimmed. The resolver keeps it
+/// too, and the status line's job is to describe the session the app is
+/// running rather than the one it would prefer. `session::target_from_env`
+/// trims; this does not. The build is not uniform about trimming either —
+/// `fde()` trims the same variable, and an ownership precheck does
+/// `e.env.CLAUDE_CONFIG_DIR?.trim()` — so there is no single rule to copy.
 ///
-/// The build is not uniform about it — one path does
-/// `e.env.CLAUDE_CONFIG_DIR?.trim()` — but that one takes an env object and
-/// a user record rather than `process.env`, and it is a precheck on who can
-/// read the config files, not the resolution a local session goes through.
-/// `session::target_from_env` trims too; this one follows the resolver
-/// instead, since a status line that named a different directory from the
-/// session would be the worse of the two.
+/// The value is read as an `OsStr`: a path that is not UTF-8 is still a
+/// path, and the badge has always fallen back to `default` for one on its
+/// own.
 fn config_dir_from_env() -> Option<PathBuf> {
-    config_dir_of(std::env::var("CLAUDE_CONFIG_DIR").ok().as_deref())
+    config_dir_of(std::env::var_os("CLAUDE_CONFIG_DIR").as_deref())
 }
 
 /// The decision, with the value passed in — `cargo test` runs tests in
 /// threads of one process, so a test that set the variable would be a test
 /// of scheduling.
-fn config_dir_of(raw: Option<&str>) -> Option<PathBuf> {
+fn config_dir_of(raw: Option<&OsStr>) -> Option<PathBuf> {
     raw.filter(|v| !v.is_empty()).map(PathBuf::from)
 }
 
@@ -707,6 +711,7 @@ fn install_into_settings(config: &AppConfig, i18n: &I18n) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ffi::OsString;
 
     #[test]
     fn a_blank_config_dir_is_no_config_dir() {
@@ -715,25 +720,34 @@ mod tests {
         // Taken literally, "" is the working directory — `create_dir_all("")`
         // succeeds — so `--install` would have written a `settings.json`
         // beside whatever the user was standing in and reported success,
-        // and the meter would have looked for one there. Claude Code treats
-        // it as unset too: the reads that resolve the dir from the process
-        // environment are `process.env.CLAUDE_CONFIG_DIR || <fallback>`,
-        // and `""` is falsy (read out of Claude Code 2.1.332).
+        // and the meter would have looked for one there. Claude Code does
+        // not silently fall back either: its resolver keeps the empty value
+        // (`??`, so `""` is not replaced) and the build carries a hard
+        // error for that state, "CLAUDE_CONFIG_DIR is set but empty"
+        // (2.1.332). There is no session to describe, so `None` it is.
+        let v = |s: &str| OsString::from(s);
         assert_eq!(config_dir_of(None), None);
-        assert_eq!(config_dir_of(Some("")), None);
+        assert_eq!(config_dir_of(Some(&v(""))), None);
         assert_eq!(
-            config_dir_of(Some("/switch/accounts/work-2")),
+            config_dir_of(Some(&v("/switch/accounts/work-2"))),
             Some(PathBuf::from("/switch/accounts/work-2"))
         );
-        // Blanks are kept, because Claude Code keeps them: `""` is falsy in
-        // JavaScript and `"  "` is not, so the app falls back on the first
-        // and uses the second as a path. Agreeing with the app is the whole
+        // Blanks are kept: the app's resolver keeps them too, and agreeing
+        // with the app about which directory a session uses is the whole
         // point of this command, even where the value is nonsense.
-        assert_eq!(config_dir_of(Some("   ")), Some(PathBuf::from("   ")));
+        assert_eq!(config_dir_of(Some(&v("   "))), Some(PathBuf::from("   ")));
         assert_eq!(
-            config_dir_of(Some("  /switch/accounts/work-2  ")),
+            config_dir_of(Some(&v("  /switch/accounts/work-2  "))),
             Some(PathBuf::from("  /switch/accounts/work-2  "))
         );
+        // A path that is not UTF-8 is still a path: `var_os` keeps it, and
+        // the meter read it as one before this command shared a reader.
+        #[cfg(unix)]
+        {
+            use std::os::unix::ffi::OsStrExt;
+            let raw = OsStr::from_bytes(b"/switch/accounts/\xff");
+            assert_eq!(config_dir_of(Some(raw)), Some(PathBuf::from(raw)));
+        }
     }
 
     #[test]
