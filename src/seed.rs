@@ -301,20 +301,32 @@ mod tests {
         // marketplace sourced from outside any config dir.
         fs::create_dir_all(src.join("plugins/cache/local/helper/1.0.0")).unwrap();
         fs::write(src.join("plugins/cache/local/helper/1.0.0/plugin.md"), "p").unwrap();
+        // Built through `serde_json`, not `format!`: on Windows a path holds
+        // backslashes, and pasting one into a JSON string literal makes it
+        // an invalid escape — which is how this first failed on the Windows
+        // runner and nowhere else.
         fs::write(
             src.join("plugins/installed_plugins.json"),
-            format!(
-                r#"{{"plugins":{{"helper@local":[{{"scope":"user","installPath":"{}/plugins/cache/local/helper/1.0.0"}}]}}}}"#,
-                src.display()
-            ),
+            serde_json::json!({
+                "plugins": {
+                    "helper@local": [{
+                        "scope": "user",
+                        "installPath": format!("{}/plugins/cache/local/helper/1.0.0", src.display()),
+                    }]
+                }
+            })
+            .to_string(),
         )
         .unwrap();
         fs::write(
             src.join("plugins/known_marketplaces.json"),
-            format!(
-                r#"{{"local":{{"installLocation":"{}/plugins/marketplaces/local"}},"repo":{{"installLocation":"/work/repo/.claude/plugins"}}}}"#,
-                src.display()
-            ),
+            serde_json::json!({
+                "local": {
+                    "installLocation": format!("{}/plugins/marketplaces/local", src.display())
+                },
+                "repo": { "installLocation": "/work/repo/.claude/plugins" }
+            })
+            .to_string(),
         )
         .unwrap();
 
