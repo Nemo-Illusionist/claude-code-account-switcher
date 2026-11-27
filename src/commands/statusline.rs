@@ -740,6 +740,17 @@ mod tests {
     use crate::i18n::Lang;
     use std::ffi::OsString;
 
+    /// A config dir with no settings file in it.
+    ///
+    /// Any test that asserts a *figure* has to pass one. With `None` the
+    /// meter falls back to the real `~/.claude/settings.json`, so an
+    /// `autoCompactWindow` in the settings of whoever runs the suite would
+    /// decide the number — and the people this tool is for are exactly the
+    /// ones who set it.
+    fn empty_config_dir(tag: &str) -> PathBuf {
+        scratch(tag)
+    }
+
     fn scratch(tag: &str) -> PathBuf {
         let dir =
             std::env::temp_dir().join(format!("cc-statusline-{}-{}", tag, std::process::id()));
@@ -787,14 +798,26 @@ mod tests {
         assert!(with.contains("work-2"), "badge: {}", with);
         assert!(with.contains("98%"), "meter: {}", with);
 
-        // Without the dir the badge falls back to the standard account.
-        // Deliberately no assertion on the figure here: with no config dir
-        // the meter reads the *real* `~/.claude/settings.json`, so an
-        // `autoCompactWindow` in the settings of whoever runs the suite
-        // would decide it. `the_percentage_shown_is_the_one_the_application_shows`
-        // covers the 1M case from a payload alone.
+        // Without a dir the badge falls back to the standard account. No
+        // figure is asserted on this one: `None` is what sends the meter to
+        // the real `~/.claude/settings.json`, so the number would be
+        // whatever the person running the suite has set there.
         let without = segments(&payload, &config, None, None).join(" | ");
         assert!(without.contains("default"), "badge: {}", without);
+
+        // An account that sets no window of its own: the model's 1M stands,
+        // 393500 / 1000000 = 39.35%.
+        let plain = config.accounts_dir().join("plain");
+        std::fs::create_dir_all(&plain).unwrap();
+        let other = segments(&payload, &config, Some(&plain), None).join(" | ");
+        assert!(other.contains("plain"), "badge: {}", other);
+        assert!(other.contains("39%"), "meter: {}", other);
+
+        // And the environment window outranks the settings file, the way
+        // `/autocompact` says it does: 400k by variable over an account that
+        // sets nothing.
+        let by_env = segments(&payload, &config, Some(&plain), Some(400_000.0)).join(" | ");
+        assert!(by_env.contains("98%"), "meter: {}", by_env);
 
         let _ = std::fs::remove_dir_all(&base);
     }
@@ -1045,7 +1068,8 @@ mod tests {
         )
         .unwrap();
         unsafe { std::env::set_var("NO_COLOR", "1") };
-        let seg = context_segment(&v, None, None).expect("a segment");
+        let home = empty_config_dir("shown-figure");
+        let seg = context_segment(&v, Some(&home), None).expect("a segment");
         assert!(seg.contains("39%"), "got {seg:?}");
         assert!(!seg.contains("47%"), "the old normalised figure: {seg:?}");
     }
@@ -1448,7 +1472,8 @@ mod tests {
         let v = serde_json::json!({
             "context_window": { "remaining_percentage": 16.5, "context_window_size": 1_000_000 }
         });
-        let seg = context_segment(&v, None, None).unwrap();
+        let home = empty_config_dir("reserve-colour");
+        let seg = context_segment(&v, Some(&home), None).unwrap();
         assert!(seg.contains("84%"), "got {seg:?}");
         assert!(
             !seg.contains("100%"),
@@ -1459,18 +1484,28 @@ mod tests {
         let v = serde_json::json!({
             "context_window": { "remaining_percentage": 100.0, "context_window_size": 1_000_000 }
         });
-        assert!(context_segment(&v, None, None).unwrap().contains("0%"));
+        assert!(
+            context_segment(&v, Some(&home), None)
+                .unwrap()
+                .contains("0%")
+        );
 
         // And a full one reads as full rather than overflowing.
         let v = serde_json::json!({
             "context_window": { "remaining_percentage": 0.0, "context_window_size": 1_000_000 }
         });
-        assert!(context_segment(&v, None, None).unwrap().contains("100%"));
+        assert!(
+            context_segment(&v, Some(&home), None)
+                .unwrap()
+                .contains("100%")
+        );
     }
 
     #[test]
     fn context_segment_absent_without_context_window() {
         let v = serde_json::json!({ "model": { "display_name": "Opus" } });
+        // No config dir needed: there is no figure to assert, and the block
+        // is missing, so nothing is read at all.
         assert!(context_segment(&v, None, None).is_none());
     }
 
