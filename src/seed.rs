@@ -217,16 +217,18 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<usize> {
             // copy of it, so duplicating the tree into every account would
             // fork it silently.
             //
-            // A *relative* link survives only a copy of the same depth. On
-            // this machine `accounts/work/skills/computer-use` is
-            // `../../../../.agents/skills/computer-use`, which is right from
-            // `accounts/<name>/skills/` and wrong from `~/.claude/skills/`,
-            // two levels up — so `--from default` into an account can land a
-            // link that resolves nowhere, while account-to-account, equal in
-            // depth, is safe. Rewriting it would be a guess about what the
-            // author meant; the link is copied as written, and this is here
-            // so the next reader knows it is a known edge and not an
-            // oversight.
+            // A *relative* link survives only a copy of the same depth.
+            // `~/.claude/skills/foo -> ../../elsewhere/foo` is two levels up
+            // from the skills dir; inside `accounts/<name>/skills/` the same
+            // text is two levels short, and resolves nowhere. So the
+            // `--from default` direction can carry a broken link into an
+            // account, while account-to-account is equal in depth and
+            // cannot. (The reverse exists too: a link written inside an
+            // account — four `../` here, from a real `skills/computer-use`
+            // — would be wrong if it were ever copied up to `~/.claude`.)
+            // Rewriting it would be a guess about what the author meant, so
+            // the link is copied as written; this is here so the next reader
+            // knows it is a known edge and not an oversight.
             copy_symlink(&path, &dst_path)?;
             count += 1;
         } else if file_type.is_dir() {
