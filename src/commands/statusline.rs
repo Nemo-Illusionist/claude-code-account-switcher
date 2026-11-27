@@ -1,5 +1,6 @@
+use std::ffi::OsStr;
 use std::io::Read;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use serde_json::Value;
@@ -21,37 +22,32 @@ use crate::resolve;
 const BAR_WIDTH: usize = 10;
 
 pub fn run(config: &AppConfig, i18n: &I18n, install: bool) -> i32 {
+    // The one place the environment is read. Everything below takes the
+    // resolved values as arguments, so a reader that went its own way would
+    // have to be written in rather than merely forgotten — the badge, the
+    // settings files the meter consults and `--install` have to name the
+    // same account, and they did not — and a test does not have to set a
+    // variable in a process it shares with every other test.
+    let ccd = config_dir_from_env();
     if install {
-        return install_into_settings(config, i18n);
+        return install_into_settings(config, i18n, ccd.as_deref());
     }
-    render(config);
+    render(config, ccd.as_deref(), window_from_env());
     0
 }
 
-fn render(config: &AppConfig) {
+/// `CLAUDE_CODE_AUTO_COMPACT_WINDOW`, parsed, or `None` when it is unset or
+/// not a window Claude Code would accept.
+fn window_from_env() -> Option<f64> {
+    env_window(&std::env::var("CLAUDE_CODE_AUTO_COMPACT_WINDOW").ok()?)
+}
+
+fn render(config: &AppConfig, ccd: Option<&Path>, env_window: Option<f64>) {
     let mut input = String::new();
     let _ = std::io::stdin().read_to_string(&mut input);
     let v: Value = serde_json::from_str(&input).unwrap_or(Value::Null);
 
-    let mut segs: Vec<String> = Vec::new();
-
-    if let Some(acc) = account_label(config) {
-        // Bold cyan badge — the account is the headline of this status line.
-        segs.push(paint("1;36", &acc));
-    }
-    if let Some(branch) = git_branch(&v) {
-        segs.push(paint("32", &format!("⎇ {}", branch)));
-    }
-    if let Some(model) = v.pointer("/model/display_name").and_then(Value::as_str) {
-        segs.push(model.to_string());
-    }
-    if let Some(project) = project_name(&v) {
-        segs.push(paint("33", &project));
-    }
-    if let Some(seg) = context_segment(&v) {
-        segs.push(seg);
-    }
-
+    let segs = segments(&v, config, ccd, env_window);
     if segs.is_empty() {
         return;
     }
@@ -59,29 +55,117 @@ fn render(config: &AppConfig) {
     println!("{}", segs.join(&sep));
 }
 
+/// The segments of the line, left to right.
+///
+/// Split out of `render` so the config dir can be handed in: stdin and
+/// `println!` are the only things left in the caller, and the two readers
+/// that take `ccd` — the account badge and the context meter — are reachable
+/// from a test.
+fn segments(
+    v: &Value,
+    config: &AppConfig,
+    ccd: Option<&Path>,
+    env_window: Option<f64>,
+) -> Vec<String> {
+    let mut segs: Vec<String> = Vec::new();
+
+    if let Some(acc) = account_label(config, ccd) {
+        // Bold cyan badge — the account is the headline of this status line.
+        segs.push(paint("1;36", &acc));
+    }
+    if let Some(branch) = git_branch(v) {
+        segs.push(paint("32", &format!("⎇ {}", branch)));
+    }
+    if let Some(model) = v.pointer("/model/display_name").and_then(Value::as_str) {
+        segs.push(model.to_string());
+    }
+    if let Some(project) = project_name(v) {
+        segs.push(paint("33", &project));
+    }
+    if let Some(seg) = context_segment(v, ccd, env_window) {
+        segs.push(seg);
+    }
+    segs
+}
+
+/// `CLAUDE_CONFIG_DIR`, or `None` when it is unset or empty.
+///
+/// Three places in this file read that variable — the account badge, the
+/// settings files the context meter consults, and where `--install` writes
+/// — and they have to agree, so the reading happens once.
+///
+/// Empty is treated as unset, and that is our decision rather than a copy
+/// of Claude Code's. Its resolver keeps an empty value — `(ORe() ??
+/// join(home, ".claude")).normalize("NFC")`, and `""` is not nullish, so
+/// there is no fallback — and the build then has a hard error for the state
+/// that produces, "CLAUDE_CONFIG_DIR is set but empty. Unset it or set it
+/// to a folder you can write to", plus a path that works the directory out
+/// from "the current one, the one where Claude Code was started and the
+/// home folder" (all read out of Claude Code 2.1.332). So there is no one
+/// directory to describe, and the literal reading is actively harmful here:
+/// `create_dir_all("")` succeeds, so `--install` would write a
+/// `settings.json` beside whatever the user was standing in, and the meter
+/// would look for one there.
+///
+/// A value that is only blanks is kept, not trimmed. The resolver keeps it
+/// too, and the status line's job is to describe the session the app is
+/// running rather than the one it would prefer. `session::target_from_env`
+/// trims; this does not. The build is not uniform about trimming either —
+/// `fde()` trims the same variable, and an ownership precheck does
+/// `e.env.CLAUDE_CONFIG_DIR?.trim()` — so there is no single rule to copy.
+///
+/// The value is read as an `OsStr`: a path that is not UTF-8 is still a
+/// path, and the badge has always fallen back to `default` for one on its
+/// own.
+fn config_dir_from_env() -> Option<PathBuf> {
+    config_dir_of(std::env::var_os("CLAUDE_CONFIG_DIR").as_deref())
+}
+
+/// The decision, with the value passed in — `cargo test` runs tests in
+/// threads of one process, so a test that set the variable would be a test
+/// of scheduling.
+fn config_dir_of(raw: Option<&OsStr>) -> Option<PathBuf> {
+    raw.filter(|v| !v.is_empty()).map(PathBuf::from)
+}
+
 /// Account name for the current session, from `CLAUDE_CONFIG_DIR`:
 /// `<name>` for a managed account, `default` for the standard `~/.claude/`
 /// (or when the variable is unset), else the dir's basename.
-fn account_label(config: &AppConfig) -> Option<String> {
-    let Some(ccd) = std::env::var_os("CLAUDE_CONFIG_DIR") else {
-        return Some("default".to_string());
+fn account_label(config: &AppConfig, ccd: Option<&Path>) -> Option<String> {
+    Some(name_of_config_dir(
+        ccd,
+        &config.accounts_dir(),
+        dirs::home_dir().as_deref(),
+    ))
+}
+
+/// What to call the account a config dir belongs to.
+///
+/// The decision with the environment passed in, so both the badge and
+/// `--install` can use it and cannot disagree about which account the
+/// session is under — they did: the badge read `CLAUDE_CONFIG_DIR` while
+/// `--install` resolved the *working directory*, so installing from a
+/// session under `work-2` wrote the status line into whatever account the
+/// directory happened to be linked to.
+fn name_of_config_dir(ccd: Option<&Path>, accounts_dir: &Path, home: Option<&Path>) -> String {
+    let Some(p) = ccd else {
+        return "default".to_string();
     };
-    let p = Path::new(&ccd);
-    if let Ok(rel) = p.strip_prefix(config.accounts_dir())
+    if let Ok(rel) = p.strip_prefix(accounts_dir)
         && let Some(first) = rel.components().next()
         && let Some(name) = first.as_os_str().to_str()
     {
-        return Some(name.to_string());
+        return name.to_string();
     }
-    if let Some(home) = dirs::home_dir()
+    if let Some(home) = home
         && p == home.join(".claude")
     {
-        return Some("default".to_string());
+        return "default".to_string();
     }
     p.file_name()
         .and_then(|n| n.to_str())
         .map(String::from)
-        .or(Some("default".to_string()))
+        .unwrap_or_else(|| "default".to_string())
 }
 
 fn git_branch(v: &Value) -> Option<String> {
@@ -175,7 +259,7 @@ enum WindowSetting {
 /// kick in" rather than an arbitrary fraction of the window. So the digits
 /// answer "how full is this conversation" and the colour answers "how close is
 /// the wall".
-fn context_segment(v: &Value) -> Option<String> {
+fn context_segment(v: &Value, ccd: Option<&Path>, env_window: Option<f64>) -> Option<String> {
     let remaining = v
         .pointer("/context_window/remaining_percentage")
         .and_then(Value::as_f64)?;
@@ -188,7 +272,7 @@ fn context_segment(v: &Value) -> Option<String> {
         .filter(|t| *t > 0.0)
         .unwrap_or(1_000_000.0);
 
-    let effective = effective_window(total, configured_window(v));
+    let effective = effective_window(total, configured_window(v, ccd, env_window));
     let shown = used_share(used_tokens(v, remaining, total), effective);
     Some(usage_segment(shown, used_of_usable(100.0 - shown)))
 }
@@ -257,19 +341,17 @@ fn used_of_usable(remaining: f64) -> f64 {
 /// host passes in — Claude Code's own order is `userSettings`,
 /// `projectSettings`, `localSettings`, `flagSettings`, `policySettings` — and
 /// the server-side and experiment defaults it consults below the settings. A window lowered by one of those is not reflected in the meter.
-fn configured_window(v: &Value) -> Option<f64> {
+fn configured_window(v: &Value, ccd: Option<&Path>, env_window: Option<f64>) -> Option<f64> {
     let model = v
         .pointer("/model/id")
         .and_then(Value::as_str)
         .unwrap_or_default();
 
-    if let Ok(raw) = std::env::var("CLAUDE_CODE_AUTO_COMPACT_WINDOW")
-        && let Some(tokens) = env_window(&raw)
-    {
+    if let Some(tokens) = env_window {
         return Some(tokens);
     }
 
-    let docs: Vec<Value> = settings_files(v)
+    let docs: Vec<Value> = settings_files(v, ccd)
         .into_iter()
         .filter_map(|p| std::fs::read_to_string(p).ok())
         .filter_map(|s| serde_json::from_str::<Value>(&s).ok())
@@ -281,12 +363,12 @@ fn configured_window(v: &Value) -> Option<f64> {
 ///
 /// The account's own settings directory is `CLAUDE_CONFIG_DIR` when it is set
 /// — a managed account — and `~/.claude` otherwise, which is the same file
-/// `statusline --install` writes to. Reading the environment is all this
-/// does; the order itself is in `settings_files_in`, where it can be
-/// asserted without touching process-wide state.
-fn settings_files(v: &Value) -> Vec<std::path::PathBuf> {
-    let user = std::env::var_os("CLAUDE_CONFIG_DIR")
-        .map(std::path::PathBuf::from)
+/// `statusline --install` writes to: both are handed the value `run` read,
+/// so they cannot drift apart. The order itself is in `settings_files_in`,
+/// where it can be asserted without touching process-wide state.
+fn settings_files(v: &Value, ccd: Option<&Path>) -> Vec<std::path::PathBuf> {
+    let user = ccd
+        .map(Path::to_path_buf)
         .or_else(|| dirs::home_dir().map(|h| h.join(".claude")));
     settings_files_in(
         v.pointer("/workspace/project_dir")
@@ -565,17 +647,53 @@ fn settings_root(read: std::io::Result<String>) -> Option<Value> {
     }
 }
 
-fn install_into_settings(config: &AppConfig, i18n: &I18n) -> i32 {
-    let cwd = std::env::current_dir().unwrap_or_default();
-    // The account this directory currently resolves to (managed account or the
-    // standard ~/.claude when there's no link / default).
-    let (label, settings_dir) = match resolve::resolve_account(config, &cwd) {
-        Some(name) => (name.clone(), config.account_path(&name)),
-        None => (
-            "default".to_string(),
-            dirs::home_dir().unwrap_or_default().join(".claude"),
-        ),
+/// Which account `--install` writes to, and what to call it.
+///
+/// `CLAUDE_CONFIG_DIR` wins, because that is the account the session is
+/// actually running under — the same thing the badge shows. Only without it
+/// does the working directory decide, which is what someone installing from
+/// a plain shell means.
+///
+/// The two used to disagree. `--install` resolved the directory and nothing
+/// else, so `CLAUDE_CONFIG_DIR=…/accounts/work-2 claude-acc statusline
+/// --install` wrote into `~/.claude/settings.json` and said `account
+/// 'default'`, while `statusline` under the same variable drew a `work-2`
+/// badge. There was no way to install the line into a named account at all
+/// unless some directory happened to be linked to it.
+fn install_target(
+    ccd: Option<&Path>,
+    accounts_dir: &Path,
+    home: Option<&Path>,
+    cwd_account: Option<&str>,
+) -> (String, PathBuf) {
+    let standard = || {
+        home.map(|h| h.join(".claude"))
+            .unwrap_or_else(|| PathBuf::from(".claude"))
     };
+    if let Some(dir) = ccd {
+        return (
+            name_of_config_dir(Some(dir), accounts_dir, home),
+            dir.to_path_buf(),
+        );
+    }
+    match cwd_account {
+        // A directory can be linked to `default`, and `get_default` can
+        // return it: that is the standard account, not `accounts/default`.
+        // `activate` has always read it that way.
+        Some(name) if crate::config::is_reserved_name(name) => ("default".to_string(), standard()),
+        Some(name) => (name.to_string(), accounts_dir.join(name)),
+        None => ("default".to_string(), standard()),
+    }
+}
+
+fn install_into_settings(config: &AppConfig, i18n: &I18n, ccd: Option<&Path>) -> i32 {
+    let cwd = std::env::current_dir().unwrap_or_default();
+    let (label, settings_dir) = install_target(
+        ccd,
+        &config.accounts_dir(),
+        dirs::home_dir().as_deref(),
+        resolve::resolve_account(config, &cwd).as_deref(),
+    );
 
     if let Err(e) = std::fs::create_dir_all(&settings_dir) {
         i18n.print(Msg::StatuslineInstallFailed(e.to_string()));
@@ -619,6 +737,297 @@ fn install_into_settings(config: &AppConfig, i18n: &I18n) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::i18n::Lang;
+    use std::ffi::OsString;
+
+    /// A config dir with no settings file in it.
+    ///
+    /// Any test that asserts a *figure* has to pass one. With `None` the
+    /// meter falls back to the real `~/.claude/settings.json`, so an
+    /// `autoCompactWindow` in the settings of whoever runs the suite would
+    /// decide the number — and the people this tool is for are exactly the
+    /// ones who set it.
+    fn empty_config_dir(tag: &str) -> PathBuf {
+        scratch(tag)
+    }
+
+    fn scratch(tag: &str) -> PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("cc-statusline-{}-{}", tag, std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn the_badge_and_the_meter_both_follow_the_config_dir_they_are_given() {
+        // The bug this whole command's account handling exists for, end to
+        // end: a session held to 400k read 39%, because the window was
+        // resolved from the model rather than from that account's settings.
+        // Both readers take the dir `run` resolved, so one fixture pins
+        // both wires: the badge names the account, and the meter counts
+        // against the window its settings.json sets.
+        let base = scratch("segments");
+        let config = AppConfig {
+            base_dir: base.join("switch"),
+        };
+        let account = config.accounts_dir().join("work-2");
+        std::fs::create_dir_all(&account).unwrap();
+        std::fs::write(
+            account.join("settings.json"),
+            r#"{"autoCompactWindow": 400000}"#,
+        )
+        .unwrap();
+        let project = base.join("proj");
+        std::fs::create_dir_all(&project).unwrap();
+
+        let payload: Value = serde_json::json!({
+            "model": {"id": "claude-opus-5", "display_name": "Opus 5"},
+            "workspace": {"current_dir": project.to_str().unwrap(),
+                          "project_dir": project.to_str().unwrap()},
+            "context_window": {
+                "total_input_tokens": 393_500,
+                "context_window_size": 1_000_000,
+                "remaining_percentage": 61
+            }
+        });
+
+        let with = segments(&payload, &config, Some(&account), None).join(" | ");
+        // 393.5k of the 400k this account is held to. Worked out by hand:
+        // 393500 / 400000 = 98.375%, shown rounded.
+        assert!(with.contains("work-2"), "badge: {}", with);
+        assert!(with.contains("98%"), "meter: {}", with);
+
+        // Without a dir the badge falls back to the standard account. No
+        // figure is asserted on this one: `None` is what sends the meter to
+        // the real `~/.claude/settings.json`, so the number would be
+        // whatever the person running the suite has set there.
+        let without = segments(&payload, &config, None, None).join(" | ");
+        assert!(without.contains("default"), "badge: {}", without);
+
+        // An account that sets no window of its own: the model's 1M stands,
+        // 393500 / 1000000 = 39.35%.
+        let plain = config.accounts_dir().join("plain");
+        std::fs::create_dir_all(&plain).unwrap();
+        let other = segments(&payload, &config, Some(&plain), None).join(" | ");
+        assert!(other.contains("plain"), "badge: {}", other);
+        assert!(other.contains("39%"), "meter: {}", other);
+
+        // And the environment window outranks the settings file, the way
+        // `/autocompact` says it does. The two have to disagree for the
+        // order to be visible: this account sets 400k, the variable says
+        // 500k, and 393500 / 500000 = 78.7%. With the order reversed it
+        // would read 98% — the account's window — and an account that set
+        // nothing would prove nothing either way.
+        let by_env = segments(&payload, &config, Some(&account), Some(500_000.0)).join(" | ");
+        assert!(by_env.contains("79%"), "meter: {}", by_env);
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn install_writes_the_block_into_that_accounts_settings_file() {
+        // The write itself, not just the decision: the reported path has to
+        // be the file that changed, and the keys already in it have to
+        // survive. Regression — `--install` reported `default` while
+        // rewriting a file in another account.
+        let base = scratch("install");
+        let config = AppConfig {
+            base_dir: base.join("switch"),
+        };
+        let target = config.accounts_dir().join("work-2");
+        std::fs::create_dir_all(&target).unwrap();
+        std::fs::write(
+            target.join("settings.json"),
+            r#"{"theme":"dark","statusLine":{"type":"command","command":"old"}}"#,
+        )
+        .unwrap();
+        let i18n = I18n { lang: Lang::En };
+
+        assert_eq!(
+            install_into_settings(&config, &i18n, Some(&target)),
+            0,
+            "install should succeed"
+        );
+
+        let written: Value =
+            serde_json::from_str(&std::fs::read_to_string(target.join("settings.json")).unwrap())
+                .unwrap();
+        // The command is the installed binary of this switch dir, not the
+        // one that happened to be there.
+        assert_eq!(
+            written["statusLine"]["command"].as_str().unwrap(),
+            format!(
+                "{} statusline",
+                command_path(&config.base_dir.join("bin").join(binary_name()))
+            )
+        );
+        assert_eq!(written["statusLine"]["type"], "command");
+        assert_eq!(written["statusLine"]["padding"], 0);
+        // Untouched.
+        assert_eq!(written["theme"], "dark");
+        // And nothing was written anywhere else under the switch dir.
+        assert!(!config.base_dir.join("settings.json").exists());
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn install_creates_the_account_dir_and_the_file_when_absent() {
+        let base = scratch("install-fresh");
+        let config = AppConfig {
+            base_dir: base.join("switch"),
+        };
+        let target = config.accounts_dir().join("fresh");
+        let i18n = I18n { lang: Lang::En };
+
+        assert_eq!(install_into_settings(&config, &i18n, Some(&target)), 0);
+        let written: Value =
+            serde_json::from_str(&std::fs::read_to_string(target.join("settings.json")).unwrap())
+                .unwrap();
+        assert!(
+            written["statusLine"]["command"]
+                .as_str()
+                .unwrap()
+                .ends_with(" statusline")
+        );
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn install_refuses_a_settings_file_it_cannot_parse() {
+        // Rather than overwriting it: whatever is in there is the user's.
+        let base = scratch("install-bad");
+        let config = AppConfig {
+            base_dir: base.join("switch"),
+        };
+        let target = config.accounts_dir().join("work");
+        std::fs::create_dir_all(&target).unwrap();
+        std::fs::write(target.join("settings.json"), "{not json").unwrap();
+        let i18n = I18n { lang: Lang::En };
+
+        assert_eq!(install_into_settings(&config, &i18n, Some(&target)), 1);
+        assert_eq!(
+            std::fs::read_to_string(target.join("settings.json")).unwrap(),
+            "{not json"
+        );
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn a_blank_config_dir_is_no_config_dir() {
+        // All three readers in this file go through this: the badge, the
+        // settings files the meter consults, and where `--install` writes.
+        // Taken literally, "" is the working directory — `create_dir_all("")`
+        // succeeds — so `--install` would have written a `settings.json`
+        // beside whatever the user was standing in and reported success,
+        // and the meter would have looked for one there. Claude Code does
+        // not silently fall back either: its resolver keeps the empty value
+        // (`??`, so `""` is not replaced) and the build carries a hard
+        // error for that state, "CLAUDE_CONFIG_DIR is set but empty"
+        // (2.1.332). There is no session to describe, so `None` it is.
+        let v = |s: &str| OsString::from(s);
+        assert_eq!(config_dir_of(None), None);
+        assert_eq!(config_dir_of(Some(&v(""))), None);
+        assert_eq!(
+            config_dir_of(Some(&v("/switch/accounts/work-2"))),
+            Some(PathBuf::from("/switch/accounts/work-2"))
+        );
+        // Blanks are kept: the app's resolver keeps them too, and agreeing
+        // with the app about which directory a session uses is the whole
+        // point of this command, even where the value is nonsense.
+        assert_eq!(config_dir_of(Some(&v("   "))), Some(PathBuf::from("   ")));
+        assert_eq!(
+            config_dir_of(Some(&v("  /switch/accounts/work-2  "))),
+            Some(PathBuf::from("  /switch/accounts/work-2  "))
+        );
+        // A path that is not UTF-8 is still a path: `var_os` keeps it, and
+        // the meter read it as one before this command shared a reader.
+        #[cfg(unix)]
+        {
+            use std::os::unix::ffi::OsStrExt;
+            let raw = OsStr::from_bytes(b"/switch/accounts/\xff");
+            assert_eq!(config_dir_of(Some(raw)), Some(PathBuf::from(raw)));
+        }
+    }
+
+    #[test]
+    fn install_writes_to_the_account_the_session_is_under() {
+        // Regression: `--install` resolved the working directory and ignored
+        // `CLAUDE_CONFIG_DIR`, so running it inside a `work-2` session wrote
+        // `~/.claude/settings.json` and reported `account 'default'` — while
+        // `statusline` under that same variable drew a `work-2` badge. Paths
+        // written out by hand, compared as paths so the separator is the
+        // platform's own.
+        let accounts = Path::new("/switch/accounts");
+        let home = Path::new("/home/me");
+
+        // The variable wins, whatever the directory resolves to.
+        assert_eq!(
+            install_target(
+                Some(Path::new("/switch/accounts/work-2")),
+                accounts,
+                Some(home),
+                Some("work"),
+            ),
+            (
+                "work-2".to_string(),
+                PathBuf::from("/switch/accounts/work-2")
+            ),
+        );
+        // A config dir that is not one of ours keeps its own basename and is
+        // still where the line goes — someone pointed the session there on
+        // purpose.
+        assert_eq!(
+            install_target(
+                Some(Path::new("/elsewhere/sandbox")),
+                accounts,
+                Some(home),
+                None
+            ),
+            ("sandbox".to_string(), PathBuf::from("/elsewhere/sandbox")),
+        );
+        // `CLAUDE_CONFIG_DIR` naming the standard dir is the standard
+        // account, not a managed one called `.claude`.
+        assert_eq!(
+            install_target(Some(&home.join(".claude")), accounts, Some(home), None),
+            ("default".to_string(), home.join(".claude")),
+        );
+        // Without the variable the directory decides, as before.
+        assert_eq!(
+            install_target(None, accounts, Some(home), Some("work")),
+            ("work".to_string(), PathBuf::from("/switch/accounts/work")),
+        );
+        assert_eq!(
+            install_target(None, accounts, Some(home), None),
+            ("default".to_string(), home.join(".claude")),
+        );
+        // A directory can be linked to `default`, and that is the standard
+        // account, not `accounts/default`.
+        assert_eq!(
+            install_target(None, accounts, Some(home), Some("default")),
+            ("default".to_string(), home.join(".claude")),
+        );
+    }
+
+    #[test]
+    fn the_badge_and_the_install_target_name_the_same_account() {
+        // They are one function now; this is what used to differ.
+        let accounts = Path::new("/switch/accounts");
+        let home = Path::new("/home/me");
+        for dir in [
+            "/switch/accounts/work-2",
+            "/switch/accounts/work-2/",
+            "/elsewhere/sandbox",
+        ] {
+            let (label, _) =
+                install_target(Some(Path::new(dir)), accounts, Some(home), Some("work"));
+            assert_eq!(
+                label,
+                name_of_config_dir(Some(Path::new(dir)), accounts, Some(home))
+            );
+        }
+    }
 
     #[test]
     fn only_a_missing_file_or_a_json_object_is_edited() {
@@ -662,9 +1071,11 @@ mod tests {
         )
         .unwrap();
         unsafe { std::env::set_var("NO_COLOR", "1") };
-        let seg = context_segment(&v).expect("a segment");
+        let home = empty_config_dir("shown-figure");
+        let seg = context_segment(&v, Some(&home), None).expect("a segment");
         assert!(seg.contains("39%"), "got {seg:?}");
         assert!(!seg.contains("47%"), "the old normalised figure: {seg:?}");
+        let _ = std::fs::remove_dir_all(&home);
     }
 
     // Severity is still measured against the usable window, so red keeps
@@ -1053,10 +1464,11 @@ mod tests {
 
     #[test]
     fn the_reserve_shows_in_the_colour_not_in_the_digits() {
-        unsafe {
-            std::env::set_var("NO_COLOR", "1");
-            std::env::remove_var("CLAUDE_CODE_AUTO_COMPACT_WINDOW");
-        }
+        // The window variable used to have to be cleared here, because
+        // `configured_window` read it itself and another test could have set
+        // it. It is a parameter now, so there is nothing process-wide left
+        // to clear.
+        unsafe { std::env::set_var("NO_COLOR", "1") };
         // remaining == the 16.5% reserve: the *usable* window is fully spent,
         // but 83.5% of the real window is what has been used and what Claude
         // Code reports. The digits say so; severity is the colour's job, and
@@ -1064,7 +1476,8 @@ mod tests {
         let v = serde_json::json!({
             "context_window": { "remaining_percentage": 16.5, "context_window_size": 1_000_000 }
         });
-        let seg = context_segment(&v).unwrap();
+        let home = empty_config_dir("reserve-colour");
+        let seg = context_segment(&v, Some(&home), None).unwrap();
         assert!(seg.contains("84%"), "got {seg:?}");
         assert!(
             !seg.contains("100%"),
@@ -1075,19 +1488,30 @@ mod tests {
         let v = serde_json::json!({
             "context_window": { "remaining_percentage": 100.0, "context_window_size": 1_000_000 }
         });
-        assert!(context_segment(&v).unwrap().contains("0%"));
+        assert!(
+            context_segment(&v, Some(&home), None)
+                .unwrap()
+                .contains("0%")
+        );
 
         // And a full one reads as full rather than overflowing.
         let v = serde_json::json!({
             "context_window": { "remaining_percentage": 0.0, "context_window_size": 1_000_000 }
         });
-        assert!(context_segment(&v).unwrap().contains("100%"));
+        assert!(
+            context_segment(&v, Some(&home), None)
+                .unwrap()
+                .contains("100%")
+        );
+        let _ = std::fs::remove_dir_all(&home);
     }
 
     #[test]
     fn context_segment_absent_without_context_window() {
         let v = serde_json::json!({ "model": { "display_name": "Opus" } });
-        assert!(context_segment(&v).is_none());
+        // No config dir needed: there is no figure to assert, and the block
+        // is missing, so nothing is read at all.
+        assert!(context_segment(&v, None, None).is_none());
     }
 
     #[test]
