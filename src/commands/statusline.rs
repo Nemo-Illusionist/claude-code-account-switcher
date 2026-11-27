@@ -22,42 +22,58 @@ use crate::resolve;
 const BAR_WIDTH: usize = 10;
 
 pub fn run(config: &AppConfig, i18n: &I18n, install: bool) -> i32 {
+    // The one place the variable is read. Everything below takes the
+    // resolved value as an argument, so a reader that went its own way
+    // would have to be written in, rather than merely forgotten — the
+    // badge, the settings files the meter consults and `--install` have to
+    // name the same account, and they did not.
+    let ccd = config_dir_from_env();
     if install {
-        return install_into_settings(config, i18n);
+        return install_into_settings(config, i18n, ccd.as_deref());
     }
-    render(config);
+    render(config, ccd.as_deref());
     0
 }
 
-fn render(config: &AppConfig) {
+fn render(config: &AppConfig, ccd: Option<&Path>) {
     let mut input = String::new();
     let _ = std::io::stdin().read_to_string(&mut input);
     let v: Value = serde_json::from_str(&input).unwrap_or(Value::Null);
 
-    let mut segs: Vec<String> = Vec::new();
-
-    if let Some(acc) = account_label(config) {
-        // Bold cyan badge — the account is the headline of this status line.
-        segs.push(paint("1;36", &acc));
-    }
-    if let Some(branch) = git_branch(&v) {
-        segs.push(paint("32", &format!("⎇ {}", branch)));
-    }
-    if let Some(model) = v.pointer("/model/display_name").and_then(Value::as_str) {
-        segs.push(model.to_string());
-    }
-    if let Some(project) = project_name(&v) {
-        segs.push(paint("33", &project));
-    }
-    if let Some(seg) = context_segment(&v) {
-        segs.push(seg);
-    }
-
+    let segs = segments(&v, config, ccd);
     if segs.is_empty() {
         return;
     }
     let sep = format!(" {} ", paint("90", "│"));
     println!("{}", segs.join(&sep));
+}
+
+/// The segments of the line, left to right.
+///
+/// Split out of `render` so the config dir can be handed in: stdin and
+/// `println!` are the only things left in the caller, and the two readers
+/// that take `ccd` — the account badge and the context meter — are reachable
+/// from a test.
+fn segments(v: &Value, config: &AppConfig, ccd: Option<&Path>) -> Vec<String> {
+    let mut segs: Vec<String> = Vec::new();
+
+    if let Some(acc) = account_label(config, ccd) {
+        // Bold cyan badge — the account is the headline of this status line.
+        segs.push(paint("1;36", &acc));
+    }
+    if let Some(branch) = git_branch(v) {
+        segs.push(paint("32", &format!("⎇ {}", branch)));
+    }
+    if let Some(model) = v.pointer("/model/display_name").and_then(Value::as_str) {
+        segs.push(model.to_string());
+    }
+    if let Some(project) = project_name(v) {
+        segs.push(paint("33", &project));
+    }
+    if let Some(seg) = context_segment(v, ccd) {
+        segs.push(seg);
+    }
+    segs
 }
 
 /// `CLAUDE_CONFIG_DIR`, or `None` when it is unset or empty.
@@ -103,9 +119,9 @@ fn config_dir_of(raw: Option<&OsStr>) -> Option<PathBuf> {
 /// Account name for the current session, from `CLAUDE_CONFIG_DIR`:
 /// `<name>` for a managed account, `default` for the standard `~/.claude/`
 /// (or when the variable is unset), else the dir's basename.
-fn account_label(config: &AppConfig) -> Option<String> {
+fn account_label(config: &AppConfig, ccd: Option<&Path>) -> Option<String> {
     Some(name_of_config_dir(
-        config_dir_from_env().as_deref(),
+        ccd,
         &config.accounts_dir(),
         dirs::home_dir().as_deref(),
     ))
@@ -231,7 +247,7 @@ enum WindowSetting {
 /// kick in" rather than an arbitrary fraction of the window. So the digits
 /// answer "how full is this conversation" and the colour answers "how close is
 /// the wall".
-fn context_segment(v: &Value) -> Option<String> {
+fn context_segment(v: &Value, ccd: Option<&Path>) -> Option<String> {
     let remaining = v
         .pointer("/context_window/remaining_percentage")
         .and_then(Value::as_f64)?;
@@ -244,7 +260,7 @@ fn context_segment(v: &Value) -> Option<String> {
         .filter(|t| *t > 0.0)
         .unwrap_or(1_000_000.0);
 
-    let effective = effective_window(total, configured_window(v));
+    let effective = effective_window(total, configured_window(v, ccd));
     let shown = used_share(used_tokens(v, remaining, total), effective);
     Some(usage_segment(shown, used_of_usable(100.0 - shown)))
 }
@@ -313,7 +329,7 @@ fn used_of_usable(remaining: f64) -> f64 {
 /// host passes in — Claude Code's own order is `userSettings`,
 /// `projectSettings`, `localSettings`, `flagSettings`, `policySettings` — and
 /// the server-side and experiment defaults it consults below the settings. A window lowered by one of those is not reflected in the meter.
-fn configured_window(v: &Value) -> Option<f64> {
+fn configured_window(v: &Value, ccd: Option<&Path>) -> Option<f64> {
     let model = v
         .pointer("/model/id")
         .and_then(Value::as_str)
@@ -325,7 +341,7 @@ fn configured_window(v: &Value) -> Option<f64> {
         return Some(tokens);
     }
 
-    let docs: Vec<Value> = settings_files(v)
+    let docs: Vec<Value> = settings_files(v, ccd)
         .into_iter()
         .filter_map(|p| std::fs::read_to_string(p).ok())
         .filter_map(|s| serde_json::from_str::<Value>(&s).ok())
@@ -337,12 +353,13 @@ fn configured_window(v: &Value) -> Option<f64> {
 ///
 /// The account's own settings directory is `CLAUDE_CONFIG_DIR` when it is set
 /// — a managed account — and `~/.claude` otherwise, which is the same file
-/// `statusline --install` writes to, because both go through
-/// `config_dir_from_env`. Reading the environment is all this
-/// does; the order itself is in `settings_files_in`, where it can be
-/// asserted without touching process-wide state.
-fn settings_files(v: &Value) -> Vec<std::path::PathBuf> {
-    let user = config_dir_from_env().or_else(|| dirs::home_dir().map(|h| h.join(".claude")));
+/// `statusline --install` writes to: both are handed the value `run` read,
+/// so they cannot drift apart. The order itself is in `settings_files_in`,
+/// where it can be asserted without touching process-wide state.
+fn settings_files(v: &Value, ccd: Option<&Path>) -> Vec<std::path::PathBuf> {
+    let user = ccd
+        .map(Path::to_path_buf)
+        .or_else(|| dirs::home_dir().map(|h| h.join(".claude")));
     settings_files_in(
         v.pointer("/workspace/project_dir")
             .and_then(Value::as_str)
@@ -659,11 +676,10 @@ fn install_target(
     }
 }
 
-fn install_into_settings(config: &AppConfig, i18n: &I18n) -> i32 {
+fn install_into_settings(config: &AppConfig, i18n: &I18n, ccd: Option<&Path>) -> i32 {
     let cwd = std::env::current_dir().unwrap_or_default();
-    let ccd = config_dir_from_env();
     let (label, settings_dir) = install_target(
-        ccd.as_deref(),
+        ccd,
         &config.accounts_dir(),
         dirs::home_dir().as_deref(),
         resolve::resolve_account(config, &cwd).as_deref(),
@@ -711,7 +727,153 @@ fn install_into_settings(config: &AppConfig, i18n: &I18n) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::i18n::Lang;
     use std::ffi::OsString;
+
+    fn scratch(tag: &str) -> PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("cc-statusline-{}-{}", tag, std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn the_badge_and_the_meter_both_follow_the_config_dir_they_are_given() {
+        // The bug this whole command's account handling exists for, end to
+        // end: a session held to 400k read 39%, because the window was
+        // resolved from the model rather than from that account's settings.
+        // Both readers take the dir `run` resolved, so one fixture pins
+        // both wires: the badge names the account, and the meter counts
+        // against the window its settings.json sets.
+        let base = scratch("segments");
+        let config = AppConfig {
+            base_dir: base.join("switch"),
+        };
+        let account = config.accounts_dir().join("work-2");
+        std::fs::create_dir_all(&account).unwrap();
+        std::fs::write(
+            account.join("settings.json"),
+            r#"{"autoCompactWindow": 400000}"#,
+        )
+        .unwrap();
+        let project = base.join("proj");
+        std::fs::create_dir_all(&project).unwrap();
+
+        let payload: Value = serde_json::json!({
+            "model": {"id": "claude-opus-5", "display_name": "Opus 5"},
+            "workspace": {"current_dir": project.to_str().unwrap(),
+                          "project_dir": project.to_str().unwrap()},
+            "context_window": {
+                "total_input_tokens": 393_500,
+                "context_window_size": 1_000_000,
+                "remaining_percentage": 61
+            }
+        });
+
+        let with = segments(&payload, &config, Some(&account)).join(" | ");
+        // 393.5k of the 400k this account is held to. Worked out by hand:
+        // 393500 / 400000 = 98.375%, shown rounded.
+        assert!(with.contains("work-2"), "badge: {}", with);
+        assert!(with.contains("98%"), "meter: {}", with);
+
+        // Without the dir, the same payload is the model's 1M window and the
+        // standard account: 393500 / 1000000 = 39.35%.
+        let without = segments(&payload, &config, None).join(" | ");
+        assert!(without.contains("default"), "badge: {}", without);
+        assert!(without.contains("39%"), "meter: {}", without);
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn install_writes_the_block_into_that_accounts_settings_file() {
+        // The write itself, not just the decision: the reported path has to
+        // be the file that changed, and the keys already in it have to
+        // survive. Regression — `--install` reported `default` while
+        // rewriting a file in another account.
+        let base = scratch("install");
+        let config = AppConfig {
+            base_dir: base.join("switch"),
+        };
+        let target = config.accounts_dir().join("work-2");
+        std::fs::create_dir_all(&target).unwrap();
+        std::fs::write(
+            target.join("settings.json"),
+            r#"{"theme":"dark","statusLine":{"type":"command","command":"old"}}"#,
+        )
+        .unwrap();
+        let i18n = I18n { lang: Lang::En };
+
+        assert_eq!(
+            install_into_settings(&config, &i18n, Some(&target)),
+            0,
+            "install should succeed"
+        );
+
+        let written: Value =
+            serde_json::from_str(&std::fs::read_to_string(target.join("settings.json")).unwrap())
+                .unwrap();
+        // The command is the installed binary of this switch dir, not the
+        // one that happened to be there.
+        assert_eq!(
+            written["statusLine"]["command"].as_str().unwrap(),
+            format!(
+                "{} statusline",
+                command_path(&config.base_dir.join("bin").join(binary_name()))
+            )
+        );
+        assert_eq!(written["statusLine"]["type"], "command");
+        assert_eq!(written["statusLine"]["padding"], 0);
+        // Untouched.
+        assert_eq!(written["theme"], "dark");
+        // And nothing was written anywhere else under the switch dir.
+        assert!(!config.base_dir.join("settings.json").exists());
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn install_creates_the_account_dir_and_the_file_when_absent() {
+        let base = scratch("install-fresh");
+        let config = AppConfig {
+            base_dir: base.join("switch"),
+        };
+        let target = config.accounts_dir().join("fresh");
+        let i18n = I18n { lang: Lang::En };
+
+        assert_eq!(install_into_settings(&config, &i18n, Some(&target)), 0);
+        let written: Value =
+            serde_json::from_str(&std::fs::read_to_string(target.join("settings.json")).unwrap())
+                .unwrap();
+        assert!(
+            written["statusLine"]["command"]
+                .as_str()
+                .unwrap()
+                .ends_with(" statusline")
+        );
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn install_refuses_a_settings_file_it_cannot_parse() {
+        // Rather than overwriting it: whatever is in there is the user's.
+        let base = scratch("install-bad");
+        let config = AppConfig {
+            base_dir: base.join("switch"),
+        };
+        let target = config.accounts_dir().join("work");
+        std::fs::create_dir_all(&target).unwrap();
+        std::fs::write(target.join("settings.json"), "{not json").unwrap();
+        let i18n = I18n { lang: Lang::En };
+
+        assert_eq!(install_into_settings(&config, &i18n, Some(&target)), 1);
+        assert_eq!(
+            std::fs::read_to_string(target.join("settings.json")).unwrap(),
+            "{not json"
+        );
+        let _ = std::fs::remove_dir_all(&base);
+    }
 
     #[test]
     fn a_blank_config_dir_is_no_config_dir() {
@@ -870,7 +1032,7 @@ mod tests {
         )
         .unwrap();
         unsafe { std::env::set_var("NO_COLOR", "1") };
-        let seg = context_segment(&v).expect("a segment");
+        let seg = context_segment(&v, None).expect("a segment");
         assert!(seg.contains("39%"), "got {seg:?}");
         assert!(!seg.contains("47%"), "the old normalised figure: {seg:?}");
     }
@@ -1272,7 +1434,7 @@ mod tests {
         let v = serde_json::json!({
             "context_window": { "remaining_percentage": 16.5, "context_window_size": 1_000_000 }
         });
-        let seg = context_segment(&v).unwrap();
+        let seg = context_segment(&v, None).unwrap();
         assert!(seg.contains("84%"), "got {seg:?}");
         assert!(
             !seg.contains("100%"),
@@ -1283,19 +1445,19 @@ mod tests {
         let v = serde_json::json!({
             "context_window": { "remaining_percentage": 100.0, "context_window_size": 1_000_000 }
         });
-        assert!(context_segment(&v).unwrap().contains("0%"));
+        assert!(context_segment(&v, None).unwrap().contains("0%"));
 
         // And a full one reads as full rather than overflowing.
         let v = serde_json::json!({
             "context_window": { "remaining_percentage": 0.0, "context_window_size": 1_000_000 }
         });
-        assert!(context_segment(&v).unwrap().contains("100%"));
+        assert!(context_segment(&v, None).unwrap().contains("100%"));
     }
 
     #[test]
     fn context_segment_absent_without_context_window() {
         let v = serde_json::json!({ "model": { "display_name": "Opus" } });
-        assert!(context_segment(&v).is_none());
+        assert!(context_segment(&v, None).is_none());
     }
 
     #[test]

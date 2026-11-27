@@ -16,10 +16,16 @@ claude-acc statusline --install
 
 Then restart Claude Code. The command reads Claude Code's session JSON on stdin, so the data is free — no API calls. The account badge comes from `CLAUDE_CONFIG_DIR`. Colors honor `NO_COLOR`.
 
-`--install` writes into the account the session is running under — `CLAUDE_CONFIG_DIR` when it is set, which is also where the badge comes from. Run it from a plain shell, with no such session, and the directory you are in decides, through the same lookup `claude-acc run` uses. So installing it for one account is one command:
+`--install` writes into the account the session is running under — `CLAUDE_CONFIG_DIR` when it is set, which is also where the badge comes from. Without it, the directory you are in decides, through the same directory lookup the shell hook and `claude-acc activate` use: its link, or the configured default. So installing it for one account is one command, from anywhere:
 
 ```bash
 CLAUDE_CONFIG_DIR=~/.claude-switch/accounts/work-2 claude-acc statusline --install
+```
+
+Name the standard account the same way. In a linked directory, or with a configured default, that is the only way to reach it — an empty `CLAUDE_CONFIG_DIR` counts as unset, so the link still decides:
+
+```bash
+CLAUDE_CONFIG_DIR=~/.claude claude-acc statusline --install
 ```
 
 ### What the meter is, and is not
