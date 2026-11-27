@@ -27,12 +27,6 @@ trap 'rm -rf "$scratch"' EXIT
 export HOME="$scratch/home"
 mkdir -p "$HOME/.claude"
 export CLAUDE_ACC_LANG=en
-# Every expected list below is in byte order. The order itself comes from
-# zsh's glob, which sorts by collation, so the locale decides where `работа`
-# lands relative to the ASCII names: under en_US.UTF-8 it sorts first, under
-# C last. `LC_ALL` is what the runner may have set, and it overrides
-# `LC_COLLATE`, so this is the only setting that pins it.
-export LC_ALL=C
 
 source "${0:A:h:h:h}/claude-switch.sh" >/dev/null 2>&1
 
@@ -44,6 +38,21 @@ source "${0:A:h:h:h}/claude-switch.sh" >/dev/null 2>&1
 # `no token`. Same approach as `cred_store_notice.zsh`, `token_lookup.zsh`
 # and `import_rekey.zsh`.
 security() { return 1 }
+
+# Every expected list below is written in byte order, and the lists come out
+# of zsh's globs, which sort by collation — so the locale would otherwise
+# decide where `работа` lands among the ASCII names: first under
+# en_US.UTF-8, last under C. Sorting here rather than exporting `LC_ALL=C`
+# keeps the locale of the code under test the runner's own, which is the one
+# its users have.
+# $1 is the separator to join with, the rest are the names.
+joined() {
+    local sep="$1"; shift
+    (( $# )) || return
+    local -a out
+    out=(${(f)"$(print -rl -- "$@" | LC_ALL=C sort)"})
+    print -r -- "${(pj:$sep:)out}"
+}
 
 check() {
     local label="$1" expected="$2" actual="$3"
@@ -66,7 +75,7 @@ listed() {
     # The standard account's row, however its suffix is spelled. Quoted, so
     # the leading tilde is a character and not this test's own home.
     rows=("${(@)rows:#'~'/.claude/*}")
-    print -r -- "${(j:,:)rows}"
+    joined "," "${rows[@]}"
 }
 
 # The account names `usage` prints: its rows are a name on one line and the
@@ -76,7 +85,7 @@ used() {
     rows=(${(f)"$(_claude_acc_usage 2>/dev/null |
         awk '/^ {4}[^ ]/ { sub(/^[[:space:]]*(★ )?/, ""); print $1 }')"})
     rows=("${(@)rows:#'~'/.claude/*}")
-    print -r -- "${(j:,:)rows}"
+    joined "," "${rows[@]}"
 }
 
 # The account column of `doctor`, same shape. `doctor` is where the bug was
@@ -88,7 +97,7 @@ audited() {
     rows=(${(f)"$(_claude_acc_doctor 2>/dev/null |
         awk '/^  [?✓✗] / { print $2 }')"})
     rows=("${(@)rows:#'~'/.claude/*}")
-    print -r -- "${(j:,:)rows}"
+    joined "," "${rows[@]}"
 }
 
 print -r -- "accounts listed by \`list\`:"
@@ -144,8 +153,10 @@ print -r -- "what \`doctor\` says about the rest:"
 # list. Compared as whole lists rather than grepped for, because `linked`
 # is a substring of `linked.2` and a count would pass for the wrong reason.
 named_in() {
-    _claude_acc_doctor 2>/dev/null | grep -- "$1" |
-        sed -E 's/^[^:]*: //; s/\. .*$//'
+    local line
+    line=$(_claude_acc_doctor 2>/dev/null | grep -- "$1" |
+        sed -E 's/^[^:]*: //; s/\. .*$//')
+    joined ", " "${(@s:, :)line}"
 }
 
 # Untouchable: a name no command takes, whatever the entry is — and a name
