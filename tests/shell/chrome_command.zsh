@@ -88,7 +88,11 @@ mkdir -p "$bin"
 cat > "$bin/claude" <<'STUB'
 #!/bin/sh
 printf '%s\n' "args: $*" >> "$CLAUDE_STUB_LOG"
-printf '%s\n' "dir: $CLAUDE_CONFIG_DIR" >> "$CLAUDE_STUB_LOG"
+if [ -z "${CLAUDE_CONFIG_DIR+x}" ]; then
+    printf '%s\n' "dir: <unset>" >> "$CLAUDE_STUB_LOG"
+else
+    printf '%s\n' "dir: $CLAUDE_CONFIG_DIR" >> "$CLAUDE_STUB_LOG"
+fi
 printf 'stdin: ' >> "$CLAUDE_STUB_LOG"
 cat >> "$CLAUDE_STUB_LOG"
 printf '\n' >> "$CLAUDE_STUB_LOG"
@@ -128,7 +132,10 @@ check "--off sends false, not true" 'stdin: {"enabledByDefault":false}' \
 mkdir -p "$HOME/.claude"
 : > "$CLAUDE_STUB_LOG"
 _claude_acc_chrome default --on >/dev/null 2>&1
-check "default writes with CLAUDE_CONFIG_DIR unset" "dir: " \
+# `<unset>`, not an empty value: the stub tells them apart on purpose,
+# because an empty one is the working directory as far as anything that
+# joins onto it is concerned.
+check "default writes with CLAUDE_CONFIG_DIR unset" "dir: <unset>" \
     "$(grep '^dir:' "$CLAUDE_STUB_LOG")"
 check "and nothing was created at accounts/default" "no" \
     "$([[ -e "$CLAUDE_SWITCH_ACCOUNTS_DIR/default" ]] && print -r -- yes || print -r -- no)"
@@ -139,6 +146,15 @@ check "and nothing was created at accounts/default" "no" \
 _claude_acc_chrome work --on >/dev/null 2>&1
 check "a managed account still gets its dir" "dir: $work" \
     "$(grep '^dir:' "$CLAUDE_STUB_LOG")"
+
+# One static check, because the behaviour one cannot see this on macOS. `env`
+# resolves `command` as a *program*: macOS ships /usr/bin/command (a /bin/sh
+# wrapper around the builtin), Linux does not, so `env -u VAR command claude`
+# works here and fails there with "No such file or directory" — and the only
+# machine that would have caught it is the Linux runner.
+check "the writer does not shell out through \`env … command\`" "0" \
+    "$(grep -v '^[[:space:]]*#' "${0:A:h:h:h}/claude-switch.sh" |
+        grep -c 'env -u .* command ')"
 
 print -r -- ""
 print -r -- "both directions at once:"

@@ -2356,8 +2356,17 @@ _claude_acc_chrome_set() {
         out=$(printf '{"enabledByDefault":%s}\n' "$on" |
             CLAUDE_CONFIG_DIR="$dir" command claude edit-chrome-settings --json 2>&1)
     else
-        out=$(printf '{"enabledByDefault":%s}\n' "$on" |
-            env -u CLAUDE_CONFIG_DIR command claude edit-chrome-settings --json 2>&1)
+        # `unset` inside the command substitution, not `env -u`: `env` looks
+        # up a *program* called `command`, which macOS happens to ship as a
+        # /bin/sh wrapper and Linux does not — so `env -u … command claude`
+        # would have failed with "No such file or directory" there, and the
+        # standard account would never be written. The subshell the
+        # substitution already creates is all the isolation needed.
+        out=$(
+            unset CLAUDE_CONFIG_DIR
+            printf '{"enabledByDefault":%s}\n' "$on" |
+                command claude edit-chrome-settings --json 2>&1
+        )
     fi
     rc=$?
     if (( rc == 0 )); then
