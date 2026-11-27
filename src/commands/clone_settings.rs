@@ -35,7 +35,10 @@ pub fn run(config: &AppConfig, i18n: &I18n, name: &str, from: Option<&str>) -> i
             return 1;
         }
         Err(SourceError::NoHome) => {
-            eprintln!("clone-settings: cannot determine home directory");
+            // Through `Msg`, not `eprintln!`: it is prose a person reads,
+            // and the exception in `.claude/rules/i18n.md` is for an error
+            // prefix carrying an OS message, which this is not.
+            i18n.print(Msg::CloneSettingsNoHome);
             return 1;
         }
     };

@@ -100,7 +100,8 @@ check "a name no command takes is refused as invalid" "1" \
 # A bare `--from`, which used to spin for ever: `shift 2` with one argument
 # left shifts nothing, so the loop read `--from` again and again. Run under
 # a watchdog, because the failure mode is a hang rather than a wrong answer.
-( _claude_acc_clone_settings work-2 --from >/dev/null 2>&1 ) &
+bare_out="$scratch/bare.out"
+( _claude_acc_clone_settings work-2 --from >"$bare_out" 2>&1 ) &
 bare_pid=$!
 bare_result="hung"
 for _ in {1..50}; do
@@ -110,6 +111,13 @@ done
 [[ "$bare_result" == "hung" ]] && kill -9 $bare_pid 2>/dev/null
 wait $bare_pid 2>/dev/null
 check "a bare --from returns instead of spinning" "returned" "$bare_result"
+# And refuses, rather than quietly seeding from ~/.claude: asserting only
+# that it returned let a mutant through that dropped the flag's own
+# bookkeeping and copied the standard account instead.
+check "a bare --from is refused, not silently defaulted" "1" \
+    "$(grep -c 'must contain only letters' "$bare_out" 2>/dev/null)"
+check "and it copied nothing" "0" \
+    "$(grep -c 'copied' "$bare_out" 2>/dev/null)"
 
 # Two names is a mistake, not a silent choice of the second.
 out=$(_claude_acc_clone_settings work-2 extra 2>&1)
@@ -120,6 +128,14 @@ check "two account names are refused" "1" \
 out=$(_claude_acc_clone_settings work-2 --from= 2>&1)
 check "an empty --from is refused rather than silently defaulted" "1" \
     "$(print -r -- "$out" | grep -c 'must contain only letters')"
+
+# The `--from=value` form itself, which only the empty case covered — so a
+# mutant that left the `=` on the value passed, because "=work" is simply an
+# invalid name and the run failed for the wrong reason.
+glued="$CLAUDE_SWITCH_ACCOUNTS_DIR/glued"
+mkdir -p "$glued"
+_claude_acc_clone_settings glued --from=work >/dev/null 2>&1
+check "--from=work seeds from work" "memory" "$(cat "$glued/CLAUDE.md" 2>/dev/null)"
 
 print -r -- ""
 print -r -- "without --from, and with default:"

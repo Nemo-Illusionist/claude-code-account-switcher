@@ -269,6 +269,12 @@ impl I18n {
             // seed / clone-settings
             (Msg::SeedCopied(ref s), Lang::En) => format!("  copied: {}", s),
             (Msg::SeedCopied(ref s), Lang::Ru) => format!("  скопировано: {}", s),
+            (Msg::CloneSettingsNoHome, Lang::En) => s(
+                "clone-settings: cannot determine the home directory, so there is no ~/.claude/ to copy from",
+            ),
+            (Msg::CloneSettingsNoHome, Lang::Ru) => s(
+                "clone-settings: не удалось определить домашний каталог, поэтому копировать из ~/.claude/ нечего",
+            ),
             (Msg::CloneSettingsSameAccount(ref name), Lang::En) => format!(
                 "clone-settings: --from {} is the account being seeded. Name the account to copy from.",
                 name
@@ -1386,6 +1392,7 @@ pub enum Msg {
     SeedCopied(String),
     SeedNothingToCopy(String),
     CloneSettingsSameAccount(String),
+    CloneSettingsNoHome,
     UsageHeader,
     UsageResetsIn(String),
     UsageAvailableNow,

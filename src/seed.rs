@@ -215,8 +215,18 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<usize> {
             // partway through and left a half-copied account behind — and
             // someone who symlinked a skill into ~/.claude meant to keep one
             // copy of it, so duplicating the tree into every account would
-            // fork it silently. Links point outside the config dir in
-            // practice, and stay correct from anywhere.
+            // fork it silently.
+            //
+            // A *relative* link survives only a copy of the same depth. On
+            // this machine `accounts/work/skills/computer-use` is
+            // `../../../../.agents/skills/computer-use`, which is right from
+            // `accounts/<name>/skills/` and wrong from `~/.claude/skills/`,
+            // two levels up — so `--from default` into an account can land a
+            // link that resolves nowhere, while account-to-account, equal in
+            // depth, is safe. Rewriting it would be a guess about what the
+            // author meant; the link is copied as written, and this is here
+            // so the next reader knows it is a known edge and not an
+            // oversight.
             copy_symlink(&path, &dst_path)?;
             count += 1;
         } else if file_type.is_dir() {

@@ -28,10 +28,7 @@ _claude_acc_accounts() {
     accounts=(${(f)"$('__CLAUDE_ACC_BIN__' completions accounts)"})
     # `default` is not a managed account directory but every command that
     # takes an account name accepts it as "the standard ~/.claude one".
-    # `${1-}`, not `$1`: the callers that want only managed accounts pass
-    # nothing, and under `setopt nounset` — which people do set — a bare
-    # `$1` aborts the whole completion.
-    [[ -n "${1-}" ]] && accounts=('default' $accounts)
+    [[ -n "$1" ]] && accounts=('default' $accounts)
     _describe 'account' accounts
 }
 
