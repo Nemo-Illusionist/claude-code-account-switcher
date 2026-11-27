@@ -30,10 +30,19 @@ _claude_acc_accounts() {
     # takes an account name accepts it as "the standard ~/.claude one".
     #
     # `${1-}`, not `$1`: the callers that want only managed accounts — the
-    # `remove` and `clone-settings` branches — pass nothing at all, and
-    # under `setopt nounset`, which people do set in .zshrc, a bare `$1`
-    # aborts the function. Completion then offers nothing and prints
-    # `_claude_acc_accounts:5: 1: parameter not set` over the prompt.
+    # `remove` and `clone-settings` branches — pass nothing at all, and a
+    # bare `$1` is an error under `setopt nounset`.
+    #
+    # Defensive, not a fix: a real completion never runs under `nounset`.
+    # `_main_complete` evals `_comp_setup`, which does `setopt
+    # localoptions … ${_comp_options[@]}`, and `_comp_options` contains
+    # `unset` — the inverse of `nounset` (zsh 5.9,
+    # `/usr/share/zsh/5.9/functions/compinit`, checked rather than
+    # recalled: inside that scope `[[ -o nounset ]]` is off and a bare `$1`
+    # survives). So this only bites a caller that invokes the function
+    # directly, which is what `tests/shell/completion_nounset.zsh` does.
+    # The bash side had the same shape of bug for real — bash does not
+    # relax `set -u` for completions.
     [[ -n "${1-}" ]] && accounts=('default' $accounts)
     _describe 'account' accounts
 }

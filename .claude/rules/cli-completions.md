@@ -49,9 +49,23 @@ function directly:
 - zsh — override `_describe` and `_files`, set `words` and `CURRENT`
 - bash — set `COMP_WORDS` and `COMP_CWORD`, read back `COMPREPLY`
 
-`completion_nounset.zsh` is the worked example of the zsh half, including the
-`__CLAUDE_ACC_BIN__` substitution and a stub binary, and it is the place to
-add a zsh case rather than writing a second harness.
+`completion_nounset.zsh` is the worked example, with the
+`__CLAUDE_ACC_BIN__` substitution, a stub binary, and a bash half driven as
+a separate `set -u` process. Add a case there rather than writing a second
+harness.
+
+Two things it does **not** model, both learned the hard way:
+
+- It calls the completion function directly, so it runs with whatever
+  options the test set. A real zsh completion does not: `_main_complete`
+  evals `_comp_setup`, which applies `${_comp_options[@]}` — a list that
+  includes `unset`, `nullglob`, `extendedglob`, `bareglobqual` and
+  `NO_errexit`. So `setopt nounset` is **off** inside any real completion,
+  and a glob behaves differently there than in the test. A failure seen only
+  through this harness may not be reachable at all; one of mine was not.
+- bash gets no such relaxation. `set -u` is in force while `init.bash` is
+  sourced, while the prompt hook runs, and while completing — which is where
+  the real instances of that class were.
 
 Walk every branch you added, including the ones that should offer nothing.
 And capture stderr separately: a helper that swallows it will report a
