@@ -1,5 +1,6 @@
 pub mod activate;
 pub mod add;
+pub mod chrome;
 pub mod clone_settings;
 pub mod completions;
 pub mod default;

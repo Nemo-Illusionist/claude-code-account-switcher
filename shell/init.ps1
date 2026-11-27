@@ -35,7 +35,7 @@ Register-ArgumentCompleter -CommandName claude-acc -ScriptBlock {
     $candidates = @()
 
     if ($count -le 2) {
-        $candidates = @('list','add','login','remove','default','reset','lock','link','unlink','links','status','usage','sessions','session','desktop','vscode','resume-hook','statusline','update','install','run','doctor','whoami','clone-settings','import','help')
+        $candidates = @('list','add','login','remove','default','reset','lock','link','unlink','links','status','usage','sessions','session','desktop','vscode','resume-hook','statusline','update','install','run','doctor','whoami','chrome','clone-settings','import','help')
     } elseif ($prev -eq '--from' -and $cmd -eq 'desktop') {
         # `session copy --from` takes an account; `desktop` takes a profile.
         $candidates = (& '__CLAUDE_ACC_BIN__' completions desktop) -split "`n"
@@ -53,6 +53,7 @@ Register-ArgumentCompleter -CommandName claude-acc -ScriptBlock {
             'statusline' { $candidates = @('--install') }
             'sessions'   { $candidates = @('--all') }
             'doctor'     { $candidates = @('--json') }
+            'chrome'     { $candidates = @('--on','--off') }
             'update'     { $candidates = @('--check','--version') }
             'session'    { $candidates = @('--to','--from','--force','-f') }
             'clone-settings' { $candidates = @('--from') }
@@ -64,7 +65,7 @@ Register-ArgumentCompleter -CommandName claude-acc -ScriptBlock {
             { $_ -in 'remove','clone-settings' } {
                 $candidates = (& '__CLAUDE_ACC_BIN__' completions accounts) -split "`n"
             }
-            { $_ -in 'default','link','login','run','lock' } {
+            { $_ -in 'default','link','login','run','lock','chrome' } {
                 $candidates = & $accountsWithDefault
             }
             'session'     { $candidates = @('copy') }

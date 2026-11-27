@@ -9,9 +9,10 @@
 //! simply not among the tools, which reads as "this machine doesn't have the
 //! extension" rather than "this account never said yes".
 //!
-//! We only read. Turning it on writes to `.claude.json` — the file that also
-//! holds `oauthAccount`, and the one thing this tool must never put a wrong
-//! value into — so that stays with Claude Code's own `/chrome`.
+//! Reading is ours; writing is not. The flag lives in `.claude.json`, the
+//! file that also holds `oauthAccount` — the one value this tool must never
+//! get wrong — so `set_enabled` hands the write to Claude Code's own
+//! `edit-chrome-settings` rather than editing that file itself.
 
 use std::path::Path;
 
@@ -62,6 +63,81 @@ pub fn extension_seen(config_dir: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_payload_is_the_one_claude_code_accepts() {
+        // Its schema is `{enabledByDefault: boolean}` and nothing else: a
+        // stray key makes it answer "Not a Claude in Chrome settings edit".
+        // Written out by hand, not built from a serializer, so a change to
+        // the shape has to be made deliberately. The trailing newline is
+        // there because the subcommand reads a line from stdin.
+        assert_eq!(payload(true), "{\"enabledByDefault\":true}\n");
+        assert_eq!(payload(false), "{\"enabledByDefault\":false}\n");
+    }
+
+    #[test]
+    fn the_standard_account_is_the_variable_removed_not_the_directory() {
+        // Claude Code writes the file at `join(CLAUDE_CONFIG_DIR ??
+        // homedir(), ".claude.json")`. Pointing the variable at `~/.claude`
+        // therefore writes `~/.claude/.claude.json`, which nothing reads,
+        // and the command would have reported success: verified by running
+        // the subcommand both ways under a scratch HOME.
+        let managed = PathBuf::from("/switch/accounts/work");
+        let cmd = edit_command(Some(&managed)).expect("a command");
+        let envs: Vec<(String, Option<String>)> = cmd
+            .get_envs()
+            .map(|(k, v)| {
+                (
+                    k.to_string_lossy().into_owned(),
+                    v.map(|v| v.to_string_lossy().into_owned()),
+                )
+            })
+            .collect();
+        assert_eq!(
+            envs,
+            vec![(
+                "CLAUDE_CONFIG_DIR".to_string(),
+                Some("/switch/accounts/work".to_string())
+            )]
+        );
+
+        let cmd = edit_command(None).expect("a command");
+        let envs: Vec<(String, Option<String>)> = cmd
+            .get_envs()
+            .map(|(k, v)| {
+                (
+                    k.to_string_lossy().into_owned(),
+                    v.map(|v| v.to_string_lossy().into_owned()),
+                )
+            })
+            .collect();
+        // `None` is a removal, not an empty value: an empty one would be
+        // the working directory.
+        assert_eq!(envs, vec![("CLAUDE_CONFIG_DIR".to_string(), None)]);
+
+        // And the subcommand itself, which `claude --help` does not list.
+        //
+        // Windows goes through `cmd.exe /c "…"`, so the arguments are that
+        // wrapper's and the subcommand sits inside its quoted string —
+        // which is why this is asserted per platform rather than as one
+        // list. The first version compared the Unix shape everywhere and
+        // failed only on the Windows runner, with
+        // `left: ["/d", "/v:off", "/s", "/c", "\"\"claude\" …"]`.
+        let args: Vec<String> = cmd
+            .get_args()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect();
+        #[cfg(not(windows))]
+        assert_eq!(args, vec!["edit-chrome-settings", "--json"]);
+        #[cfg(windows)]
+        {
+            assert_eq!(&args[..4], &["/d", "/v:off", "/s", "/c"]);
+            let line = args.last().expect("the /c string");
+            assert!(line.contains("\"edit-chrome-settings\""), "got {line:?}");
+            assert!(line.contains("\"--json\""), "got {line:?}");
+        }
+    }
+
     use std::fs;
     use std::path::PathBuf;
 
@@ -153,4 +229,106 @@ mod tests {
         let dir = with_config("bare", r#"{"oauthAccount": {}}"#);
         assert!(!extension_seen(&dir));
     }
+}
+
+/// Turn Claude in Chrome on or off for a config dir, through Claude Code's
+/// own subcommand.
+///
+/// We do not write the flag ourselves. It lives in `.claude.json`, the file
+/// that also holds `oauthAccount` — the one thing this tool must never put a
+/// wrong value into — so the write goes to `claude edit-chrome-settings
+/// --json`, which is how the VS Code extension does it: a hidden
+/// subcommand, `{"enabledByDefault": <bool>}` on stdin, reading
+/// `CLAUDE_CONFIG_DIR` like everything else in Claude Code. Transcribed
+/// from Claude Code 2.1.332; `claude --help` does not list it, so a future
+/// build may rename it, which is why a failure is reported verbatim rather
+/// than interpreted.
+///
+/// It refuses to run inside a Claude Code session — "This setting cannot be
+/// changed from an editor started inside a Claude Code session" — which is
+/// keyed on `CLAUDE_CODE_CHILD_SESSION`. That guard is Claude Code's, so it
+/// is left alone and the message is passed through; the user runs the
+/// command from a plain shell.
+pub fn set_enabled(config_dir: Option<&Path>, on: bool) -> Result<(), SetError> {
+    let payload = payload(on);
+    let mut cmd = edit_command(config_dir)?;
+    cmd.stdin(std::process::Stdio::piped());
+    cmd.stdout(std::process::Stdio::piped());
+    cmd.stderr(std::process::Stdio::piped());
+
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| SetError::NotStarted(e.to_string()))?;
+    if let Some(stdin) = child.stdin.as_mut() {
+        use std::io::Write;
+        stdin
+            .write_all(payload.as_bytes())
+            .map_err(|e| SetError::NotStarted(e.to_string()))?;
+    }
+    let out = child
+        .wait_with_output()
+        .map_err(|e| SetError::NotStarted(e.to_string()))?;
+    if out.status.success() {
+        return Ok(());
+    }
+    // Whatever Claude Code said, said back. Both streams, because the
+    // in-session refusal arrives on stdout while a usage error arrives on
+    // stderr.
+    let mut said = String::from_utf8_lossy(&out.stderr).trim().to_string();
+    if said.is_empty() {
+        said = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    }
+    Err(SetError::Refused(said))
+}
+
+/// The subcommand, aimed at one config dir.
+///
+/// `None` is the standard account, and the variable is **removed** rather
+/// than set to `~/.claude`. Claude Code writes the file at
+/// `join(CLAUDE_CONFIG_DIR ?? homedir(), ".claude.json")` — read out of
+/// 2.1.332, `configPath: ye(process.env.CLAUDE_CONFIG_DIR || We(),
+/// `.claude${…}.json`)`, and confirmed by running it: with the variable
+/// unset the flag lands in `~/.claude.json`, which is what a standard
+/// session reads, and with it pointed at `~/.claude` the flag lands in
+/// `~/.claude/.claude.json`, which nothing reads at all. So pointing it at
+/// the directory would have reported success and changed nothing. `run` and
+/// `login` remove the variable for the standard account for the same
+/// reason.
+fn edit_command(config_dir: Option<&Path>) -> Result<std::process::Command, SetError> {
+    let mut cmd = crate::windows_invocation::claude_command(&[
+        "edit-chrome-settings".to_string(),
+        "--json".to_string(),
+    ])
+    .map_err(|e| match e {
+        // The only variant, and only reachable on Windows: a token cmd.exe
+        // cannot carry. Ours are two fixed literals, so this cannot fire —
+        // but it is not worth an `unwrap` to say so.
+        crate::windows_invocation::InvocationError::UnsupportedArg(token) => {
+            SetError::NotStarted(token)
+        }
+    })?;
+    match config_dir {
+        Some(dir) => cmd.env("CLAUDE_CONFIG_DIR", dir),
+        None => cmd.env_remove("CLAUDE_CONFIG_DIR"),
+    };
+    Ok(cmd)
+}
+
+/// What `edit-chrome-settings` reads on stdin. Its schema is
+/// `{enabledByDefault: boolean}` and nothing else — a stray key makes it
+/// answer "Not a Claude in Chrome settings edit".
+fn payload(on: bool) -> &'static str {
+    if on {
+        "{\"enabledByDefault\":true}\n"
+    } else {
+        "{\"enabledByDefault\":false}\n"
+    }
+}
+
+#[derive(Debug)]
+pub enum SetError {
+    /// `claude` could not be run at all.
+    NotStarted(String),
+    /// It ran and said no. Carries what it said, verbatim.
+    Refused(String),
 }

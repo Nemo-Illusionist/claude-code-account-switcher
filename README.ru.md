@@ -94,6 +94,7 @@ claude-acc link work
 | `claude-acc whoami` | Email (или имя) активного аккаунта |
 | `claude-acc lock <имя>` | Закрепить аккаунт за личностью, под которой он вошёл (`--force` — перезакрепить) |
 | `claude-acc doctor [--json]` | Аудит реальной OAuth-личности каждого аккаунта и расхождений с закреплением |
+| `claude-acc chrome [<имя>] [--on\|--off]` | Показать или включить/выключить Claude in Chrome для аккаунта — Claude Code держит этот переключатель отдельно для каждой config-папки |
 | `claude-acc install` | Установить бинарник и shell-интеграцию |
 | `claude-acc update [--check]` | Обновить бинарник до последнего релиза с GitHub |
 

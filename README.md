@@ -94,6 +94,7 @@ claude-acc link work
 | `claude-acc whoami` | Print the email (or name) of the active account |
 | `claude-acc lock <name>` | Pin an account to the identity it is signed in as (`--force` to re-pin) |
 | `claude-acc doctor [--json]` | Audit each account's actual OAuth identity, and report drift from the pin |
+| `claude-acc chrome [<name>] [--on\|--off]` | Show, or turn on and off, Claude in Chrome for an account — Claude Code keeps that switch per config dir |
 | `claude-acc install` | Install binary and shell integration |
 | `claude-acc update [--check]` | Update the binary to the latest GitHub release |
 
