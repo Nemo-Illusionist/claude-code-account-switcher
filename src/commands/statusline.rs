@@ -59,15 +59,25 @@ fn render(config: &AppConfig) {
     println!("{}", segs.join(&sep));
 }
 
-/// `CLAUDE_CONFIG_DIR`, or `None` when it is unset, empty or blank.
+/// `CLAUDE_CONFIG_DIR`, or `None` when it is unset or empty.
 ///
 /// Three places in this file read that variable — the account badge, the
 /// settings files the context meter consults, and where `--install` writes
-/// — and they have to agree, so the reading happens once. Blank counts as
-/// unset: taken literally it is the working directory, which would send a
-/// settings lookup and a settings *write* to a relative `settings.json`
-/// beside whatever the user was standing in. `session::target_from_env` and
-/// `shell/claude-wrapper.sh` read it the same way.
+/// — and they have to agree, so the reading happens once.
+///
+/// Empty counts as unset because that is what Claude Code does with it.
+/// Every read in the build is `process.env.CLAUDE_CONFIG_DIR || <fallback>`
+/// (transcribed from Claude Code 2.1.332), and in JavaScript `""` is falsy,
+/// so the app takes the fallback. Taken literally instead, `""` is the
+/// working directory: `create_dir_all("")` succeeds, so `--install` would
+/// write a `settings.json` beside whatever the user was standing in, and
+/// the meter would look for one there.
+///
+/// A value that is only blanks is **not** trimmed away, deliberately. `"  "`
+/// is truthy in JavaScript, so Claude Code uses it as a path, and the status
+/// line's job is to describe the session the app is actually running. That
+/// differs from `session::target_from_env`, which trims — a status line that
+/// disagreed with the app would be the worse of the two.
 fn config_dir_from_env() -> Option<PathBuf> {
     config_dir_of(std::env::var("CLAUDE_CONFIG_DIR").ok().as_deref())
 }
@@ -76,9 +86,7 @@ fn config_dir_from_env() -> Option<PathBuf> {
 /// threads of one process, so a test that set the variable would be a test
 /// of scheduling.
 fn config_dir_of(raw: Option<&str>) -> Option<PathBuf> {
-    raw.map(str::trim)
-        .filter(|v| !v.is_empty())
-        .map(PathBuf::from)
+    raw.filter(|v| !v.is_empty()).map(PathBuf::from)
 }
 
 /// Account name for the current session, from `CLAUDE_CONFIG_DIR`:
@@ -700,20 +708,23 @@ mod tests {
         // Taken literally, "" is the working directory — `create_dir_all("")`
         // succeeds — so `--install` would have written a `settings.json`
         // beside whatever the user was standing in and reported success,
-        // and the meter would have looked for one there.
+        // and the meter would have looked for one there. Claude Code treats
+        // it as unset too: every read is `process.env.CLAUDE_CONFIG_DIR ||
+        // <fallback>`, and `""` is falsy (Claude Code 2.1.332).
         assert_eq!(config_dir_of(None), None);
         assert_eq!(config_dir_of(Some("")), None);
-        assert_eq!(config_dir_of(Some("   ")), None);
-        assert_eq!(config_dir_of(Some("\t\n")), None);
         assert_eq!(
             config_dir_of(Some("/switch/accounts/work-2")),
             Some(PathBuf::from("/switch/accounts/work-2"))
         );
-        // Surrounding blanks are an accident of shell quoting, never part of
-        // a path someone meant.
+        // Blanks are kept, because Claude Code keeps them: `""` is falsy in
+        // JavaScript and `"  "` is not, so the app falls back on the first
+        // and uses the second as a path. Agreeing with the app is the whole
+        // point of this command, even where the value is nonsense.
+        assert_eq!(config_dir_of(Some("   ")), Some(PathBuf::from("   ")));
         assert_eq!(
             config_dir_of(Some("  /switch/accounts/work-2  ")),
-            Some(PathBuf::from("/switch/accounts/work-2"))
+            Some(PathBuf::from("  /switch/accounts/work-2  "))
         );
     }
 
