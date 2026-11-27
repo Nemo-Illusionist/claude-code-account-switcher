@@ -13,7 +13,11 @@ __claude_acc_activate() {
 }
 
 __claude_acc_prompt_hook() {
-    if [[ "$PWD" != "$__CLAUDE_ACC_PREV_DIR" ]]; then
+    # `${...-}`, not a bare read: this runs on the very first prompt, when
+    # the variable has not been set yet, and under `set -u` — which people
+    # do put in .bashrc — bash aborts the hook with
+    # `__CLAUDE_ACC_PREV_DIR: unbound variable` printed at every new prompt.
+    if [[ "$PWD" != "${__CLAUDE_ACC_PREV_DIR-}" ]]; then
         __claude_acc_activate
         __CLAUDE_ACC_PREV_DIR="$PWD"
     fi
@@ -26,10 +30,17 @@ __claude_acc_activate
 # Completions
 _claude_acc_complete() {
     local cur prev cmd sub accounts
-    cur="${COMP_WORDS[COMP_CWORD]}"
-    prev="${COMP_WORDS[COMP_CWORD-1]}"
-    cmd="${COMP_WORDS[1]}"
-    sub="${COMP_WORDS[2]}"
+    # Read with `-` defaults throughout. Completing the first word leaves
+    # `COMP_WORDS` two elements long, so `[2]` is out of range, and bash
+    # under `set -u` treats an out-of-range array element as unset: the most
+    # ordinary completion there is — `claude-acc <TAB>` — died with
+    # `COMP_WORDS[2]: unbound variable`. `[COMP_CWORD]` and `[1]` are always
+    # in range while completing, but are written the same way so a reader
+    # does not have to work out which ones are safe.
+    cur="${COMP_WORDS[COMP_CWORD]-}"
+    prev="${COMP_WORDS[COMP_CWORD-1]-}"
+    cmd="${COMP_WORDS[1]-}"
+    sub="${COMP_WORDS[2]-}"
 
     if [[ $COMP_CWORD -eq 1 ]]; then
         COMPREPLY=($(compgen -W "list add login remove default reset lock link unlink links status usage sessions session desktop vscode resume-hook statusline update install run doctor whoami clone-settings import help" -- "$cur"))
