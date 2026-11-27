@@ -38,8 +38,10 @@ workflow also syntax-checks them — `zsh -n` on `claude-switch.sh` and
 over the two wrappers since they declare `#!/bin/sh`, and a PowerShell parse
 of `shell/init.ps1`. A new shell file is not covered until it is added there.
 
-It also runs every `tests/shell/*.zsh` — behaviour tests that source
-`claude-switch.sh` and check what its functions answer. Syntax checking is
+It also runs every `tests/shell/*.zsh` — behaviour tests that source a shell
+file of ours and check what its functions answer. Most source
+`claude-switch.sh`; `completion_nounset.zsh` sources `shell/init.zsh` and
+drives `shell/init.bash` in a separate `set -u` bash. Syntax checking is
 not enough on its own: #118 was a `grep` pattern that parsed fine and matched
 nothing on any real profile, and it shipped. Run them locally the same way:
 
