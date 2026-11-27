@@ -116,11 +116,26 @@ mod tests {
         assert_eq!(envs, vec![("CLAUDE_CONFIG_DIR".to_string(), None)]);
 
         // And the subcommand itself, which `claude --help` does not list.
+        //
+        // Windows goes through `cmd.exe /c "…"`, so the arguments are that
+        // wrapper's and the subcommand sits inside its quoted string —
+        // which is why this is asserted per platform rather than as one
+        // list. The first version compared the Unix shape everywhere and
+        // failed only on the Windows runner, with
+        // `left: ["/d", "/v:off", "/s", "/c", "\"\"claude\" …"]`.
         let args: Vec<String> = cmd
             .get_args()
             .map(|a| a.to_string_lossy().into_owned())
             .collect();
+        #[cfg(not(windows))]
         assert_eq!(args, vec!["edit-chrome-settings", "--json"]);
+        #[cfg(windows)]
+        {
+            assert_eq!(&args[..4], &["/d", "/v:off", "/s", "/c"]);
+            let line = args.last().expect("the /c string");
+            assert!(line.contains("\"edit-chrome-settings\""), "got {line:?}");
+            assert!(line.contains("\"--json\""), "got {line:?}");
+        }
     }
 
     use std::fs;
