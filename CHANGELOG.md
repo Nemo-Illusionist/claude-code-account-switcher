@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.23.0](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.22.0...v0.23.0) (2026-11-27)
+
+
+### Features
+
+* seed an account from another account, not only from ~/.claude/ ([#205](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/205)) ([092a313](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/092a313e2483d79ce84a2091eedf9215b0e97445))
+* turn Claude in Chrome on for an account without a session ([#207](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/207)) ([861cca4](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/861cca461747a308614235311ee1ace4b20e4dd5))
+
+
+### Bug Fixes
+
+* install the status line into the account the session is under ([#204](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/204)) ([3bacd80](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/3bacd806749488227f52d9a9e9df073b768a7827))
+* keep the shell integration working under set -u ([#206](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/206)) ([b50a274](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/b50a2748600d0c4236b13b48c601ed119f0103a4))
+* stop listing a directory that could never be an account ([#203](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/203)) ([788d3cf](https://github.com/Nemo-Illusionist/claude-code-account-switcher/commit/788d3cf56e0035b011d3162592cedcb34f6e4369))
+
 ## [0.22.0](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.21.0...v0.22.0) (2026-11-12)
 
 
