@@ -70,7 +70,7 @@ claude-acc link work
 | `claude-acc` | Справка |
 | `claude-acc list` | Список всех аккаунтов |
 | `claude-acc add <имя>` | Добавить аккаунт (запустит `claude login`); добавьте `-s` / `--seed` чтобы засеять из `~/.claude/` |
-| `claude-acc clone-settings <имя>` | Скопировать `settings.json` / `CLAUDE.md` / `agents/` / `plugins/` и т.д. из `~/.claude/` в существующий аккаунт |
+| `claude-acc clone-settings <имя> [--from <аккаунт>]` | Скопировать `settings.json` / `CLAUDE.md` / `agents/` / `plugins/` и т.д. в существующий аккаунт — из другого аккаунта через `--from`, иначе из `~/.claude/` |
 | `claude-acc import <имя> <путь>` | Усыновить существующую config-папку как аккаунт (без релогина); `--move` чтобы перенести |
 | `claude-acc login <имя>` | Перелогиниться в аккаунт |
 | `claude-acc remove <имя>` | Удалить аккаунт — в Корзину, либо `--purge` насовсем |

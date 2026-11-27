@@ -80,6 +80,7 @@ _claude_acc_complete() {
             doctor) COMPREPLY=($(compgen -W "--json" -- "$cur")) ;;
             update) COMPREPLY=($(compgen -W "--check --version" -- "$cur")) ;;
             session) COMPREPLY=($(compgen -W "--to --from --force -f" -- "$cur")) ;;
+            clone-settings) COMPREPLY=($(compgen -W "--from" -- "$cur")) ;;
             desktop) COMPREPLY=($(compgen -W "--seed -s --from --force -f" -- "$cur")) ;;
             vscode) COMPREPLY=($(compgen -W "--force -f" -- "$cur")) ;;
         esac

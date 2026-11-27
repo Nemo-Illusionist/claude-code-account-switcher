@@ -79,7 +79,7 @@ _claude_acc_completion() {
         'run:Run claude under a specific account'
         'doctor:Audit each account OAuth identity'
         'whoami:Print active account email'
-        'clone-settings:Copy ~/.claude/ config into account'
+        'clone-settings:Copy another account'\''s config into account'
         'import:Import an existing Claude config dir (no re-login)'
     )
 
@@ -124,6 +124,7 @@ _claude_acc_completion() {
             doctor) flags=('--json:Output as JSON') ;;
             update) flags=('--check:Only check, do not download' '--version:Install a specific version') ;;
             session) flags=('--to:Destination account' '--from:Source account' '--force:Skip confirmation' '-f:Skip confirmation') ;;
+            clone-settings) flags=('--from:Account to copy from, or default for ~/.claude/') ;;
             vscode) flags=('--force:Replace a wrapper set to something else' '-f:Replace a wrapper set to something else') ;;
             desktop) flags=('--seed:Seed MCP config from the app profile' '-s:Seed MCP config from the app profile' '--from:Copy the config from this profile' '--force:Skip confirmation / replace / sign-in check' '-f:Skip confirmation / replace') ;;
         esac

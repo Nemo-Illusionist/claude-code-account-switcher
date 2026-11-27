@@ -69,7 +69,7 @@ _claude_msg_en=(
     help_run            "Run claude under a specific account"
     help_doctor         "Audit each account OAuth identity (email, UUID)"
     help_whoami         "Print active account email (or name fallback)"
-    help_clone_settings "Copy ~/.claude/ config into an existing account"
+    help_clone_settings "Copy another account's config (or ~/.claude/) into an existing account"
     help_import         "Import an existing Claude config dir (no re-login)"
     help_help           "Help"
     list_empty          "No accounts. Add one: claude-acc add <name>"
@@ -107,7 +107,7 @@ _claude_msg_en=(
     reserved_name       "'%s' is a reserved name."
     name_invalid        "Account name must contain only letters, digits, hyphens, and underscores."
     seed_copied         "  copied: %s"
-    seed_nothing        "  nothing to copy from ~/.claude/"
+    seed_nothing        "  nothing to copy from %s"
     lock_usage          "Usage: claude-acc lock <name> [--force]"
     lock_done           "Account '%s' pinned to %s.\n  A later login as anyone else will show up in \`claude-acc doctor\` as drift."
     lock_already        "Account '%s' is already pinned to %s."
@@ -125,7 +125,8 @@ _claude_msg_en=(
     doctor_cred_shared  "CLAUDE_SECURESTORAGE_CONFIG_DIR is set to %s, so every account shares one stored credential instead of having its own. Whichever account signed in last is the one the Keychain holds, which is why accounts above may report the same identity. Unset it to get per-account credentials back."
     doctor_cred_legacy  "CLAUDE_SECURESTORAGE_CONFIG_DIR is set but empty, which makes Claude Code drop the per-directory suffix and store every account's credentials under the single legacy entry. Managed accounts are not allowed to read that entry, so they will report no token at all. Unset the variable entirely."
     help_lock           "Pin an account to its current identity"
-    clone_settings_usage "Usage: claude-acc clone-settings <name>"
+    clone_settings_usage "Usage: claude-acc clone-settings <name> [--from <account>]"
+    clone_settings_same_account "clone-settings: --from %s is the account being seeded. Name the account to copy from."
     import_usage        "Usage: claude-acc import <name> <path> [--move]"
     import_source_not_dir "Source '%s' is not a directory."
     import_source_managed "That path is already inside ~/.claude-switch/accounts/."
@@ -222,7 +223,7 @@ _claude_msg_ru=(
     help_run            "Запустить claude под конкретным аккаунтом"
     help_doctor         "Аудит OAuth-личности каждого аккаунта (email, UUID)"
     help_whoami         "Email активного аккаунта (или имя как fallback)"
-    help_clone_settings "Скопировать конфиг ~/.claude/ в существующий аккаунт"
+    help_clone_settings "Скопировать конфиг другого аккаунта (или ~/.claude/) в существующий"
     help_import         "Импортировать существующую config-папку (без релогина)"
     help_help           "Справка"
     list_empty          "Нет аккаунтов. Добавьте: claude-acc add <name>"
@@ -260,7 +261,7 @@ _claude_msg_ru=(
     reserved_name       "'%s' — зарезервированное имя."
     name_invalid        "Имя аккаунта может содержать только буквы, цифры, дефисы и подчёркивания."
     seed_copied         "  скопировано: %s"
-    seed_nothing        "  нечего копировать из ~/.claude/"
+    seed_nothing        "  нечего копировать из %s"
     lock_usage          "Использование: claude-acc lock <name> [--force]"
     lock_done           "Аккаунт '%s' закреплён за %s.\n  Если позже войти под кем-то другим, \`claude-acc doctor\` покажет расхождение."
     lock_already        "Аккаунт '%s' уже закреплён за %s."
@@ -278,7 +279,8 @@ _claude_msg_ru=(
     doctor_cred_shared  "CLAUDE_SECURESTORAGE_CONFIG_DIR выставлена в %s, поэтому все аккаунты делят одну сохранённую запись вместо собственной. В Keychain лежат креды того аккаунта, под которым логинились последними — отсюда и одинаковые личности в строках выше. Снимите переменную, чтобы вернуть раздельные креды."
     doctor_cred_legacy  "CLAUDE_SECURESTORAGE_CONFIG_DIR выставлена, но пуста — из-за этого Claude Code отбрасывает суффикс по папке и держит креды всех аккаунтов в одной legacy-записи. Управляемым аккаунтам читать её нельзя, поэтому они вообще сообщат об отсутствии токена. Снимите переменную совсем."
     help_lock           "Закрепить аккаунт за его текущей личностью"
-    clone_settings_usage "Использование: claude-acc clone-settings <name>"
+    clone_settings_usage "Использование: claude-acc clone-settings <name> [--from <аккаунт>]"
+    clone_settings_same_account "clone-settings: --from %s — это и есть аккаунт, который заполняем. Укажите, из какого аккаунта копировать."
     import_usage        "Использование: claude-acc import <name> <путь> [--move]"
     import_source_not_dir "Источник '%s' не является директорией."
     import_source_managed "Этот путь уже внутри ~/.claude-switch/accounts/."
@@ -728,7 +730,7 @@ _claude_acc_help() {
     echo "  claude-acc doctor [--json]   $(_msg help_doctor)"
     echo "  claude-acc whoami            $(_msg help_whoami)"
     echo "  claude-acc add -s <name>     $(_msg help_add) (seeded from ~/.claude/)"
-    echo "  claude-acc clone-settings <name>  $(_msg help_clone_settings)"
+    echo "  claude-acc clone-settings <name> [--from <account>]  $(_msg help_clone_settings)"
     echo "  claude-acc import <name> <path>   $(_msg help_import)"
     echo "  claude-acc desktop add|clone-config|clone-runtime|list|run|remove [<name>]  $(_msg help_desktop)"
 }
@@ -1115,8 +1117,11 @@ _claude_acc_reset() {
 # Skips files that already exist. Mirrors `seed::copy_user_config` in the
 # Rust binary — see src/seed.rs for the rationale on what's copied / not.
 _claude_acc_seed_from_default() {
-    local target="$1"
-    local source="$HOME/.claude"
+    _claude_acc_seed_from "$HOME/.claude" "$1"
+}
+
+_claude_acc_seed_from() {
+    local source="$1" target="$2"
     [[ ! -d "$source" ]] && return 0
 
     local files=(settings.json CLAUDE.md)
@@ -1147,14 +1152,14 @@ _claude_acc_seed_from_default() {
     done
 
     local plugin_count
-    if plugin_count=$(_claude_acc_seed_plugins "$target"); then
+    if plugin_count=$(_claude_acc_seed_plugins "$source" "$target"); then
         local plural=""
         (( plugin_count != 1 )) && plural="s"
         _msg seed_copied "plugins/ ($plugin_count file$plural)"
         any=1
     fi
 
-    (( any == 0 )) && _msg seed_nothing
+    (( any == 0 )) && _msg seed_nothing "${source/#$HOME/~}"
     return 0
 }
 
@@ -1184,8 +1189,8 @@ _claude_acc_registry_has_plugins() {
 # config dir — one checked into a project, say — and those paths must survive
 # verbatim. Prints the file count and returns 0 when something was copied.
 _claude_acc_seed_plugins() {
-    local target="$1"
-    local src="$HOME/.claude/plugins" dst="$target/plugins"
+    local source="$1" target="$2"
+    local src="$source/plugins" dst="$target/plugins"
 
     [[ -d "$src" ]] || return 1
     _claude_acc_registry_has_plugins "$src" || return 1
@@ -1221,9 +1226,32 @@ _claude_acc_seed_plugins() {
 }
 
 _claude_acc_clone_settings() {
-    local name="${1:-}"
-    if [[ -z "$name" ]]; then
+    local name="" from="" from_given=0
+    local -a rest
+    while (( $# > 0 )); do
+        case "$1" in
+            # Shift the flag, then its value only if there is one. A bare
+            # `shift 2` cannot shift at all when the value is missing, and
+            # `while (( $# > 0 ))` then spins for ever — the same trap
+            # `_claude_acc_desktop_clone_config` carries a comment about.
+            --from)   from="${2:-}"; from_given=1; shift; (( $# )) && shift ;;
+            --from=*) from="${1#--from=}"; from_given=1; shift ;;
+            *)        rest+=("$1"); shift ;;
+        esac
+    done
+    name="${rest[1]:-}"
+    # One account, not two: a second name used to replace the first in
+    # silence, so `clone-settings a b` seeded `b`.
+    if [[ -z "$name" || ${#rest} -gt 1 ]]; then
         _msg clone_settings_usage
+        return 1
+    fi
+    # `--from` with nothing after it is a mistake, not a request for the
+    # standard account. The Rust side refuses both forms too: clap rejects a
+    # bare `--from`, and `--from=` reaches `validate_name("")`, which says
+    # no.
+    if (( from_given )) && [[ -z "$from" ]]; then
+        _msg name_invalid
         return 1
     fi
     if [[ "$name" == "default" ]]; then
@@ -1236,7 +1264,29 @@ _claude_acc_clone_settings() {
         _msg login_not_found "$name"
         return 1
     fi
-    _claude_acc_seed_from_default "$acc_dir"
+
+    # Where to copy from. No --from, or `default`, is the standard account —
+    # which lives at ~/.claude, outside the switch dir, so it is never
+    # `accounts/default`. Any other name is a managed account, checked the
+    # way every other account argument is, plus one check of its own:
+    # seeding an account from itself is a typo, not a no-op worth running.
+    local source
+    if [[ -z "$from" || "$from" == "default" ]]; then
+        source="$HOME/.claude"
+    else
+        _claude_validate_name "$from" || return 1
+        if [[ "$from" == "$name" ]]; then
+            _msg clone_settings_same_account "$name"
+            return 1
+        fi
+        source="$CLAUDE_SWITCH_ACCOUNTS_DIR/$from"
+        if [[ ! -d "$source" ]]; then
+            _msg login_not_found "$from"
+            return 1
+        fi
+    fi
+
+    _claude_acc_seed_from "$source" "$acc_dir"
 }
 
 # Run claude under a specific account — one-shot, doesn't change links or

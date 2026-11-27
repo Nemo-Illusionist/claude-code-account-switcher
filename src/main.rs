@@ -37,11 +37,17 @@ enum Commands {
         #[arg(short, long)]
         seed: bool,
     },
-    /// Seed an existing account dir from ~/.claude/
+    /// Seed an existing account dir from another account, or from ~/.claude/
     ///
     /// Copies settings.json, CLAUDE.md, agents/, commands/, output-styles/,
-    /// and skills/. Skips files that already exist; never overwrites.
-    CloneSettings { name: String },
+    /// skills/ and plugins/. Skips files that already exist; never
+    /// overwrites. Without --from the source is ~/.claude/.
+    CloneSettings {
+        name: String,
+        /// Account to copy from: a managed account, or `default` for ~/.claude/
+        #[arg(long, value_name = "ACCOUNT")]
+        from: Option<String>,
+    },
     /// Import an existing Claude config dir as an account (no re-login)
     ///
     /// Copies (or moves, with --move) the directory into the managed
@@ -342,8 +348,14 @@ fn main() {
         }
         Some(Commands::List) => commands::list::run(&config, &i18n),
         Some(Commands::Add { name, seed }) => commands::add::run(&config, &i18n, &name, seed),
-        Some(Commands::CloneSettings { name }) => {
-            commands::clone_settings::run(&config, &i18n, &name)
+        Some(Commands::CloneSettings { name, from }) => {
+            // Exits only on failure. A successful seed used to fall through
+            // to the update hint below, and `process::exit(0)` would have
+            // taken that away without anyone asking.
+            let code = commands::clone_settings::run(&config, &i18n, &name, from.as_deref());
+            if code != 0 {
+                std::process::exit(code);
+            }
         }
         Some(Commands::Import {
             name,

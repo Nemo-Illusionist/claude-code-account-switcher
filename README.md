@@ -70,7 +70,7 @@ claude-acc link work
 | `claude-acc` | Help |
 | `claude-acc list` | List all accounts |
 | `claude-acc add <name>` | Add account (runs `claude login`); add `-s` / `--seed` to seed from `~/.claude/` |
-| `claude-acc clone-settings <name>` | Copy `settings.json` / `CLAUDE.md` / `agents/` / `plugins/` / etc. from `~/.claude/` into an existing account |
+| `claude-acc clone-settings <name> [--from <account>]` | Copy `settings.json` / `CLAUDE.md` / `agents/` / `plugins/` / etc. into an existing account — from another account with `--from`, otherwise from `~/.claude/` |
 | `claude-acc import <name> <path>` | Adopt an existing config dir as an account (no re-login); `--move` to relocate |
 | `claude-acc login <name>` | Re-login to an account |
 | `claude-acc remove <name>` | Remove account — to the Trash, or `--purge` to delete outright |

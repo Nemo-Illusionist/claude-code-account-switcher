@@ -269,8 +269,26 @@ impl I18n {
             // seed / clone-settings
             (Msg::SeedCopied(ref s), Lang::En) => format!("  copied: {}", s),
             (Msg::SeedCopied(ref s), Lang::Ru) => format!("  скопировано: {}", s),
-            (Msg::SeedNothingToCopy, Lang::En) => s("  nothing to copy from ~/.claude/"),
-            (Msg::SeedNothingToCopy, Lang::Ru) => s("  нечего копировать из ~/.claude/"),
+            (Msg::CloneSettingsNoHome, Lang::En) => s(
+                "clone-settings: cannot determine the home directory, so there is no ~/.claude/ to copy from",
+            ),
+            (Msg::CloneSettingsNoHome, Lang::Ru) => s(
+                "clone-settings: не удалось определить домашний каталог, поэтому копировать из ~/.claude/ нечего",
+            ),
+            (Msg::CloneSettingsSameAccount(ref name), Lang::En) => format!(
+                "clone-settings: --from {} is the account being seeded. Name the account to copy from.",
+                name
+            ),
+            (Msg::CloneSettingsSameAccount(ref name), Lang::Ru) => format!(
+                "clone-settings: --from {} — это и есть аккаунт, который заполняем. Укажите, из какого аккаунта копировать.",
+                name
+            ),
+            (Msg::SeedNothingToCopy(ref source), Lang::En) => {
+                format!("  nothing to copy from {}", source)
+            }
+            (Msg::SeedNothingToCopy(ref source), Lang::Ru) => {
+                format!("  нечего копировать из {}", source)
+            }
 
             // doctor
             (Msg::RelativeTime(secs), lang) => relative_time(secs, lang),
@@ -1401,7 +1419,9 @@ pub enum Msg {
     DuplicateAccountWarning(String, String),
     RelativeTime(u64),
     SeedCopied(String),
-    SeedNothingToCopy,
+    SeedNothingToCopy(String),
+    CloneSettingsSameAccount(String),
+    CloneSettingsNoHome,
     UsageHeader,
     UsageResetsIn(String),
     UsageAvailableNow,
