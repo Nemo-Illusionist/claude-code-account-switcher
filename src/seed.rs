@@ -301,8 +301,10 @@ mod tests {
         // marketplace sourced from outside any config dir.
         fs::create_dir_all(src.join("plugins/cache/local/helper/1.0.0")).unwrap();
         fs::write(src.join("plugins/cache/local/helper/1.0.0/plugin.md"), "p").unwrap();
-        // Two platform details, both of which the Windows runner caught and
-        // nothing here can:
+        // Two platform details that nothing on this machine can catch — the
+        // local cross-check from CLAUDE.md is a clippy type-check and runs
+        // no tests. The runner caught the first; the second was found by
+        // reading the rewrite before CI got that far:
         //
         // `serde_json`, not `format!`: a Windows path holds backslashes, and
         // pasting one into a JSON string literal is an invalid escape, so
@@ -313,7 +315,8 @@ mod tests {
         // compares strings, so a fixture mixing `\` with `/` would not match
         // the prefix on Windows — the file would be left alone and the
         // assertions below would fail against an unrewritten path. Same
-        // pattern as `an_install_path_inside_the_old_config_dir_is_repointed_at_the_new_one`.
+        // pattern as `seeding_copies_the_tree_and_repoints_the_registry`,
+        // which joins its fixture paths for the same reason.
         let p = |root: &Path, rest: &[&str]| -> String {
             let mut out = root.to_path_buf();
             for part in rest {
