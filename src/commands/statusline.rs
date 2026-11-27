@@ -1,5 +1,5 @@
 use std::io::Read;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use serde_json::Value;
@@ -63,25 +63,42 @@ fn render(config: &AppConfig) {
 /// `<name>` for a managed account, `default` for the standard `~/.claude/`
 /// (or when the variable is unset), else the dir's basename.
 fn account_label(config: &AppConfig) -> Option<String> {
-    let Some(ccd) = std::env::var_os("CLAUDE_CONFIG_DIR") else {
-        return Some("default".to_string());
+    Some(name_of_config_dir(
+        std::env::var_os("CLAUDE_CONFIG_DIR")
+            .as_deref()
+            .map(Path::new),
+        &config.accounts_dir(),
+        dirs::home_dir().as_deref(),
+    ))
+}
+
+/// What to call the account a config dir belongs to.
+///
+/// The decision with the environment passed in, so both the badge and
+/// `--install` can use it and cannot disagree about which account the
+/// session is under — they did: the badge read `CLAUDE_CONFIG_DIR` while
+/// `--install` resolved the *working directory*, so installing from a
+/// session under `work-2` wrote the status line into whatever account the
+/// directory happened to be linked to.
+fn name_of_config_dir(ccd: Option<&Path>, accounts_dir: &Path, home: Option<&Path>) -> String {
+    let Some(p) = ccd else {
+        return "default".to_string();
     };
-    let p = Path::new(&ccd);
-    if let Ok(rel) = p.strip_prefix(config.accounts_dir())
+    if let Ok(rel) = p.strip_prefix(accounts_dir)
         && let Some(first) = rel.components().next()
         && let Some(name) = first.as_os_str().to_str()
     {
-        return Some(name.to_string());
+        return name.to_string();
     }
-    if let Some(home) = dirs::home_dir()
+    if let Some(home) = home
         && p == home.join(".claude")
     {
-        return Some("default".to_string());
+        return "default".to_string();
     }
     p.file_name()
         .and_then(|n| n.to_str())
         .map(String::from)
-        .or(Some("default".to_string()))
+        .unwrap_or_else(|| "default".to_string())
 }
 
 fn git_branch(v: &Value) -> Option<String> {
@@ -565,17 +582,50 @@ fn settings_root(read: std::io::Result<String>) -> Option<Value> {
     }
 }
 
+/// Which account `--install` writes to, and what to call it.
+///
+/// `CLAUDE_CONFIG_DIR` wins, because that is the account the session is
+/// actually running under — the same thing the badge shows. Only without it
+/// does the working directory decide, which is what someone installing from
+/// a plain shell means.
+///
+/// The two used to disagree. `--install` resolved the directory and nothing
+/// else, so `CLAUDE_CONFIG_DIR=…/accounts/work-2 claude-acc statusline
+/// --install` wrote into `~/.claude/settings.json` and said `account
+/// 'default'`, while `statusline` under the same variable drew a `work-2`
+/// badge. There was no way to install the line into a named account at all
+/// unless some directory happened to be linked to it.
+fn install_target(
+    ccd: Option<&Path>,
+    accounts_dir: &Path,
+    home: Option<&Path>,
+    cwd_account: Option<&str>,
+) -> (String, PathBuf) {
+    let standard = || {
+        home.map(|h| h.join(".claude"))
+            .unwrap_or_else(|| PathBuf::from(".claude"))
+    };
+    if let Some(dir) = ccd {
+        return (
+            name_of_config_dir(Some(dir), accounts_dir, home),
+            dir.to_path_buf(),
+        );
+    }
+    match cwd_account {
+        Some(name) => (name.to_string(), accounts_dir.join(name)),
+        None => ("default".to_string(), standard()),
+    }
+}
+
 fn install_into_settings(config: &AppConfig, i18n: &I18n) -> i32 {
     let cwd = std::env::current_dir().unwrap_or_default();
-    // The account this directory currently resolves to (managed account or the
-    // standard ~/.claude when there's no link / default).
-    let (label, settings_dir) = match resolve::resolve_account(config, &cwd) {
-        Some(name) => (name.clone(), config.account_path(&name)),
-        None => (
-            "default".to_string(),
-            dirs::home_dir().unwrap_or_default().join(".claude"),
-        ),
-    };
+    let ccd = std::env::var_os("CLAUDE_CONFIG_DIR");
+    let (label, settings_dir) = install_target(
+        ccd.as_deref().map(Path::new),
+        &config.accounts_dir(),
+        dirs::home_dir().as_deref(),
+        resolve::resolve_account(config, &cwd).as_deref(),
+    );
 
     if let Err(e) = std::fs::create_dir_all(&settings_dir) {
         i18n.print(Msg::StatuslineInstallFailed(e.to_string()));
@@ -619,6 +669,75 @@ fn install_into_settings(config: &AppConfig, i18n: &I18n) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn install_writes_to_the_account_the_session_is_under() {
+        // Regression: `--install` resolved the working directory and ignored
+        // `CLAUDE_CONFIG_DIR`, so running it inside a `work-2` session wrote
+        // `~/.claude/settings.json` and reported `account 'default'` — while
+        // `statusline` under that same variable drew a `work-2` badge. Paths
+        // written out by hand, compared as paths so the separator is the
+        // platform's own.
+        let accounts = Path::new("/switch/accounts");
+        let home = Path::new("/home/me");
+
+        // The variable wins, whatever the directory resolves to.
+        assert_eq!(
+            install_target(
+                Some(Path::new("/switch/accounts/work-2")),
+                accounts,
+                Some(home),
+                Some("work"),
+            ),
+            (
+                "work-2".to_string(),
+                PathBuf::from("/switch/accounts/work-2")
+            ),
+        );
+        // A config dir that is not one of ours keeps its own basename and is
+        // still where the line goes — someone pointed the session there on
+        // purpose.
+        assert_eq!(
+            install_target(
+                Some(Path::new("/elsewhere/sandbox")),
+                accounts,
+                Some(home),
+                None,
+            ),
+            ("sandbox".to_string(), PathBuf::from("/elsewhere/sandbox")),
+        );
+        // `CLAUDE_CONFIG_DIR` naming the standard dir is the standard
+        // account, not a managed one called `.claude`.
+        assert_eq!(
+            install_target(Some(&home.join(".claude")), accounts, Some(home), None),
+            ("default".to_string(), home.join(".claude")),
+        );
+        // Without the variable the directory decides, as before.
+        assert_eq!(
+            install_target(None, accounts, Some(home), Some("work")),
+            ("work".to_string(), PathBuf::from("/switch/accounts/work")),
+        );
+        assert_eq!(
+            install_target(None, accounts, Some(home), None),
+            ("default".to_string(), home.join(".claude")),
+        );
+    }
+
+    #[test]
+    fn the_badge_and_the_install_target_name_the_same_account() {
+        // They are one function now; this is what used to differ.
+        let accounts = Path::new("/switch/accounts");
+        let home = Path::new("/home/me");
+        for dir in [
+            "/switch/accounts/work-2",
+            "/switch/accounts/work-2/",
+            "/elsewhere/sandbox",
+        ] {
+            let p = Path::new(dir);
+            let (label, _) = install_target(Some(p), accounts, Some(home), Some("work"));
+            assert_eq!(label, name_of_config_dir(Some(p), accounts, Some(home)));
+        }
+    }
 
     #[test]
     fn only_a_missing_file_or_a_json_object_is_edited() {
