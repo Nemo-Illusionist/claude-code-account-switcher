@@ -82,8 +82,9 @@ check "--to offers default too" "default,work,work-2" \
     "$(offered claude-acc session copy x --to '')"
 
 # Nothing should be written to the terminal while completing. Not through
-# `offered`, which swallows stderr — that would have made this pass on the
-# broken version too, which it did until I noticed.
+# `offered`, which swallows stderr — this check would then have passed on
+# the broken version too, as it did in the first draft. (The two checks
+# above fail there either way; it was this one that was empty.)
 OFFERED=()
 words=(claude-acc remove '')
 CURRENT=3
