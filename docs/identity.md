@@ -106,7 +106,9 @@ Symlinks, in ~/.claude-switch/accounts: linked. `run` and `remove` follow one, w
 0 of 1 accounts healthy.
 ```
 
-Two lines, because what you can do about the two differs, and the name is what decides. Every command takes an account by name and checks the name first, so an entry named something they refuse is beyond all of them whatever it is — a directory, a file, a symlink — and clearing it up is yours. Among names they would accept, a symlink is the odd case: `run` and `remove` reach it, because they test with `is_dir`, which follows one, while `list` skips it and the GUI interface refuses account storage behind a symlink outright. So it half works, which is worth knowing before you act on it.
+Two lines, because what you can do about the two differs. The split follows what a command would do with the entry, in the order it does it. The name first: every command takes an account by name and checks it before looking at anything, so an entry named something they refuse is beyond all of them, whatever it is. Then `is_dir`, which they all reach next and which follows a symlink — so a plain file, a symlink to a file and a dangling symlink are equally beyond them, and land in the same line.
+
+That leaves one case in the second line: a symlink to a directory, under a name they accept. `run` and `remove` do reach that one, while `list` skips it and the GUI interface refuses account storage behind a symlink outright. So it half works, which is worth knowing before you act on it.
 
 Dotfiles are in neither line. `.DS_Store` appears the moment anyone opens the directory in Finder, and naming it on every run — about a file that comes straight back — is worse than saying nothing. Like the Chrome note, neither line touches the exit code.
 

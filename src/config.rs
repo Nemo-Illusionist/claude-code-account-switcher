@@ -39,13 +39,15 @@ pub struct AppConfig {
 pub struct AccountsDir {
     /// Directories whose name a command here could have created.
     pub accounts: Vec<String>,
-    /// Entries no command can act on: a name `validate_name` rejects, or an
-    /// acceptable name on something that is not a directory. `remove` takes
-    /// only an account directory, so it cannot clear either kind up.
+    /// Entries no command can act on: a name `validate_name` rejects, or
+    /// an acceptable name on something that is not a directory — a plain
+    /// file, a symlink to one, a dangling symlink. `run` and `remove` both
+    /// stop at `is_dir`, so neither can reach or clear any of them.
     pub unnamed: Vec<String>,
-    /// Symlinks whose name a command would accept, so `run` and `remove`
-    /// reach them — `is_dir` follows a symlink — while `list` skips them and
-    /// `gui::account_dir` refuses storage behind one outright.
+    /// Symlinks to a directory, under a name a command would accept: `run`
+    /// and `remove` do reach these, because `is_dir` follows a symlink,
+    /// while `list` skips them and `gui::account_dir` refuses storage
+    /// behind one outright. Half an account, in other words.
     pub linked: Vec<String>,
 }
 
@@ -151,20 +153,21 @@ impl AppConfig {
             if name.starts_with('.') {
                 continue;
             }
-            // The name first: a command that refuses the name never gets
-            // as far as looking at the entry, so what the entry is cannot
-            // change the answer.
+            // In the order a command checks them. The name first: one that
+            // refuses the name never looks at the entry at all, so what the
+            // entry is cannot change the answer.
             if !validate_name(&name) {
                 out.unnamed.push(name);
                 continue;
             }
-            let kind = entry.file_type()?;
-            if kind.is_symlink() {
-                out.linked.push(name);
-            } else if kind.is_dir() {
-                out.accounts.push(name);
-            } else {
+            // Then `is_dir`, the next thing every command does — and it
+            // follows a symlink, so this is about the target, not the link.
+            if !entry.path().is_dir() {
                 out.unnamed.push(name);
+            } else if entry.file_type()?.is_symlink() {
+                out.linked.push(name);
+            } else {
+                out.accounts.push(name);
             }
         }
         out.linked.sort();
@@ -436,8 +439,10 @@ mod tests {
         // false and "make it a real directory" would not help — a directory
         // of that name is not an account either.
         std::os::unix::fs::symlink(&outside, dir.join("linked.2")).unwrap();
-        // Likewise by kind: an acceptable name on something that is not a
-        // directory is not an account, and `remove` refuses it too.
+        // And a symlink that does not lead to a directory goes with them
+        // too: `run` and `remove` stop at `is_dir`, which follows the link,
+        // so they cannot reach a link to a file or a dangling one either —
+        // exactly like the plain file beside them.
         fs::write(c.base_dir.join("target.txt"), "x").unwrap();
         std::os::unix::fs::symlink(c.base_dir.join("target.txt"), dir.join("tofile")).unwrap();
         std::os::unix::fs::symlink(c.base_dir.join("gone"), dir.join("dangling")).unwrap();
@@ -445,8 +450,13 @@ mod tests {
 
         let read = c.read_accounts_dir().unwrap();
         assert_eq!(read.accounts, vec!["plain"]);
-        assert_eq!(read.unnamed, vec!["linked.2", "personal", "work.lock"]);
-        assert_eq!(read.linked, vec!["dangling", "linked", "tofile"]);
+        assert_eq!(
+            read.unnamed,
+            vec!["dangling", "linked.2", "personal", "tofile", "work.lock"]
+        );
+        // Only the one that leads to a directory: that is the entry both
+        // commands actually reach.
+        assert_eq!(read.linked, vec!["linked"]);
         let _ = fs::remove_dir_all(&c.base_dir);
     }
 

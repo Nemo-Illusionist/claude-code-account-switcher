@@ -427,8 +427,8 @@ _claude_switch_init() {
 # `(N/)` does not match a symlink, which matches the Rust side:
 # `list_accounts` never listed one either, and `gui::account_dir` refuses
 # account storage reached through a symlink outright. So a symlinked
-# directory is not an account here — and lands in the other list, because no
-# command can use it and nothing else would say so.
+# directory is not an account here — it is reported separately instead, by
+# `_claude_acc_linked_entries` below.
 _claude_acc_account_names() {
     local name
     for name in "$CLAUDE_SWITCH_ACCOUNTS_DIR"/*(N/:t); do
@@ -436,11 +436,13 @@ _claude_acc_account_names() {
     done
 }
 
-# What else is under accounts/, in two lists, because the right thing to say
-# about them differs. A name no command accepts is junk only the user's `rm`
-# can clear: `remove` refuses the name too. A symlink is a path into
-# somebody's data — `run` and `remove` follow it, since `[[ -d ]]` does — so
-# "delete it" would be telling them to `rm` a link to real account files.
+# What else is under accounts/, in two lists, split by what a command would
+# do with the entry and in the order it does it: the name first, which every
+# command checks before looking at anything, then `[[ -d ]]`, which every
+# command reaches next and which follows a symlink. Whatever fails either is
+# beyond all of them and only the user's `rm` can clear it; what passes both
+# through a symlink is the half-working case, which `run` and `remove` reach
+# while `list` and the GUI do not count it as an account.
 #
 # Dotfiles match neither glob without GLOB_DOTS, and that is deliberate on
 # both sides: `.DS_Store` reappears the moment anyone opens the directory in
@@ -455,15 +457,20 @@ _claude_acc_unnamed_entries() {
             print -r -- "$name"
             continue
         fi
-        [[ -L "$entry" ]] && continue
+        # Then `-d`, which follows a symlink — so a link to a file and a
+        # dangling link land here with the plain files, because `run` and
+        # `remove` stop at the same test and cannot reach any of them.
         [[ -d "$entry" ]] && continue
         print -r -- "$name"
     done
 }
 
+# `@` is the symlink itself, `-/` the ones whose target is a directory: both
+# qualifiers, so a link to a file or a dangling one is not here — it is in
+# the list above, with everything else no command can reach.
 _claude_acc_linked_entries() {
     local name
-    for name in "$CLAUDE_SWITCH_ACCOUNTS_DIR"/*(N@:t); do
+    for name in "$CLAUDE_SWITCH_ACCOUNTS_DIR"/*(N@-/:t); do
         _claude_acc_name_ok "$name" && print -r -- "$name"
     done
 }

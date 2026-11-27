@@ -125,7 +125,7 @@ print -r -- "what \`doctor\` says about the rest:"
 
 # The names one hint lists, read out of the line itself: everything between
 # the first colon (which follows the directory) and the sentence after the
-# list. Compared as whole lists rather than greppped for, because `linked`
+# list. Compared as whole lists rather than grepped for, because `linked`
 # is a substring of `linked.2` and a count would pass for the wrong reason.
 named_in() {
     _claude_acc_doctor 2>/dev/null | grep -- "$1" |
@@ -136,13 +136,14 @@ named_in() {
 # they would take on something that is not a directory. `remove` refuses
 # both, so the user's own `rm` is the only way out and they must know.
 check "the entries nothing here can act on" \
-    "linked.2, personal, work lock, work.lock, работа" \
+    "dangling, linked.2, personal, tofile, work lock, work.lock, работа" \
     "$(named_in '^Not accounts, in ')"
 
-# Half an account: `run` and `remove` follow a symlink, so saying nothing
-# here can act on it would be false. Shapes that must all land here: a link
-# to a directory, a link to a file, and a dangling link.
-check "the symlinks under a usable name" "dangling, linked, tofile" \
+# Half an account: `run` and `remove` reach a symlink whose target is a
+# directory, so saying nothing here can act on it would be false. Only that
+# shape — a link to a file and a dangling link fail the same `-d` the
+# commands fail on, so they belong in the line above.
+check "the symlinks a command can reach" "linked" \
     "$(named_in '^Symlinks, in ')"
 
 # `.DS_Store` arrives whenever anyone opens the directory in Finder. A line
