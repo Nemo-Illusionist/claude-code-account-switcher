@@ -88,14 +88,20 @@ used() {
     joined "," "${rows[@]}"
 }
 
-# The account column of `doctor`, same shape. `doctor` is where the bug was
+# The account column of `doctor`, same shape — `[^ ]+` rather than the three
+# status glyphs, because `✓` and `✗` are three bytes each and a bracket
+# expression is read byte-wise in the C locale, which is what a runner may
+# have. Today every fixture row is `?`, so a glyph class would have worked
+# by accident.
+#
+# `doctor` is where the bug was
 # loudest — it audited the stray directory and printed advice that cannot be
 # followed — and it reaches the accounts through a different call site than
 # `list`, so reverting either one alone has to fail something here.
 audited() {
     local -a rows
     rows=(${(f)"$(_claude_acc_doctor 2>/dev/null |
-        awk '/^  [?✓✗] / { print $2 }')"})
+        awk '/^  [^ ]+ / { print $2 }')"})
     rows=("${(@)rows:#'~'/.claude/*}")
     joined "," "${rows[@]}"
 }
