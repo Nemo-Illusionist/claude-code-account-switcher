@@ -60,9 +60,16 @@ pub fn run(config: &AppConfig, i18n: &I18n, name: &str, from: Option<&str>) -> i
 }
 
 /// A path with the home directory written as `~`, for a message a person
-/// reads: `~/.claude/` rather than `/Users/someone/.claude`.
+/// reads: `~/.claude` rather than `/Users/someone/.claude`.
 fn home_relative(path: &Path) -> String {
-    match dirs::home_dir().and_then(|h| path.strip_prefix(h).ok().map(PathBuf::from)) {
+    home_relative_to(path, dirs::home_dir().as_deref())
+}
+
+/// The decision, with the home directory passed in, so the test does not
+/// depend on whose machine it runs on.
+fn home_relative_to(path: &Path, home: Option<&Path>) -> String {
+    match home.and_then(|h| path.strip_prefix(h).ok().map(PathBuf::from)) {
+        Some(rel) if rel.as_os_str().is_empty() => "~".to_string(),
         Some(rel) => format!("~/{}", rel.display()),
         None => path.display().to_string(),
     }
@@ -158,7 +165,41 @@ mod tests {
         assert_eq!(run(&c, &i18n, "nope", Some("work")), 1);
         assert_eq!(run(&c, &i18n, "default", None), 1);
 
+        // Nothing left to copy is still a success, not a failure.
+        let bare = c.accounts_dir().join("bare");
+        let bare2 = c.accounts_dir().join("bare-2");
+        std::fs::create_dir_all(&bare).unwrap();
+        std::fs::create_dir_all(&bare2).unwrap();
+        assert_eq!(run(&c, &i18n, "bare-2", Some("bare")), 0);
+
         let _ = std::fs::remove_dir_all(&c.base_dir);
+    }
+
+    #[test]
+    fn a_source_under_home_is_named_with_a_tilde() {
+        // The "nothing to copy" message names the source now, because it is
+        // no longer always `~/.claude/`. It must not spell out the home
+        // directory of whoever ran it. Expected values by hand.
+        let home = Path::new("/Users/someone");
+        assert_eq!(
+            home_relative_to(&home.join(".claude"), Some(home)),
+            "~/.claude"
+        );
+        assert_eq!(
+            home_relative_to(&home.join(".claude-switch/accounts/work"), Some(home)),
+            "~/.claude-switch/accounts/work"
+        );
+        // Outside home, and with no home at all: printed as it is, never
+        // with a `~` that would point somewhere else.
+        assert_eq!(
+            home_relative_to(Path::new("/srv/accounts/work"), Some(home)),
+            "/srv/accounts/work"
+        );
+        assert_eq!(
+            home_relative_to(Path::new("/Users/someone-else/x"), Some(home)),
+            "/Users/someone-else/x"
+        );
+        assert_eq!(home_relative_to(home, Some(home)), "~");
     }
 
     #[test]

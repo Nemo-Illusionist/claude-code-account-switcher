@@ -1173,7 +1173,9 @@ _claude_acc_clone_settings() {
         return 1
     fi
     # `--from` with nothing after it is a mistake, not a request for the
-    # standard account — clap refuses it on the Rust side, so this does too.
+    # standard account. The Rust side refuses both forms too: clap rejects a
+    # bare `--from`, and `--from=` reaches `validate_name("")`, which says
+    # no.
     if (( from_given )) && [[ -z "$from" ]]; then
         _msg name_invalid
         return 1
