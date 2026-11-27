@@ -1118,15 +1118,30 @@ impl I18n {
                 names
             ),
             (Msg::DoctorStrayEntries(ref names, ref dir), Lang::En) => format!(
-                "Not accounts, in {}: {}. No command here can create a name \
-                 like that, and none can remove one either — if it is junk, \
-                 delete the directory yourself.",
+                "Not accounts, in {}: {}. No command here creates or takes a \
+                 name like that, so nothing of ours put it there and nothing \
+                 of ours can clear it up — that one is yours to delete.",
                 dir, names
             ),
             (Msg::DoctorStrayEntries(ref names, ref dir), Lang::Ru) => format!(
                 "Это не аккаунты, лежит в {}: {}. Такое имя ни одна команда \
-                 здесь не создаёт и удалить его тоже не может — если это \
-                 мусор, удалите каталог сами.",
+                 здесь не создаёт и не принимает, так что положили это не мы \
+                 и убрать сами мы не можем — удалять вам.",
+                dir, names
+            ),
+            (Msg::DoctorLinkedEntries(ref names, ref dir), Lang::En) => format!(
+                "Reached through a symlink, in {}: {}. `list` and the GUI do \
+                 not count those as accounts, while `run` and `remove` \
+                 follow them — so make it a real directory if it is meant to \
+                 be an account. Do not delete it blindly: it points at \
+                 somebody's data, not at a copy.",
+                dir, names
+            ),
+            (Msg::DoctorLinkedEntries(ref names, ref dir), Lang::Ru) => format!(
+                "Это симлинки, лежат в {}: {}. `list` и GUI за аккаунты их не \
+                 считают, а `run` и `remove` по ним идут — так что если это \
+                 задумано как аккаунт, сделайте настоящий каталог. Не удаляйте \
+                 вслепую: симлинк ведёт на чьи-то данные, а не на их копию.",
                 dir, names
             ),
             (Msg::DoctorChromeOff(ref names), Lang::Ru) => format!(
@@ -1465,6 +1480,7 @@ pub enum Msg {
     DoctorDriftHint,
     DoctorChromeOff(String),
     DoctorStrayEntries(String, String),
+    DoctorLinkedEntries(String, String),
     DoctorCredentialStoreShared(String),
     DoctorCredentialStoreLegacy,
     UsageFromCache(u64),

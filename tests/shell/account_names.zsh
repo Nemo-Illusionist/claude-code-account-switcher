@@ -116,12 +116,27 @@ print -r -- ""
 print -r -- "what \`doctor\` says about the rest:"
 
 # Filtered out of every listing, so `doctor` is the only thing left that can
-# say the directory is there at all — and `remove` refuses the name, so the
-# user has to know to delete it by hand.
+# say the entry is there at all — and `remove` refuses the name, so the user
+# has to know to delete it by hand.
 check "doctor names the stray entry" "1" \
-    "$(_claude_acc_doctor 2>/dev/null | grep -c 'work\.lock')"
-check "doctor names the symlink too" "1" \
-    "$(_claude_acc_doctor 2>/dev/null | grep -c 'linked')"
+    "$(_claude_acc_doctor 2>/dev/null | grep -c 'yours to delete')"
+check "the stray entry is named in that line" "1" \
+    "$(_claude_acc_doctor 2>/dev/null | grep 'yours to delete' | grep -c 'work\.lock')"
+
+# A symlink gets the other line. It must not get the first one: `remove` and
+# `run` follow a symlink, so "nothing of ours can clear it up" is false, and
+# "delete it yourself" would point at `rm` on a link into live data.
+check "the symlink gets its own line" "1" \
+    "$(_claude_acc_doctor 2>/dev/null | grep -c 'Reached through a symlink')"
+check "the symlink is not called undeletable junk" "0" \
+    "$(_claude_acc_doctor 2>/dev/null | grep 'yours to delete' | grep -c 'linked')"
+
+# `.DS_Store` arrives whenever anyone opens the directory in Finder. A line
+# naming it every run, about a file that comes straight back, is worse than
+# silence — and the Rust side skips dotfiles for the same reason.
+: > "$CLAUDE_SWITCH_ACCOUNTS_DIR/.DS_Store"
+check "a dotfile is not reported" "0" \
+    "$(_claude_acc_doctor 2>/dev/null | grep -c 'DS_Store')"
 
 print -r -- ""
 print -r -- "the ide/ symlink pass:"

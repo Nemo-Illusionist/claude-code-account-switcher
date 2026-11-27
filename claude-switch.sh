@@ -120,7 +120,8 @@ _claude_msg_en=(
     doctor_lock_corrupt "⚠ pin unreadable — the drift check is off for this account"
     doctor_drift_hint   "Drift means this directory is signed in as an account it was not pinned to — work done here would go to the wrong one. Put it back with \`claude-acc login <name>\`, or accept the new identity with \`claude-acc lock <name> --force\`."
     doctor_chrome_off   "Claude in Chrome is off in: %s. Claude Code keeps that switch per config dir, so the browser tools stay missing there until you run \`/chrome\` once inside that account."
-    doctor_stray_entries "Not accounts, in %s: %s. No command here can create a name like that, and none can remove one either — if it is junk, delete the directory yourself."
+    doctor_stray_entries "Not accounts, in %s: %s. No command here creates or takes a name like that, so nothing of ours put it there and nothing of ours can clear it up — that one is yours to delete."
+    doctor_linked_entries "Reached through a symlink, in %s: %s. \`list\` and the GUI do not count those as accounts, while \`run\` and \`remove\` follow them — so make it a real directory if it is meant to be an account. Do not delete it blindly: it points at somebody's data, not at a copy."
     doctor_cred_shared  "CLAUDE_SECURESTORAGE_CONFIG_DIR is set to %s, so every account shares one stored credential instead of having its own. Whichever account signed in last is the one the Keychain holds, which is why accounts above may report the same identity. Unset it to get per-account credentials back."
     doctor_cred_legacy  "CLAUDE_SECURESTORAGE_CONFIG_DIR is set but empty, which makes Claude Code drop the per-directory suffix and store every account's credentials under the single legacy entry. Managed accounts are not allowed to read that entry, so they will report no token at all. Unset the variable entirely."
     help_lock           "Pin an account to its current identity"
@@ -272,7 +273,8 @@ _claude_msg_ru=(
     doctor_lock_corrupt "⚠ закрепление не читается — проверка расхождений для этого аккаунта не работает"
     doctor_drift_hint   "Расхождение значит, что каталог залогинен под аккаунтом, за которым он не закреплён, — работа отсюда уйдёт не туда. Вернуть: \`claude-acc login <name>\`. Принять новую личность: \`claude-acc lock <name> --force\`."
     doctor_chrome_off   "Claude in Chrome выключен в: %s. Claude Code хранит этот переключатель отдельно для каждой config-папки, поэтому браузерные инструменты там не появятся, пока вы один раз не выполните \`/chrome\` внутри этого аккаунта."
-    doctor_stray_entries "Это не аккаунты, лежит в %s: %s. Такое имя ни одна команда здесь не создаёт и удалить его тоже не может — если это мусор, удалите каталог сами."
+    doctor_stray_entries "Это не аккаунты, лежит в %s: %s. Такое имя ни одна команда здесь не создаёт и не принимает, так что положили это не мы и убрать сами мы не можем — удалять вам."
+    doctor_linked_entries "Это симлинки, лежат в %s: %s. \`list\` и GUI за аккаунты их не считают, а \`run\` и \`remove\` по ним идут — так что если это задумано как аккаунт, сделайте настоящий каталог. Не удаляйте вслепую: симлинк ведёт на чьи-то данные, а не на их копию."
     doctor_cred_shared  "CLAUDE_SECURESTORAGE_CONFIG_DIR выставлена в %s, поэтому все аккаунты делят одну сохранённую запись вместо собственной. В Keychain лежат креды того аккаунта, под которым логинились последними — отсюда и одинаковые личности в строках выше. Снимите переменную, чтобы вернуть раздельные креды."
     doctor_cred_legacy  "CLAUDE_SECURESTORAGE_CONFIG_DIR выставлена, но пуста — из-за этого Claude Code отбрасывает суффикс по папке и держит креды всех аккаунтов в одной legacy-записи. Управляемым аккаунтам читать её нельзя, поэтому они вообще сообщат об отсутствии токена. Снимите переменную совсем."
     help_lock           "Закрепить аккаунт за его текущей личностью"
@@ -434,18 +436,30 @@ _claude_acc_account_names() {
     done
 }
 
-# Everything else under accounts/: files, symlinks, and directories named
-# something no command accepts. `doctor` reports these, so a directory the
-# filter above drops stays visible instead of becoming invisible junk —
-# `remove` refuses such a name too, so the user's own `rm` is the only way
-# out and they have to know it is there.
-_claude_acc_other_entries() {
+# What else is under accounts/, in two lists, because the right thing to say
+# about them differs. A name no command accepts is junk only the user's `rm`
+# can clear: `remove` refuses the name too. A symlink is a path into
+# somebody's data — `run` and `remove` follow it, since `[[ -d ]]` does — so
+# "delete it" would be telling them to `rm` a link to real account files.
+#
+# Dotfiles match neither glob without GLOB_DOTS, and that is deliberate on
+# both sides: `.DS_Store` reappears the moment anyone opens the directory in
+# Finder, and a line naming it on every run is worse than silence.
+_claude_acc_unnamed_entries() {
     local name entry
     for name in "$CLAUDE_SWITCH_ACCOUNTS_DIR"/*(N:t); do
         entry="$CLAUDE_SWITCH_ACCOUNTS_DIR/$name"
-        if [[ -d "$entry" && ! -L "$entry" ]] && _claude_acc_name_ok "$name"; then
+        [[ -L "$entry" ]] && continue
+        if [[ -d "$entry" ]] && _claude_acc_name_ok "$name"; then
             continue
         fi
+        print -r -- "$name"
+    done
+}
+
+_claude_acc_linked_entries() {
+    local name
+    for name in "$CLAUDE_SWITCH_ACCOUNTS_DIR"/*(N@:t); do
         print -r -- "$name"
     done
 }
@@ -2721,11 +2735,15 @@ _claude_acc_doctor() {
         _msg doctor_chrome_off "${(j:, :)chrome_off}"
     # Everything accounts/ holds that is not an account. Nothing else names
     # these — keeping them out of `list`, `usage` and completion is the point
-    # — so without this line a stray directory just disappears.
-    local -a stray_entries
-    stray_entries=(${(f)"$(_claude_acc_other_entries)"})
+    # — so without these lines such an entry just disappears.
+    local -a stray_entries linked_entries
+    local accounts_where="${CLAUDE_SWITCH_ACCOUNTS_DIR/#$HOME/~}"
+    stray_entries=(${(f)"$(_claude_acc_unnamed_entries)"})
     (( ${#stray_entries} > 0 )) && \
-        _msg doctor_stray_entries "${CLAUDE_SWITCH_ACCOUNTS_DIR/#$HOME/~}" "${(j:, :)stray_entries}"
+        _msg doctor_stray_entries "$accounts_where" "${(j:, :)stray_entries}"
+    linked_entries=(${(f)"$(_claude_acc_linked_entries)"})
+    (( ${#linked_entries} > 0 )) && \
+        _msg doctor_linked_entries "$accounts_where" "${(j:, :)linked_entries}"
     # Informational, like the Chrome hint: it must not reach the exit code
     # below, which means "wrong identity" and nothing else.
     # Names chosen not to collide with this function's existing locals: a

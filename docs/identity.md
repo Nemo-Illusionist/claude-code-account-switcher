@@ -95,17 +95,20 @@ The empty-string case gets its own wording, because dropping the hash sends cred
 
 ### Something in `accounts/` that is not an account
 
-Only names made of letters, digits, `-` and `_` are accounts: `add`, `login`, `import` and `clone-settings` all refuse anything else, so nothing here can create one. A directory that turns up with such a name — left by something writing beside an account dir — is skipped by `list`, `usage`, completion and the audit itself. `doctor` names it, because otherwise it would be invisible, and `remove` refuses the name too, so clearing it up is yours to do:
+Only names made of letters, digits, `-` and `_` are accounts: `add`, `login`, `import` and `clone-settings` all refuse anything else, so nothing here can create one. An entry that turns up with such a name is skipped by `list`, `usage`, completion and the audit itself — and `doctor` names it, because otherwise it would simply be invisible:
 
 ```
 Auditing 1 account(s):
   ? work  no token (run: claude-acc login work)
 
-Not accounts, in ~/.claude-switch/accounts: work.lock. No command here can create a name like that, and none can remove one either — if it is junk, delete the directory yourself.
+Not accounts, in ~/.claude-switch/accounts: work.lock. No command here creates or takes a name like that, so nothing of ours put it there and nothing of ours can clear it up — that one is yours to delete.
+Reached through a symlink, in ~/.claude-switch/accounts: linked. `list` and the GUI do not count those as accounts, while `run` and `remove` follow them — so make it a real directory if it is meant to be an account. Do not delete it blindly: it points at somebody's data, not at a copy.
 0 of 1 accounts healthy.
 ```
 
-An account directory reached through a symlink is reported the same way. It is not usable as an account either: `claude-acc`'s GUI interface refuses storage behind a symlink outright, so the entry would otherwise sit there doing nothing with nothing on screen to say why. Like the Chrome note, neither line touches the exit code.
+A symlink gets the second line rather than the first, because what to do about it is different. `remove` and `run` follow one — they test with `is_dir`, which does — while `list` skips it and the GUI interface refuses account storage behind a symlink outright. So it is half an account, and deleting it would remove a link to somebody's real files rather than a stray directory.
+
+Dotfiles are in neither line. `.DS_Store` appears the moment anyone opens the directory in Finder, and naming it on every run — about a file that comes straight back — is worse than saying nothing. Like the Chrome note, neither line touches the exit code.
 
 ## Pinning an account to an identity (`lock`)
 

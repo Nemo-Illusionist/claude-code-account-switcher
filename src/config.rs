@@ -25,13 +25,21 @@ pub struct AppConfig {
 }
 
 /// The contents of `accounts/`, as `read_accounts_dir` reads them.
+///
+/// The two reported lists are kept apart because the right thing to say
+/// about them differs. A name no command accepts is junk only the user's
+/// `rm` can clear. A symlink is a path into someone else's data: `run` and
+/// `remove` follow it (`is_dir` does), `list` and the GUI do not treat it as
+/// an account, and telling anyone to delete it would be telling them to
+/// `rm` a link to a real account's files.
 #[derive(Debug, Default, PartialEq)]
 pub struct AccountsDir {
     /// Directories whose name a command here could have created.
     pub accounts: Vec<String>,
-    /// Everything else: files, symlinks, and directories named something no
-    /// command here accepts. `doctor` reports these.
-    pub others: Vec<String>,
+    /// Entries named something no command here accepts, and plain files.
+    pub unnamed: Vec<String>,
+    /// Symlinks, whatever they are named and wherever they point.
+    pub linked: Vec<String>,
 }
 
 // Required, not gratuitous: since `config` became a library module, `new()`
@@ -110,18 +118,18 @@ impl AppConfig {
     /// `claude-acc login work.lock`, which rejects its own argument — and
     /// into an account the `ide` pass then wrote a symlink into.
     ///
-    /// The rest is kept rather than dropped, because the one command that
-    /// could clear such a directory up is the user's `rm`: `remove` refuses
-    /// the name too. `doctor` names them, so a filtered-out directory stays
-    /// discoverable instead of becoming invisible junk.
+    /// The rest is reported rather than dropped, so a filtered-out entry
+    /// stays discoverable instead of becoming invisible — see `AccountsDir`
+    /// for why the two reported lists are separate.
     ///
-    /// A symlink counts as neither an account nor a name violation: it goes
-    /// to `others`. `file_type()` does not follow one, and that is
-    /// deliberate — `gui::account_dir` refuses account storage reached
-    /// through a symlink outright (`GuiError::SymlinkStorage`) — so such a
-    /// directory is not usable as an account by any command, which is
-    /// exactly the sort of thing `doctor` should say out loud rather than
-    /// skip in silence.
+    /// A symlink is in neither account list: `file_type()` does not follow
+    /// one, which is why `list_accounts` never showed one.
+    ///
+    /// Dotfiles are skipped entirely, not reported. `.DS_Store` appears the
+    /// moment anyone opens the directory in Finder, and a hint naming it on
+    /// every run — about a file that comes straight back — is worse than
+    /// silence. It also keeps this in step with `claude-switch.sh`, whose
+    /// globs do not match dotfiles without `GLOB_DOTS`.
     pub fn read_accounts_dir(&self) -> io::Result<AccountsDir> {
         let dir = self.accounts_dir();
         let mut out = AccountsDir::default();
@@ -130,17 +138,24 @@ impl AppConfig {
         }
         for entry in fs::read_dir(dir)? {
             let entry = entry?;
-            let Some(name) = entry.file_name().to_str().map(String::from) else {
+            // Lossy, not skipped: a name that is not UTF-8 is exactly the
+            // sort of entry that should not go unmentioned.
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if name.starts_with('.') {
                 continue;
-            };
-            if entry.file_type()?.is_dir() && validate_name(&name) {
+            }
+            let kind = entry.file_type()?;
+            if kind.is_symlink() {
+                out.linked.push(name);
+            } else if kind.is_dir() && validate_name(&name) {
                 out.accounts.push(name);
             } else {
-                out.others.push(name);
+                out.unnamed.push(name);
             }
         }
+        out.linked.sort();
+        out.unnamed.sort();
         out.accounts.sort();
-        out.others.sort();
         Ok(out)
     }
 
@@ -389,20 +404,45 @@ mod tests {
 
     #[test]
     #[cfg(unix)]
-    fn an_account_dir_reached_through_a_symlink_is_neither() {
-        // Not an account, because `gui::account_dir` refuses storage behind
-        // a symlink outright — so it is reported instead of skipped, since
-        // no command can use it and nothing else would say so.
+    fn a_symlink_is_reported_apart_from_a_name_no_command_accepts() {
+        // The two need different words: `remove` and `run` follow a symlink
+        // (`is_dir` does), so "nothing of ours can clear it up" is false for
+        // one and true for the other, and "delete it yourself" pointed at
+        // `rm` on a link into live data.
         let c = temp_config("list-symlink");
         let dir = c.accounts_dir();
         fs::create_dir_all(dir.join("plain")).unwrap();
+        fs::create_dir_all(dir.join("work.lock")).unwrap();
         let outside = c.base_dir.join("elsewhere");
         fs::create_dir_all(&outside).unwrap();
         std::os::unix::fs::symlink(&outside, dir.join("linked")).unwrap();
+        // A symlink with a name no command accepts is still a symlink: the
+        // dangerous half of the advice is what decides.
+        std::os::unix::fs::symlink(&outside, dir.join("linked.2")).unwrap();
 
         let read = c.read_accounts_dir().unwrap();
         assert_eq!(read.accounts, vec!["plain"]);
-        assert_eq!(read.others, vec!["linked"]);
+        assert_eq!(read.unnamed, vec!["work.lock"]);
+        assert_eq!(read.linked, vec!["linked", "linked.2"]);
+        let _ = fs::remove_dir_all(&c.base_dir);
+    }
+
+    #[test]
+    fn a_dotfile_is_not_reported_at_all() {
+        // `.DS_Store` arrives whenever anyone opens the directory in Finder.
+        // A line naming it on every run, about a file that comes straight
+        // back, is worse than silence — and `claude-switch.sh`'s globs skip
+        // dotfiles anyway, so reporting them here would split the two.
+        let c = temp_config("list-dotfiles");
+        let dir = c.accounts_dir();
+        fs::create_dir_all(dir.join("work")).unwrap();
+        fs::write(dir.join(".DS_Store"), "finder").unwrap();
+        fs::create_dir_all(dir.join(".hidden")).unwrap();
+
+        let read = c.read_accounts_dir().unwrap();
+        assert_eq!(read.accounts, vec!["work"]);
+        assert_eq!(read.unnamed, Vec::<String>::new());
+        assert_eq!(read.linked, Vec::<String>::new());
         let _ = fs::remove_dir_all(&c.base_dir);
     }
 
@@ -424,6 +464,12 @@ mod tests {
         fs::write(dir.join("notes.txt"), "not a directory").unwrap();
 
         assert_eq!(c.list_accounts().unwrap(), vec!["a_b", "work", "work-2"]);
+        // What is left over is reported, except the dotfile: see
+        // `a_dotfile_is_not_reported_at_all`.
+        assert_eq!(
+            c.read_accounts_dir().unwrap().unnamed,
+            vec!["notes.txt", "work lock", "work.lock"]
+        );
         let _ = fs::remove_dir_all(&c.base_dir);
     }
 

@@ -70,6 +70,16 @@ fn shared_credential_store(securestorage: Option<&str>) -> Option<SharedStore> {
     }
 }
 
+/// The names for one of `doctor`'s two reports on what else is in
+/// `accounts/`, or `None` when that list is empty and the line must not be
+/// printed at all.
+fn joined(names: &[String]) -> Option<String> {
+    if names.is_empty() {
+        return None;
+    }
+    Some(names.join(", "))
+}
+
 /// A path with the home directory written as `~`, for a message a person
 /// reads. Printed in full it would carry the account name of whoever ran it
 /// into whatever the output gets pasted into.
@@ -137,7 +147,6 @@ pub fn run(config: &AppConfig, i18n: &I18n, json: bool) -> i32 {
         Err(_) => return 1,
     };
     let accounts = read.accounts;
-    let strays = read.others;
 
     // The standard "default" line shows up if a login exists in ~/.claude/.
     // Otherwise it would just print noise on every doctor run, so we hide it
@@ -149,14 +158,22 @@ pub fn run(config: &AppConfig, i18n: &I18n, json: bool) -> i32 {
     if json {
         return run_json(config, &accounts, standard_present);
     }
-    run_human(config, i18n, &accounts, &strays, standard_present)
+    run_human(
+        config,
+        i18n,
+        &accounts,
+        &read.unnamed,
+        &read.linked,
+        standard_present,
+    )
 }
 
 fn run_human(
     config: &AppConfig,
     i18n: &I18n,
     accounts: &[String],
-    strays: &[String],
+    unnamed: &[String],
+    linked: &[String],
     standard_present: bool,
 ) -> i32 {
     let standard_label = "~/.claude/";
@@ -316,15 +333,15 @@ fn run_human(
     }
     // Everything `accounts/` holds that is not an account. Nothing else
     // mentions these — the point of the filter is that they stay out of
-    // `list`, `usage` and completion — so without this line a stray
-    // directory would simply become invisible, and `remove` cannot clear it
-    // either. Informational, like the Chrome line: junk beside an account is
-    // not a wrong identity, and the exit code means only that.
-    if !strays.is_empty() {
-        i18n.print(Msg::DoctorStrayEntries(
-            strays.join(", "),
-            home_relative(&config.accounts_dir()),
-        ));
+    // `list`, `usage` and completion — so without these lines such an entry
+    // would simply become invisible. Informational, like the Chrome line:
+    // neither is a wrong identity, and the exit code means only that.
+    let where_ = home_relative(&config.accounts_dir());
+    if let Some(names) = joined(unnamed) {
+        i18n.print(Msg::DoctorStrayEntries(names, where_.clone()));
+    }
+    if let Some(names) = joined(linked) {
+        i18n.print(Msg::DoctorLinkedEntries(names, where_));
     }
     // Like the Chrome hint: informational, and deliberately not touching the
     // exit code. A shared credential store is a configuration someone chose,
@@ -461,6 +478,17 @@ mod tests {
 
     fn en() -> I18n {
         I18n { lang: Lang::En }
+    }
+
+    #[test]
+    fn an_empty_list_prints_no_line_at_all() {
+        // Both hints hang on this: an empty `accounts/` must not produce
+        // "Not accounts, in ~/.claude-switch/accounts: ".
+        assert_eq!(joined(&[]), None);
+        assert_eq!(
+            joined(&["work.lock".to_string(), "notes.txt".to_string()]),
+            Some("work.lock, notes.txt".to_string())
+        );
     }
 
     #[test]
