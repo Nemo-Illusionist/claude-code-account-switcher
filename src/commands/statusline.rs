@@ -59,14 +59,34 @@ fn render(config: &AppConfig) {
     println!("{}", segs.join(&sep));
 }
 
+/// `CLAUDE_CONFIG_DIR`, or `None` when it is unset, empty or blank.
+///
+/// Three places in this file read that variable — the account badge, the
+/// settings files the context meter consults, and where `--install` writes
+/// — and they have to agree, so the reading happens once. Blank counts as
+/// unset: taken literally it is the working directory, which would send a
+/// settings lookup and a settings *write* to a relative `settings.json`
+/// beside whatever the user was standing in. `session::target_from_env` and
+/// `shell/claude-wrapper.sh` read it the same way.
+fn config_dir_from_env() -> Option<PathBuf> {
+    config_dir_of(std::env::var("CLAUDE_CONFIG_DIR").ok().as_deref())
+}
+
+/// The decision, with the value passed in — `cargo test` runs tests in
+/// threads of one process, so a test that set the variable would be a test
+/// of scheduling.
+fn config_dir_of(raw: Option<&str>) -> Option<PathBuf> {
+    raw.map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
+}
+
 /// Account name for the current session, from `CLAUDE_CONFIG_DIR`:
 /// `<name>` for a managed account, `default` for the standard `~/.claude/`
 /// (or when the variable is unset), else the dir's basename.
 fn account_label(config: &AppConfig) -> Option<String> {
     Some(name_of_config_dir(
-        std::env::var_os("CLAUDE_CONFIG_DIR")
-            .as_deref()
-            .map(Path::new),
+        config_dir_from_env().as_deref(),
         &config.accounts_dir(),
         dirs::home_dir().as_deref(),
     ))
@@ -298,13 +318,12 @@ fn configured_window(v: &Value) -> Option<f64> {
 ///
 /// The account's own settings directory is `CLAUDE_CONFIG_DIR` when it is set
 /// — a managed account — and `~/.claude` otherwise, which is the same file
-/// `statusline --install` writes to. Reading the environment is all this
+/// `statusline --install` writes to, because both go through
+/// `config_dir_from_env`. Reading the environment is all this
 /// does; the order itself is in `settings_files_in`, where it can be
 /// asserted without touching process-wide state.
 fn settings_files(v: &Value) -> Vec<std::path::PathBuf> {
-    let user = std::env::var_os("CLAUDE_CONFIG_DIR")
-        .map(std::path::PathBuf::from)
-        .or_else(|| dirs::home_dir().map(|h| h.join(".claude")));
+    let user = config_dir_from_env().or_else(|| dirs::home_dir().map(|h| h.join(".claude")));
     settings_files_in(
         v.pointer("/workspace/project_dir")
             .and_then(Value::as_str)
@@ -596,7 +615,7 @@ fn settings_root(read: std::io::Result<String>) -> Option<Value> {
 /// badge. There was no way to install the line into a named account at all
 /// unless some directory happened to be linked to it.
 fn install_target(
-    ccd: Option<&str>,
+    ccd: Option<&Path>,
     accounts_dir: &Path,
     home: Option<&Path>,
     cwd_account: Option<&str>,
@@ -605,14 +624,7 @@ fn install_target(
         home.map(|h| h.join(".claude"))
             .unwrap_or_else(|| PathBuf::from(".claude"))
     };
-    // Empty or blank counts as unset, as it does in `session`'s
-    // `target_from_env` and in `shell/claude-wrapper.sh`. Taken literally it
-    // is the current directory: `create_dir_all("")` succeeds, and the line
-    // would be written to a `settings.json` beside whatever the user
-    // happened to be standing in, where Claude Code never looks.
-    let ccd = ccd.map(str::trim).filter(|v| !v.is_empty());
     if let Some(dir) = ccd {
-        let dir = Path::new(dir);
         return (
             name_of_config_dir(Some(dir), accounts_dir, home),
             dir.to_path_buf(),
@@ -630,7 +642,7 @@ fn install_target(
 
 fn install_into_settings(config: &AppConfig, i18n: &I18n) -> i32 {
     let cwd = std::env::current_dir().unwrap_or_default();
-    let ccd = std::env::var("CLAUDE_CONFIG_DIR").ok();
+    let ccd = config_dir_from_env();
     let (label, settings_dir) = install_target(
         ccd.as_deref(),
         &config.accounts_dir(),
@@ -682,6 +694,30 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_blank_config_dir_is_no_config_dir() {
+        // All three readers in this file go through this: the badge, the
+        // settings files the meter consults, and where `--install` writes.
+        // Taken literally, "" is the working directory — `create_dir_all("")`
+        // succeeds — so `--install` would have written a `settings.json`
+        // beside whatever the user was standing in and reported success,
+        // and the meter would have looked for one there.
+        assert_eq!(config_dir_of(None), None);
+        assert_eq!(config_dir_of(Some("")), None);
+        assert_eq!(config_dir_of(Some("   ")), None);
+        assert_eq!(config_dir_of(Some("\t\n")), None);
+        assert_eq!(
+            config_dir_of(Some("/switch/accounts/work-2")),
+            Some(PathBuf::from("/switch/accounts/work-2"))
+        );
+        // Surrounding blanks are an accident of shell quoting, never part of
+        // a path someone meant.
+        assert_eq!(
+            config_dir_of(Some("  /switch/accounts/work-2  ")),
+            Some(PathBuf::from("/switch/accounts/work-2"))
+        );
+    }
+
+    #[test]
     fn install_writes_to_the_account_the_session_is_under() {
         // Regression: `--install` resolved the working directory and ignored
         // `CLAUDE_CONFIG_DIR`, so running it inside a `work-2` session wrote
@@ -695,7 +731,7 @@ mod tests {
         // The variable wins, whatever the directory resolves to.
         assert_eq!(
             install_target(
-                Some("/switch/accounts/work-2"),
+                Some(Path::new("/switch/accounts/work-2")),
                 accounts,
                 Some(home),
                 Some("work"),
@@ -709,18 +745,18 @@ mod tests {
         // still where the line goes — someone pointed the session there on
         // purpose.
         assert_eq!(
-            install_target(Some("/elsewhere/sandbox"), accounts, Some(home), None),
+            install_target(
+                Some(Path::new("/elsewhere/sandbox")),
+                accounts,
+                Some(home),
+                None
+            ),
             ("sandbox".to_string(), PathBuf::from("/elsewhere/sandbox")),
         );
         // `CLAUDE_CONFIG_DIR` naming the standard dir is the standard
         // account, not a managed one called `.claude`.
         assert_eq!(
-            install_target(
-                Some(home.join(".claude").to_str().unwrap()),
-                accounts,
-                Some(home),
-                None
-            ),
+            install_target(Some(&home.join(".claude")), accounts, Some(home), None),
             ("default".to_string(), home.join(".claude")),
         );
         // Without the variable the directory decides, as before.
@@ -732,15 +768,6 @@ mod tests {
             install_target(None, accounts, Some(home), None),
             ("default".to_string(), home.join(".claude")),
         );
-        // Empty and blank count as unset. Taken literally the target is the
-        // working directory, where Claude Code never reads a settings file —
-        // the install would look like it worked and do nothing.
-        for blank in ["", "   ", "\t"] {
-            assert_eq!(
-                install_target(Some(blank), accounts, Some(home), Some("work")),
-                ("work".to_string(), PathBuf::from("/switch/accounts/work")),
-            );
-        }
         // A directory can be linked to `default`, and that is the standard
         // account, not `accounts/default`.
         assert_eq!(
@@ -759,7 +786,8 @@ mod tests {
             "/switch/accounts/work-2/",
             "/elsewhere/sandbox",
         ] {
-            let (label, _) = install_target(Some(dir), accounts, Some(home), Some("work"));
+            let (label, _) =
+                install_target(Some(Path::new(dir)), accounts, Some(home), Some("work"));
             assert_eq!(
                 label,
                 name_of_config_dir(Some(Path::new(dir)), accounts, Some(home))
