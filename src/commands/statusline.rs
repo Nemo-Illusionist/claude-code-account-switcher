@@ -66,18 +66,25 @@ fn render(config: &AppConfig) {
 /// — and they have to agree, so the reading happens once.
 ///
 /// Empty counts as unset because that is what Claude Code does with it.
-/// Every read in the build is `process.env.CLAUDE_CONFIG_DIR || <fallback>`
-/// (transcribed from Claude Code 2.1.332), and in JavaScript `""` is falsy,
-/// so the app takes the fallback. Taken literally instead, `""` is the
-/// working directory: `create_dir_all("")` succeeds, so `--install` would
-/// write a `settings.json` beside whatever the user was standing in, and
-/// the meter would look for one there.
+/// Every read that resolves the config dir out of the process environment
+/// is `process.env.CLAUDE_CONFIG_DIR || <fallback>` (read out of Claude Code
+/// 2.1.332), and `""` is falsy in JavaScript, so the app takes the
+/// fallback. Taken literally instead, `""` is the working directory:
+/// `create_dir_all("")` succeeds, so `--install` would write a
+/// `settings.json` beside whatever the user was standing in, and the meter
+/// would look for one there.
 ///
-/// A value that is only blanks is **not** trimmed away, deliberately. `"  "`
-/// is truthy in JavaScript, so Claude Code uses it as a path, and the status
-/// line's job is to describe the session the app is actually running. That
-/// differs from `session::target_from_env`, which trims — a status line that
-/// disagreed with the app would be the worse of the two.
+/// A value that is only blanks is **not** trimmed away, deliberately: `" "`
+/// is truthy, so those reads use it as a path, and this command's job is to
+/// describe the session the app is actually running.
+///
+/// The build is not uniform about it — one path does
+/// `e.env.CLAUDE_CONFIG_DIR?.trim()` — but that one takes an env object and
+/// a user record rather than `process.env`, and it is a precheck on who can
+/// read the config files, not the resolution a local session goes through.
+/// `session::target_from_env` trims too; this one follows the resolver
+/// instead, since a status line that named a different directory from the
+/// session would be the worse of the two.
 fn config_dir_from_env() -> Option<PathBuf> {
     config_dir_of(std::env::var("CLAUDE_CONFIG_DIR").ok().as_deref())
 }
@@ -709,8 +716,9 @@ mod tests {
         // succeeds — so `--install` would have written a `settings.json`
         // beside whatever the user was standing in and reported success,
         // and the meter would have looked for one there. Claude Code treats
-        // it as unset too: every read is `process.env.CLAUDE_CONFIG_DIR ||
-        // <fallback>`, and `""` is falsy (Claude Code 2.1.332).
+        // it as unset too: the reads that resolve the dir from the process
+        // environment are `process.env.CLAUDE_CONFIG_DIR || <fallback>`,
+        // and `""` is falsy (read out of Claude Code 2.1.332).
         assert_eq!(config_dir_of(None), None);
         assert_eq!(config_dir_of(Some("")), None);
         assert_eq!(
