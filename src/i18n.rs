@@ -277,8 +277,12 @@ impl I18n {
                 "clone-settings: --from {} — это и есть аккаунт, который заполняем. Укажите, из какого аккаунта копировать.",
                 name
             ),
-            (Msg::SeedNothingToCopy, Lang::En) => s("  nothing to copy from ~/.claude/"),
-            (Msg::SeedNothingToCopy, Lang::Ru) => s("  нечего копировать из ~/.claude/"),
+            (Msg::SeedNothingToCopy(ref source), Lang::En) => {
+                format!("  nothing to copy from {}", source)
+            }
+            (Msg::SeedNothingToCopy(ref source), Lang::Ru) => {
+                format!("  нечего копировать из {}", source)
+            }
 
             // doctor
             (Msg::RelativeTime(secs), lang) => relative_time(secs, lang),
@@ -1380,7 +1384,7 @@ pub enum Msg {
     DuplicateAccountWarning(String, String),
     RelativeTime(u64),
     SeedCopied(String),
-    SeedNothingToCopy,
+    SeedNothingToCopy(String),
     CloneSettingsSameAccount(String),
     UsageHeader,
     UsageResetsIn(String),

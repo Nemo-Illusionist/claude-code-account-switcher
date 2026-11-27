@@ -107,7 +107,7 @@ _claude_msg_en=(
     reserved_name       "'%s' is a reserved name."
     name_invalid        "Account name must contain only letters, digits, hyphens, and underscores."
     seed_copied         "  copied: %s"
-    seed_nothing        "  nothing to copy from ~/.claude/"
+    seed_nothing        "  nothing to copy from %s"
     lock_usage          "Usage: claude-acc lock <name> [--force]"
     lock_done           "Account '%s' pinned to %s.\n  A later login as anyone else will show up in \`claude-acc doctor\` as drift."
     lock_already        "Account '%s' is already pinned to %s."
@@ -259,7 +259,7 @@ _claude_msg_ru=(
     reserved_name       "'%s' — зарезервированное имя."
     name_invalid        "Имя аккаунта может содержать только буквы, цифры, дефисы и подчёркивания."
     seed_copied         "  скопировано: %s"
-    seed_nothing        "  нечего копировать из ~/.claude/"
+    seed_nothing        "  нечего копировать из %s"
     lock_usage          "Использование: claude-acc lock <name> [--force]"
     lock_done           "Аккаунт '%s' закреплён за %s.\n  Если позже войти под кем-то другим, \`claude-acc doctor\` покажет расхождение."
     lock_already        "Аккаунт '%s' уже закреплён за %s."
@@ -1085,7 +1085,7 @@ _claude_acc_seed_from() {
         any=1
     fi
 
-    (( any == 0 )) && _msg seed_nothing
+    (( any == 0 )) && _msg seed_nothing "${source/#$HOME/~}"
     return 0
 }
 
@@ -1152,16 +1152,30 @@ _claude_acc_seed_plugins() {
 }
 
 _claude_acc_clone_settings() {
-    local name="" from=""
+    local name="" from="" from_given=0
+    local -a rest
     while (( $# > 0 )); do
         case "$1" in
-            --from) from="${2:-}"; shift 2 ;;
-            --from=*) from="${1#--from=}"; shift ;;
-            *) name="$1"; shift ;;
+            # Shift the flag, then its value only if there is one. A bare
+            # `shift 2` cannot shift at all when the value is missing, and
+            # `while (( $# > 0 ))` then spins for ever — the same trap
+            # `_claude_acc_desktop_clone_config` carries a comment about.
+            --from)   from="${2:-}"; from_given=1; shift; (( $# )) && shift ;;
+            --from=*) from="${1#--from=}"; from_given=1; shift ;;
+            *)        rest+=("$1"); shift ;;
         esac
     done
-    if [[ -z "$name" ]]; then
+    name="${rest[1]:-}"
+    # One account, not two: a second name used to replace the first in
+    # silence, so `clone-settings a b` seeded `b`.
+    if [[ -z "$name" || ${#rest} -gt 1 ]]; then
         _msg clone_settings_usage
+        return 1
+    fi
+    # `--from` with nothing after it is a mistake, not a request for the
+    # standard account — clap refuses it on the Rust side, so this does too.
+    if (( from_given )) && [[ -z "$from" ]]; then
+        _msg name_invalid
         return 1
     fi
     if [[ "$name" == "default" ]]; then

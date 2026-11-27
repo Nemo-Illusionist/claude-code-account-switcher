@@ -348,9 +348,9 @@ fn main() {
         }
         Some(Commands::List) => commands::list::run(&config, &i18n),
         Some(Commands::Add { name, seed }) => commands::add::run(&config, &i18n, &name, seed),
-        Some(Commands::CloneSettings { name, from }) => {
-            commands::clone_settings::run(&config, &i18n, &name, from.as_deref())
-        }
+        Some(Commands::CloneSettings { name, from }) => std::process::exit(
+            commands::clone_settings::run(&config, &i18n, &name, from.as_deref()),
+        ),
         Some(Commands::Import {
             name,
             source,

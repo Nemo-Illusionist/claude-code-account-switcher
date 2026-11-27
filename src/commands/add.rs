@@ -49,7 +49,7 @@ pub fn run(config: &AppConfig, i18n: &I18n, name: &str, seed_from_default: bool)
     if seed_from_default {
         match seed::copy_user_config(&acc_dir) {
             Ok(report) if report.is_empty() => {
-                i18n.print(Msg::SeedNothingToCopy);
+                i18n.print(Msg::SeedNothingToCopy("~/.claude/".to_string()));
             }
             Ok(report) => {
                 for entry in &report.copied {

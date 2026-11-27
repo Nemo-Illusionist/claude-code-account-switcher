@@ -90,10 +90,36 @@ check "an account cannot be seeded from itself" "1" \
 out=$(_claude_acc_clone_settings work-2 --from nope 2>&1)
 check "a source that does not exist is refused" "1" \
     "$(print -r -- "$out" | grep -c 'nope')"
-# A name no command here takes.
+# A name no command here takes. Checked against the name-invalid text, not
+# merely against the absence of another message: without the name check the
+# run still fails, as "no such account", and the weaker assertion passed.
 out=$(_claude_acc_clone_settings work-2 --from 'work.lock' 2>&1)
-check "a name no command takes is refused" "0" \
-    "$(print -r -- "$out" | grep -c 'is the account being seeded')"
+check "a name no command takes is refused as invalid" "1" \
+    "$(print -r -- "$out" | grep -c 'must contain only letters')"
+
+# A bare `--from`, which used to spin for ever: `shift 2` with one argument
+# left shifts nothing, so the loop read `--from` again and again. Run under
+# a watchdog, because the failure mode is a hang rather than a wrong answer.
+( _claude_acc_clone_settings work-2 --from >/dev/null 2>&1 ) &
+bare_pid=$!
+bare_result="hung"
+for _ in {1..50}; do
+    if ! kill -0 $bare_pid 2>/dev/null; then bare_result="returned"; break; fi
+    sleep 0.1
+done
+[[ "$bare_result" == "hung" ]] && kill -9 $bare_pid 2>/dev/null
+wait $bare_pid 2>/dev/null
+check "a bare --from returns instead of spinning" "returned" "$bare_result"
+
+# Two names is a mistake, not a silent choice of the second.
+out=$(_claude_acc_clone_settings work-2 extra 2>&1)
+check "two account names are refused" "1" \
+    "$(print -r -- "$out" | grep -c 'Usage: claude-acc clone-settings')"
+
+# `--from=` with nothing after it is a mistake too, not the standard account.
+out=$(_claude_acc_clone_settings work-2 --from= 2>&1)
+check "an empty --from is refused rather than silently defaulted" "1" \
+    "$(print -r -- "$out" | grep -c 'must contain only letters')"
 
 print -r -- ""
 print -r -- "without --from, and with default:"
@@ -111,6 +137,19 @@ check "\`default\` names the standard account, not accounts/default" "standard m
     "$(cat "$fresh2/CLAUDE.md" 2>/dev/null)"
 check "and nothing was created at accounts/default" "no" \
     "$([[ -e "$CLAUDE_SWITCH_ACCOUNTS_DIR/default" ]] && print -r -- yes || print -r -- no)"
+
+print -r -- ""
+print -r -- "the nothing-to-copy message:"
+
+# It used to say `~/.claude/` whatever the source was.
+empty_src="$CLAUDE_SWITCH_ACCOUNTS_DIR/bare"
+empty_dst="$CLAUDE_SWITCH_ACCOUNTS_DIR/bare-2"
+mkdir -p "$empty_src" "$empty_dst"
+out=$(_claude_acc_clone_settings bare-2 --from bare 2>&1)
+check "it names the account it was pointed at" "1" \
+    "$(print -r -- "$out" | grep -c "nothing to copy from ~/.claude-switch/accounts/bare$")"
+check "and not ~/.claude/" "0" \
+    "$(print -r -- "$out" | grep -c 'nothing to copy from ~/.claude/')"
 
 print -r -- ""
 if (( failures )); then
