@@ -47,7 +47,21 @@ listed() {
     local -a rows
     rows=(${(f)"$(_claude_acc_list 2>/dev/null |
         awk '/^( {4}|  ★ )/ { sub(/^[[:space:]]*(★ )?/, ""); print $1 }')"})
-    rows=("${(@)rows:#~/.claude/}")
+    # The standard account's row, however its suffix is spelled. Quoted, so
+    # the leading tilde is a character and not this test's own home.
+    rows=("${(@)rows:#'~'/.claude/*}")
+    print -r -- "${(j:,:)rows}"
+}
+
+# The account column of `doctor`, same shape. `doctor` is where the bug was
+# loudest — it audited the stray directory and printed advice that cannot be
+# followed — and it reaches the accounts through a different call site than
+# `list`, so reverting either one alone has to fail something here.
+audited() {
+    local -a rows
+    rows=(${(f)"$(_claude_acc_doctor 2>/dev/null |
+        awk '/^  [?✓✗] / { print $2 }')"})
+    rows=("${(@)rows:#'~'/.claude/*}")
     print -r -- "${(j:,:)rows}"
 }
 
@@ -70,6 +84,17 @@ check "whitespace, dotfiles and unicode are not listed" "a_b,work,work-2" "$(lis
 # A file is not an account either, however it is named.
 print -r -- "notes" > "$CLAUDE_SWITCH_ACCOUNTS_DIR/personal"
 check "a plain file with a valid name is not listed" "a_b,work,work-2" "$(listed)"
+
+# A directory reached through a symlink is one, though: the globs this
+# replaced matched any entry, so these were listed before.
+mkdir -p "$scratch/elsewhere"
+ln -s "$scratch/elsewhere" "$CLAUDE_SWITCH_ACCOUNTS_DIR/linked"
+check "a symlinked account dir is still listed" "a_b,linked,work,work-2" "$(listed)"
+
+print -r -- ""
+print -r -- "accounts audited by \`doctor\`:"
+
+check "the stray directory is not audited" "a_b,linked,work,work-2" "$(audited)"
 
 print -r -- ""
 if (( failures )); then

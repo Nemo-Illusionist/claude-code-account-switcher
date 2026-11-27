@@ -418,9 +418,13 @@ _claude_switch_init() {
 # which then advised `claude-acc login work.lock` — a name `login` refuses.
 # Same rule as `validate_name` in src/config.rs: ASCII letters, digits,
 # hyphen, underscore.
+# `-/` rather than `/`: a directory reached through a symlink still counts.
+# The globs this replaces were `*(N:t)`, which matched anything at all, so a
+# symlinked account dir was listed before and has to stay listed — dropping
+# plain files is the fix, dropping someone's symlink would be a new bug.
 _claude_acc_account_names() {
     local name
-    for name in "$CLAUDE_SWITCH_ACCOUNTS_DIR"/*(N/:t); do
+    for name in "$CLAUDE_SWITCH_ACCOUNTS_DIR"/*(N-/:t); do
         _claude_acc_name_ok "$name" && print -r -- "$name"
     done
 }
