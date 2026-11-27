@@ -348,9 +348,15 @@ fn main() {
         }
         Some(Commands::List) => commands::list::run(&config, &i18n),
         Some(Commands::Add { name, seed }) => commands::add::run(&config, &i18n, &name, seed),
-        Some(Commands::CloneSettings { name, from }) => std::process::exit(
-            commands::clone_settings::run(&config, &i18n, &name, from.as_deref()),
-        ),
+        Some(Commands::CloneSettings { name, from }) => {
+            // Exits only on failure. A successful seed used to fall through
+            // to the update hint below, and `process::exit(0)` would have
+            // taken that away without anyone asking.
+            let code = commands::clone_settings::run(&config, &i18n, &name, from.as_deref());
+            if code != 0 {
+                std::process::exit(code);
+            }
+        }
         Some(Commands::Import {
             name,
             source,
