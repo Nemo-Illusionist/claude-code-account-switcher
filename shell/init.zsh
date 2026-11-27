@@ -80,7 +80,6 @@ _claude_acc_completion() {
         'doctor:Audit each account OAuth identity'
         'whoami:Print active account email'
         'chrome:Show or set Claude in Chrome per account'
-        'clone-settings:Copy ~/.claude/ config into account'
         'clone-settings:Copy another account'\''s config into account'
         'import:Import an existing Claude config dir (no re-login)'
     )

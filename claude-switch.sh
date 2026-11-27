@@ -745,7 +745,6 @@ _claude_acc_help() {
     echo "  claude-acc whoami            $(_msg help_whoami)"
     echo "  claude-acc add -s <name>     $(_msg help_add) (seeded from ~/.claude/)"
     echo "  claude-acc chrome [<account>] [--on|--off]  $(_msg help_chrome)"
-    echo "  claude-acc clone-settings <name>  $(_msg help_clone_settings)"
     echo "  claude-acc clone-settings <name> [--from <account>]  $(_msg help_clone_settings)"
     echo "  claude-acc import <name> <path>   $(_msg help_import)"
     echo "  claude-acc desktop add|clone-config|clone-runtime|list|run|remove [<name>]  $(_msg help_desktop)"
