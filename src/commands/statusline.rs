@@ -814,10 +814,13 @@ mod tests {
         assert!(other.contains("39%"), "meter: {}", other);
 
         // And the environment window outranks the settings file, the way
-        // `/autocompact` says it does: 400k by variable over an account that
-        // sets nothing.
-        let by_env = segments(&payload, &config, Some(&plain), Some(400_000.0)).join(" | ");
-        assert!(by_env.contains("98%"), "meter: {}", by_env);
+        // `/autocompact` says it does. The two have to disagree for the
+        // order to be visible: this account sets 400k, the variable says
+        // 500k, and 393500 / 500000 = 78.7%. With the order reversed it
+        // would read 98% — the account's window — and an account that set
+        // nothing would prove nothing either way.
+        let by_env = segments(&payload, &config, Some(&account), Some(500_000.0)).join(" | ");
+        assert!(by_env.contains("79%"), "meter: {}", by_env);
 
         let _ = std::fs::remove_dir_all(&base);
     }
@@ -1072,6 +1075,7 @@ mod tests {
         let seg = context_segment(&v, Some(&home), None).expect("a segment");
         assert!(seg.contains("39%"), "got {seg:?}");
         assert!(!seg.contains("47%"), "the old normalised figure: {seg:?}");
+        let _ = std::fs::remove_dir_all(&home);
     }
 
     // Severity is still measured against the usable window, so red keeps
@@ -1499,6 +1503,7 @@ mod tests {
                 .unwrap()
                 .contains("100%")
         );
+        let _ = std::fs::remove_dir_all(&home);
     }
 
     #[test]
