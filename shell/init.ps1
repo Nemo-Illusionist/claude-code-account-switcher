@@ -56,6 +56,7 @@ Register-ArgumentCompleter -CommandName claude-acc -ScriptBlock {
             'chrome'     { $candidates = @('--on','--off') }
             'update'     { $candidates = @('--check','--version') }
             'session'    { $candidates = @('--to','--from','--force','-f') }
+            'clone-settings' { $candidates = @('--from') }
             'desktop'    { $candidates = @('--seed','-s','--from','--force','-f') }
             'vscode'     { $candidates = @('--force','-f') }
         }

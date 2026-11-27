@@ -70,7 +70,7 @@ _claude_msg_en=(
     help_doctor         "Audit each account OAuth identity (email, UUID)"
     help_whoami         "Print active account email (or name fallback)"
     help_chrome         "Show or set Claude in Chrome per account"
-    help_clone_settings "Copy ~/.claude/ config into an existing account"
+    help_clone_settings "Copy another account's config (or ~/.claude/) into an existing account"
     help_import         "Import an existing Claude config dir (no re-login)"
     help_help           "Help"
     list_empty          "No accounts. Add one: claude-acc add <name>"
@@ -108,7 +108,7 @@ _claude_msg_en=(
     reserved_name       "'%s' is a reserved name."
     name_invalid        "Account name must contain only letters, digits, hyphens, and underscores."
     seed_copied         "  copied: %s"
-    seed_nothing        "  nothing to copy from ~/.claude/"
+    seed_nothing        "  nothing to copy from %s"
     lock_usage          "Usage: claude-acc lock <name> [--force]"
     lock_done           "Account '%s' pinned to %s.\n  A later login as anyone else will show up in \`claude-acc doctor\` as drift."
     lock_already        "Account '%s' is already pinned to %s."
@@ -121,16 +121,19 @@ _claude_msg_en=(
     doctor_lock_corrupt "⚠ pin unreadable — the drift check is off for this account"
     doctor_drift_hint   "Drift means this directory is signed in as an account it was not pinned to — work done here would go to the wrong one. Put it back with \`claude-acc login <name>\`, or accept the new identity with \`claude-acc lock <name> --force\`."
     doctor_chrome_off   "Claude in Chrome is off in: %s. Claude Code keeps that switch per config dir, so the browser tools stay missing there until it is turned on: \`claude-acc chrome <account> --on\`, from a shell outside a Claude Code session."
+    doctor_stray_entries "Not accounts, in %s: %s. Nothing here created those, and no command here can act on them — \`remove\` takes an account directory and nothing else — so clearing them up is yours to do."
+    doctor_linked_entries "Symlinks, in %s: %s. \`run\` and \`remove\` follow one, while \`list\` skips it and the GUI refuses account storage behind a symlink outright — so make it a real directory if it is meant to be an account. Removing it should remove the link, not whatever it leads to."
     doctor_cred_shared  "CLAUDE_SECURESTORAGE_CONFIG_DIR is set to %s, so every account shares one stored credential instead of having its own. Whichever account signed in last is the one the Keychain holds, which is why accounts above may report the same identity. Unset it to get per-account credentials back."
     doctor_cred_legacy  "CLAUDE_SECURESTORAGE_CONFIG_DIR is set but empty, which makes Claude Code drop the per-directory suffix and store every account's credentials under the single legacy entry. Managed accounts are not allowed to read that entry, so they will report no token at all. Unset the variable entirely."
     help_lock           "Pin an account to its current identity"
-    clone_settings_usage "Usage: claude-acc clone-settings <name>"
     chrome_usage        "Usage: claude-acc chrome [<account>] [--on|--off]"
     chrome_state        "  %s  Claude in Chrome: %s"
     chrome_set          "  %s  Claude in Chrome: %s (restart any session in that account)"
     chrome_refused      "  %s  Claude Code refused: %s"
     chrome_claude_missing "chrome: could not run \`claude\` — the write goes through its own edit-chrome-settings, so Claude Code has to be on PATH (%s)"
     chrome_no_standard  "chrome: no standard ~/.claude/ account on this machine"
+    clone_settings_usage "Usage: claude-acc clone-settings <name> [--from <account>]"
+    clone_settings_same_account "clone-settings: --from %s is the account being seeded. Name the account to copy from."
     import_usage        "Usage: claude-acc import <name> <path> [--move]"
     import_source_not_dir "Source '%s' is not a directory."
     import_source_managed "That path is already inside ~/.claude-switch/accounts/."
@@ -228,7 +231,7 @@ _claude_msg_ru=(
     help_doctor         "Аудит OAuth-личности каждого аккаунта (email, UUID)"
     help_whoami         "Email активного аккаунта (или имя как fallback)"
     help_chrome         "Показать или задать Claude in Chrome по аккаунтам"
-    help_clone_settings "Скопировать конфиг ~/.claude/ в существующий аккаунт"
+    help_clone_settings "Скопировать конфиг другого аккаунта (или ~/.claude/) в существующий"
     help_import         "Импортировать существующую config-папку (без релогина)"
     help_help           "Справка"
     list_empty          "Нет аккаунтов. Добавьте: claude-acc add <name>"
@@ -266,7 +269,7 @@ _claude_msg_ru=(
     reserved_name       "'%s' — зарезервированное имя."
     name_invalid        "Имя аккаунта может содержать только буквы, цифры, дефисы и подчёркивания."
     seed_copied         "  скопировано: %s"
-    seed_nothing        "  нечего копировать из ~/.claude/"
+    seed_nothing        "  нечего копировать из %s"
     lock_usage          "Использование: claude-acc lock <name> [--force]"
     lock_done           "Аккаунт '%s' закреплён за %s.\n  Если позже войти под кем-то другим, \`claude-acc doctor\` покажет расхождение."
     lock_already        "Аккаунт '%s' уже закреплён за %s."
@@ -279,16 +282,19 @@ _claude_msg_ru=(
     doctor_lock_corrupt "⚠ закрепление не читается — проверка расхождений для этого аккаунта не работает"
     doctor_drift_hint   "Расхождение значит, что каталог залогинен под аккаунтом, за которым он не закреплён, — работа отсюда уйдёт не туда. Вернуть: \`claude-acc login <name>\`. Принять новую личность: \`claude-acc lock <name> --force\`."
     doctor_chrome_off   "Claude in Chrome выключен в: %s. Claude Code хранит этот переключатель отдельно для каждой config-папки, поэтому браузерные инструменты там не появятся, пока его не включить: \`claude-acc chrome <аккаунт> --on\`, из оболочки вне сессии Claude Code."
+    doctor_stray_entries "Это не аккаунты, лежит в %s: %s. Их здесь никто не создавал, и сделать с ними отсюда нельзя ничего — \`remove\` принимает только папку аккаунта, — так что убирать их вам."
+    doctor_linked_entries "Это симлинки, лежат в %s: %s. \`run\` и \`remove\` по ним идут, а \`list\` их пропускает, GUI же отказывается от хранилища за симлинком наотрез — так что если это задумано как аккаунт, сделайте настоящий каталог. Удалять, если решите, нужно сам симлинк, а не то, куда он ведёт."
     doctor_cred_shared  "CLAUDE_SECURESTORAGE_CONFIG_DIR выставлена в %s, поэтому все аккаунты делят одну сохранённую запись вместо собственной. В Keychain лежат креды того аккаунта, под которым логинились последними — отсюда и одинаковые личности в строках выше. Снимите переменную, чтобы вернуть раздельные креды."
     doctor_cred_legacy  "CLAUDE_SECURESTORAGE_CONFIG_DIR выставлена, но пуста — из-за этого Claude Code отбрасывает суффикс по папке и держит креды всех аккаунтов в одной legacy-записи. Управляемым аккаунтам читать её нельзя, поэтому они вообще сообщат об отсутствии токена. Снимите переменную совсем."
     help_lock           "Закрепить аккаунт за его текущей личностью"
-    clone_settings_usage "Использование: claude-acc clone-settings <name>"
     chrome_usage        "Использование: claude-acc chrome [<аккаунт>] [--on|--off]"
     chrome_state        "  %s  Claude in Chrome: %s"
     chrome_set          "  %s  Claude in Chrome: %s (перезапустите сессии этого аккаунта)"
     chrome_refused      "  %s  Claude Code отказался: %s"
     chrome_claude_missing "chrome: не удалось запустить \`claude\` — запись идёт через его же edit-chrome-settings, поэтому Claude Code должен быть в PATH (%s)"
     chrome_no_standard  "chrome: на этой машине нет стандартного аккаунта ~/.claude/"
+    clone_settings_usage "Использование: claude-acc clone-settings <name> [--from <аккаунт>]"
+    clone_settings_same_account "clone-settings: --from %s — это и есть аккаунт, который заполняем. Укажите, из какого аккаунта копировать."
     import_usage        "Использование: claude-acc import <name> <путь> [--move]"
     import_source_not_dir "Источник '%s' не является директорией."
     import_source_managed "Этот путь уже внутри ~/.claude-switch/accounts/."
@@ -394,9 +400,17 @@ _msg() {
 # Allowed: ASCII letters, digits, hyphens, underscores. Rejects path
 # separators, regex metacharacters, whitespace, and unicode — anything
 # that could be unsafe inside file paths or grep/sed patterns.
+# The name rule itself, without prose: ASCII letters, digits, hyphen,
+# underscore. Enumeration needs to apply it per directory, where a message
+# would be wrong — so the rule lives here and `_claude_validate_name` is the
+# speaking wrapper, and the two can never drift apart.
+_claude_acc_name_ok() {
+    [[ "$1" =~ ^[a-zA-Z0-9_-]+$ ]]
+}
+
 _claude_validate_name() {
     local name="$1"
-    if [[ ! "$name" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+    if ! _claude_acc_name_ok "$name"; then
         _msg name_invalid
         return 1
     fi
@@ -417,13 +431,75 @@ _claude_switch_init() {
     _claude_ensure_wrapper
 }
 
+# --- What accounts/ holds, split in two ---
+# No command here can create an entry whose name `_claude_acc_name_ok`
+# rejects. Enumerating them anyway made a stray `accounts/work.lock` a row of
+# `list`, a line of `usage`, a completion candidate and a finding of
+# `doctor`, which then advised `claude-acc login work.lock` — a name `login`
+# refuses — and an account `_claude_ensure_ide_symlinks` then wrote a symlink
+# into. Same rule as `validate_name` in src/config.rs: ASCII letters,
+# digits, hyphen, underscore.
+#
+# `(N/)` does not match a symlink, which matches the Rust side:
+# `list_accounts` never listed one either, and `gui::account_dir` refuses
+# account storage reached through a symlink outright. So a symlinked
+# directory is not an account here — it is reported separately instead, by
+# `_claude_acc_linked_entries` below.
+_claude_acc_account_names() {
+    local name
+    for name in "$CLAUDE_SWITCH_ACCOUNTS_DIR"/*(N/:t); do
+        _claude_acc_name_ok "$name" && print -r -- "$name"
+    done
+}
+
+# What else is under accounts/, in two lists, split by what a command would
+# do with the entry and in the order it does it: the name first, which every
+# command checks before looking at anything, then `[[ -d ]]`, which every
+# command reaches next and which follows a symlink. Whatever fails either is
+# beyond all of them and only the user's `rm` can clear it; what passes both
+# through a symlink is the half-working case, which `run` and `remove` reach
+# while `list` and the GUI do not count it as an account.
+#
+# Dotfiles match neither glob without GLOB_DOTS, and that is deliberate on
+# both sides: `.DS_Store` reappears the moment anyone opens the directory in
+# Finder, and a line naming it on every run is worse than silence.
+_claude_acc_unnamed_entries() {
+    local name entry
+    for name in "$CLAUDE_SWITCH_ACCOUNTS_DIR"/*(N:t); do
+        entry="$CLAUDE_SWITCH_ACCOUNTS_DIR/$name"
+        # The name first, as every command checks it first: a name no
+        # command takes is untouchable whatever the entry turns out to be.
+        if ! _claude_acc_name_ok "$name"; then
+            print -r -- "$name"
+            continue
+        fi
+        # Then `-d`, which follows a symlink — so a link to a file and a
+        # dangling link land here with the plain files, because `run` and
+        # `remove` stop at the same test and cannot reach any of them.
+        [[ -d "$entry" ]] && continue
+        print -r -- "$name"
+    done
+}
+
+# `@` is the symlink itself, `-/` the ones whose target is a directory: both
+# qualifiers, so a link to a file or a dangling one is not here — it is in
+# the list above, with everything else no command can reach.
+_claude_acc_linked_entries() {
+    local name
+    for name in "$CLAUDE_SWITCH_ACCOUNTS_DIR"/*(N@-/:t); do
+        _claude_acc_name_ok "$name" && print -r -- "$name"
+    done
+}
+
 # --- Create ide/ symlinks for every account ---
 # Every account points at ~/.claude/ide/ so IDE plugins (PhpStorm, VSCode)
 # always find Claude Code's lock files in the canonical location.
 _claude_ensure_ide_symlinks() {
     local ide_dir="$HOME/.claude/ide"
     mkdir -p "$ide_dir"
-    for acc_dir in "$CLAUDE_SWITCH_ACCOUNTS_DIR"/*(N/); do
+    local name acc_dir
+    for name in ${(f)"$(_claude_acc_account_names)"}; do
+        acc_dir="$CLAUDE_SWITCH_ACCOUNTS_DIR/$name"
         local acc_ide="$acc_dir/ide"
         if [[ ! -L "$acc_ide" ]]; then
             rm -rf "$acc_ide"
@@ -670,6 +746,7 @@ _claude_acc_help() {
     echo "  claude-acc add -s <name>     $(_msg help_add) (seeded from ~/.claude/)"
     echo "  claude-acc chrome [<account>] [--on|--off]  $(_msg help_chrome)"
     echo "  claude-acc clone-settings <name>  $(_msg help_clone_settings)"
+    echo "  claude-acc clone-settings <name> [--from <account>]  $(_msg help_clone_settings)"
     echo "  claude-acc import <name> <path>   $(_msg help_import)"
     echo "  claude-acc desktop add|clone-config|clone-runtime|list|run|remove [<name>]  $(_msg help_desktop)"
 }
@@ -678,7 +755,7 @@ _claude_acc_list() {
     local default_acc
     default_acc=$(_claude_default_account)
 
-    local accounts=("$CLAUDE_SWITCH_ACCOUNTS_DIR"/*(N:t))
+    local accounts=(${(f)"$(_claude_acc_account_names)"})
     if [[ ${#accounts} -eq 0 ]]; then
         _msg list_empty
         return
@@ -1056,8 +1133,11 @@ _claude_acc_reset() {
 # Skips files that already exist. Mirrors `seed::copy_user_config` in the
 # Rust binary — see src/seed.rs for the rationale on what's copied / not.
 _claude_acc_seed_from_default() {
-    local target="$1"
-    local source="$HOME/.claude"
+    _claude_acc_seed_from "$HOME/.claude" "$1"
+}
+
+_claude_acc_seed_from() {
+    local source="$1" target="$2"
     [[ ! -d "$source" ]] && return 0
 
     local files=(settings.json CLAUDE.md)
@@ -1088,14 +1168,14 @@ _claude_acc_seed_from_default() {
     done
 
     local plugin_count
-    if plugin_count=$(_claude_acc_seed_plugins "$target"); then
+    if plugin_count=$(_claude_acc_seed_plugins "$source" "$target"); then
         local plural=""
         (( plugin_count != 1 )) && plural="s"
         _msg seed_copied "plugins/ ($plugin_count file$plural)"
         any=1
     fi
 
-    (( any == 0 )) && _msg seed_nothing
+    (( any == 0 )) && _msg seed_nothing "${source/#$HOME/~}"
     return 0
 }
 
@@ -1125,8 +1205,8 @@ _claude_acc_registry_has_plugins() {
 # config dir — one checked into a project, say — and those paths must survive
 # verbatim. Prints the file count and returns 0 when something was copied.
 _claude_acc_seed_plugins() {
-    local target="$1"
-    local src="$HOME/.claude/plugins" dst="$target/plugins"
+    local source="$1" target="$2"
+    local src="$source/plugins" dst="$target/plugins"
 
     [[ -d "$src" ]] || return 1
     _claude_acc_registry_has_plugins "$src" || return 1
@@ -1162,9 +1242,32 @@ _claude_acc_seed_plugins() {
 }
 
 _claude_acc_clone_settings() {
-    local name="${1:-}"
-    if [[ -z "$name" ]]; then
+    local name="" from="" from_given=0
+    local -a rest
+    while (( $# > 0 )); do
+        case "$1" in
+            # Shift the flag, then its value only if there is one. A bare
+            # `shift 2` cannot shift at all when the value is missing, and
+            # `while (( $# > 0 ))` then spins for ever — the same trap
+            # `_claude_acc_desktop_clone_config` carries a comment about.
+            --from)   from="${2:-}"; from_given=1; shift; (( $# )) && shift ;;
+            --from=*) from="${1#--from=}"; from_given=1; shift ;;
+            *)        rest+=("$1"); shift ;;
+        esac
+    done
+    name="${rest[1]:-}"
+    # One account, not two: a second name used to replace the first in
+    # silence, so `clone-settings a b` seeded `b`.
+    if [[ -z "$name" || ${#rest} -gt 1 ]]; then
         _msg clone_settings_usage
+        return 1
+    fi
+    # `--from` with nothing after it is a mistake, not a request for the
+    # standard account. The Rust side refuses both forms too: clap rejects a
+    # bare `--from`, and `--from=` reaches `validate_name("")`, which says
+    # no.
+    if (( from_given )) && [[ -z "$from" ]]; then
+        _msg name_invalid
         return 1
     fi
     if [[ "$name" == "default" ]]; then
@@ -1177,7 +1280,29 @@ _claude_acc_clone_settings() {
         _msg login_not_found "$name"
         return 1
     fi
-    _claude_acc_seed_from_default "$acc_dir"
+
+    # Where to copy from. No --from, or `default`, is the standard account —
+    # which lives at ~/.claude, outside the switch dir, so it is never
+    # `accounts/default`. Any other name is a managed account, checked the
+    # way every other account argument is, plus one check of its own:
+    # seeding an account from itself is a typo, not a no-op worth running.
+    local source
+    if [[ -z "$from" || "$from" == "default" ]]; then
+        source="$HOME/.claude"
+    else
+        _claude_validate_name "$from" || return 1
+        if [[ "$from" == "$name" ]]; then
+            _msg clone_settings_same_account "$name"
+            return 1
+        fi
+        source="$CLAUDE_SWITCH_ACCOUNTS_DIR/$from"
+        if [[ ! -d "$source" ]]; then
+            _msg login_not_found "$from"
+            return 1
+        fi
+    fi
+
+    _claude_acc_seed_from "$source" "$acc_dir"
 }
 
 # Run claude under a specific account — one-shot, doesn't change links or
@@ -1280,7 +1405,7 @@ _claude_acc_desktop_signed_in() {
 # profile without a keychain prompt or a network call.
 _claude_acc_cli_identities() {
     local acc line
-    for acc in "$CLAUDE_SWITCH_ACCOUNTS_DIR"/*(N:t) default; do
+    for acc in ${(f)"$(_claude_acc_account_names)"} default; do
         line=$(_claude_acc_local_identity "$(_claude_acc_lock_paths "$acc" | tail -1)") || continue
         [[ "${line#*$'\t'}" == "" ]] || print -r -- "$line"
     done
@@ -2141,7 +2266,7 @@ _claude_acc_usage() {
 
     local default_acc
     default_acc=$(_claude_default_account)
-    local accounts=("$CLAUDE_SWITCH_ACCOUNTS_DIR"/*(N:t))
+    local accounts=(${(f)"$(_claude_acc_account_names)"})
     local standard_dir standard_present=0
     standard_dir=$(_claude_acc_default_token_dir)
     [[ -n "$(_claude_acc_token "$standard_dir")" ]] && standard_present=1
@@ -2425,10 +2550,7 @@ _claude_acc_chrome() {
         fi
     else
         local acc std
-        # The same inline glob every other enumeration in this file uses.
-        # #203 replaces them all with `_claude_acc_account_names`; whichever
-        # of the two lands second has to convert this one too.
-        for acc in "$CLAUDE_SWITCH_ACCOUNTS_DIR"/*(N/:t); do
+        for acc in ${(f)"$(_claude_acc_account_names)"}; do
             labels+=("$acc"); dirs+=("$CLAUDE_SWITCH_ACCOUNTS_DIR/$acc")
             write_dirs+=("$CLAUDE_SWITCH_ACCOUNTS_DIR/$acc")
         done
@@ -2689,7 +2811,7 @@ _claude_acc_doctor() {
         fi
     done
 
-    local accounts=("$CLAUDE_SWITCH_ACCOUNTS_DIR"/*(N:t))
+    local accounts=(${(f)"$(_claude_acc_account_names)"})
     local standard_label="~/.claude/"
     local standard_dir
     standard_dir=$(_claude_acc_default_token_dir)
@@ -2841,6 +2963,17 @@ _claude_acc_doctor() {
     done
     (( chrome_seen && ${#chrome_off} > 0 )) && \
         _msg doctor_chrome_off "${(j:, :)chrome_off}"
+    # Everything accounts/ holds that is not an account. Nothing else names
+    # these — keeping them out of `list`, `usage` and completion is the point
+    # — so without these lines such an entry just disappears.
+    local -a stray_entries linked_entries
+    local accounts_where="${CLAUDE_SWITCH_ACCOUNTS_DIR/#$HOME/~}"
+    stray_entries=(${(f)"$(_claude_acc_unnamed_entries)"})
+    (( ${#stray_entries} > 0 )) && \
+        _msg doctor_stray_entries "$accounts_where" "${(j:, :)stray_entries}"
+    linked_entries=(${(f)"$(_claude_acc_linked_entries)"})
+    (( ${#linked_entries} > 0 )) && \
+        _msg doctor_linked_entries "$accounts_where" "${(j:, :)linked_entries}"
     # Informational, like the Chrome hint: it must not reach the exit code
     # below, which means "wrong identity" and nothing else.
     # Names chosen not to collide with this function's existing locals: a
@@ -3041,11 +3174,11 @@ _claude_acc_completion() {
     elif (( CURRENT == 3 )); then
         case "${words[2]}" in
             remove|clone-settings)
-                accounts=("$CLAUDE_SWITCH_ACCOUNTS_DIR"/*(N:t))
+                accounts=(${(f)"$(_claude_acc_account_names)"})
                 _describe 'account' accounts
                 ;;
             default|link|login|run)
-                accounts=("default" "$CLAUDE_SWITCH_ACCOUNTS_DIR"/*(N:t))
+                accounts=("default" ${(f)"$(_claude_acc_account_names)"})
                 _describe 'account' accounts
                 ;;
             desktop)

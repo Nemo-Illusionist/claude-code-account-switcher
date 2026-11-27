@@ -1,4 +1,5 @@
-// Seed a managed account dir with the user's standard `~/.claude/` config.
+// Seed a managed account dir from another config dir — the user's standard
+// `~/.claude/` by default, or a named account with `clone-settings --from`.
 //
 // What gets copied: configuration / personalization that you'd want carried
 // over to a new account dir.
@@ -48,11 +49,22 @@ impl CopyReport {
     }
 }
 
+/// Seed `target` from the user's standard `~/.claude/`.
 pub fn copy_user_config(target: &Path) -> std::io::Result<CopyReport> {
     let source = match dirs::home_dir() {
         Some(h) => h.join(".claude"),
         None => return Err(std::io::Error::other("cannot determine home directory")),
     };
+    copy_config(&source, target)
+}
+
+/// Seed `target` from `source`.
+///
+/// The source used to be `~/.claude/` and nothing else, which made the
+/// obvious thing — "give this new account the same setup as the account I
+/// already use" — inexpressible: you had to copy the files by hand, and get
+/// the plugin registry's rewritten paths right by hand with them.
+pub fn copy_config(source: &Path, target: &Path) -> std::io::Result<CopyReport> {
     let mut report = CopyReport { copied: vec![] };
 
     if !source.exists() {
@@ -85,7 +97,7 @@ pub fn copy_user_config(target: &Path) -> std::io::Result<CopyReport> {
             .push(format!("{}/ ({} file{})", d, count, plural(count)));
     }
 
-    if let Some(count) = copy_plugins(&source, target)? {
+    if let Some(count) = copy_plugins(source, target)? {
         report
             .copied
             .push(format!("plugins/ ({} file{})", count, plural(count)));
@@ -203,8 +215,20 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<usize> {
             // partway through and left a half-copied account behind — and
             // someone who symlinked a skill into ~/.claude meant to keep one
             // copy of it, so duplicating the tree into every account would
-            // fork it silently. Links point outside the config dir in
-            // practice, and stay correct from anywhere.
+            // fork it silently.
+            //
+            // A *relative* link survives only a copy of the same depth.
+            // `~/.claude/skills/foo -> ../../elsewhere/foo` is two levels up
+            // from the skills dir; inside `accounts/<name>/skills/` the same
+            // text is two levels short, and resolves nowhere. So the
+            // `--from default` direction can carry a broken link into an
+            // account, while account-to-account is equal in depth and
+            // cannot. (The reverse exists too: a link written inside an
+            // account — four `../` here, from a real `skills/computer-use`
+            // — would be wrong if it were ever copied up to `~/.claude`.)
+            // Rewriting it would be a guess about what the author meant, so
+            // the link is copied as written; this is here so the next reader
+            // knows it is a known edge and not an oversight.
             copy_symlink(&path, &dst_path)?;
             count += 1;
         } else if file_type.is_dir() {
@@ -258,6 +282,121 @@ mod tests {
         let _ = fs::remove_dir_all(&d);
         fs::create_dir_all(&d).unwrap();
         d
+    }
+
+    #[test]
+    fn an_account_can_be_seeded_from_another_account() {
+        // What `clone-settings --from` is for: give a new account the setup
+        // of the one already in use, with the plugin registry repointed at
+        // the new dir rather than loading the other account's cache.
+        let dir = scratch("from-account");
+        let src = dir.join("accounts/work");
+        let dst = dir.join("accounts/work-2");
+        fs::create_dir_all(&dst).unwrap();
+        fs::create_dir_all(src.join("agents")).unwrap();
+        fs::write(src.join("settings.json"), r#"{"theme":"dark"}"#).unwrap();
+        fs::write(src.join("CLAUDE.md"), "memory").unwrap();
+        fs::write(src.join("agents/one.md"), "agent").unwrap();
+        // A registry whose paths point into the source account, and a
+        // marketplace sourced from outside any config dir.
+        fs::create_dir_all(src.join("plugins/cache/local/helper/1.0.0")).unwrap();
+        fs::write(src.join("plugins/cache/local/helper/1.0.0/plugin.md"), "p").unwrap();
+        // Two platform details, neither of which a run on this machine can
+        // catch: the local cross-check from CLAUDE.md is a clippy
+        // type-check and runs no tests.
+        //
+        // `serde_json`, not `format!`: a Windows path holds backslashes, and
+        // pasting one into a JSON string literal is an invalid escape, so
+        // the fixture was not JSON at all there.
+        //
+        // And the prefix must be built the way the rewrite builds it. It
+        // takes `source.join("plugins").to_string_lossy()` and compares
+        // strings, so a `/` written *inside* that part — `{src}/plugins/…`
+        // where the path itself uses `\` — does not match, the file is left
+        // alone, and the assertions below fail against an unrewritten path.
+        // After the prefix it does not matter:
+        // `seeding_copies_the_tree_and_repoints_the_registry` glues
+        // `cache/official/helper/abc` onto the joined prefix and matches
+        // fine. Joining every component is simply the form that cannot get
+        // it wrong.
+        let p = |root: &Path, rest: &[&str]| -> String {
+            let mut out = root.to_path_buf();
+            for part in rest {
+                out = out.join(part);
+            }
+            out.to_string_lossy().into_owned()
+        };
+        fs::write(
+            src.join("plugins/installed_plugins.json"),
+            serde_json::json!({
+                "plugins": {
+                    "helper@local": [{
+                        "scope": "user",
+                        "installPath": p(&src, &["plugins", "cache", "local", "helper", "1.0.0"]),
+                    }]
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+        fs::write(
+            src.join("plugins/known_marketplaces.json"),
+            serde_json::json!({
+                "local": {
+                    "installLocation": p(&src, &["plugins", "marketplaces", "local"])
+                },
+                "repo": { "installLocation": "/work/repo/.claude/plugins" }
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let report = copy_config(&src, &dst).unwrap();
+        assert!(!report.is_empty(), "nothing was copied");
+
+        assert_eq!(fs::read_to_string(dst.join("CLAUDE.md")).unwrap(), "memory");
+        assert_eq!(
+            fs::read_to_string(dst.join("settings.json")).unwrap(),
+            r#"{"theme":"dark"}"#
+        );
+        assert!(dst.join("agents/one.md").is_file());
+
+        // The paths that pointed into the source now point into the target,
+        // and the one outside any config dir is untouched. Expected values
+        // written out here, not derived from the rewriter.
+        let installed: serde_json::Value = serde_json::from_str(
+            &fs::read_to_string(dst.join("plugins/installed_plugins.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            installed["plugins"]["helper@local"][0]["installPath"]
+                .as_str()
+                .unwrap(),
+            p(&dst, &["plugins", "cache", "local", "helper", "1.0.0"])
+        );
+        assert_eq!(installed["plugins"]["helper@local"][0]["scope"], "user");
+        let markets: serde_json::Value = serde_json::from_str(
+            &fs::read_to_string(dst.join("plugins/known_marketplaces.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            markets["local"]["installLocation"].as_str().unwrap(),
+            p(&dst, &["plugins", "marketplaces", "local"])
+        );
+        assert_eq!(
+            markets["repo"]["installLocation"],
+            "/work/repo/.claude/plugins"
+        );
+        assert!(
+            dst.join("plugins/cache/local/helper/1.0.0/plugin.md")
+                .is_file()
+        );
+
+        // A second run has nothing left to do: this is a seed, not a sync.
+        let again = copy_config(&src, &dst).unwrap();
+        assert!(again.is_empty(), "copied twice: {:?}", again.copied);
+
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

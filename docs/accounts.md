@@ -40,7 +40,21 @@ claude-acc add -s work               # seed at creation time
 claude-acc clone-settings work       # seed an existing account
 ```
 
-Both copy a curated set of files from `~/.claude/`:
+Or from an account you already use, rather than from `~/.claude/` — which is usually what you want for a second work account:
+
+```bash
+claude-acc clone-settings work-2 --from work
+claude-acc clone-settings work-2 --from default   # the same as leaving it out
+```
+
+`--from` takes a managed account, or `default` for the standard `~/.claude/`. It refuses the account being seeded, and an account that does not exist. The plugin registry is repointed at the target either way, so the new account loads its own copy rather than the other account's cache.
+
+Two things to know before copying between accounts:
+
+- **`settings.json` goes across whole**, and it can carry credentials: an `env` block with `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` in it, or an `apiKeyHelper`. A key you set for one account follows the copy into the other, and nothing here strips it — check the file if the two accounts are not meant to share one.
+- **A relative symlink survives only a copy of the same depth.** `~/.claude/skills/foo -> ../../elsewhere/foo` is two levels from home; the same text inside `accounts/<name>/skills/` is not, so `--from default` can land a link that resolves nowhere. Account to account is equal in depth and safe. The link is copied as written rather than rewritten, because rewriting it would be a guess about what you meant.
+
+All of them copy the same curated set of files:
 
 **Copied** (configuration / personalization):
 - `settings.json` (env vars, permissions, hooks references, statusline, plugins, language)

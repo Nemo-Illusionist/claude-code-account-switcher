@@ -28,7 +28,22 @@ _claude_acc_accounts() {
     accounts=(${(f)"$('__CLAUDE_ACC_BIN__' completions accounts)"})
     # `default` is not a managed account directory but every command that
     # takes an account name accepts it as "the standard ~/.claude one".
-    [[ -n "$1" ]] && accounts=('default' $accounts)
+    #
+    # `${1-}`, not `$1`: the callers that want only managed accounts — the
+    # `remove` and `clone-settings` branches — pass nothing at all, and a
+    # bare `$1` is an error under `setopt nounset`.
+    #
+    # Defensive, not a fix: a real completion never runs under `nounset`.
+    # `_main_complete` evals `_comp_setup`, which does `setopt
+    # localoptions … ${_comp_options[@]}`, and `_comp_options` contains
+    # `unset` — the inverse of `nounset` (zsh 5.9,
+    # `/usr/share/zsh/5.9/functions/compinit`, checked rather than
+    # recalled: inside that scope `[[ -o nounset ]]` is off and a bare `$1`
+    # survives). So this only bites a caller that invokes the function
+    # directly, which is what `tests/shell/completion_nounset.zsh` does.
+    # The bash side had the same shape of bug for real — bash does not
+    # relax `set -u` for completions.
+    [[ -n "${1-}" ]] && accounts=('default' $accounts)
     _describe 'account' accounts
 }
 
@@ -66,6 +81,7 @@ _claude_acc_completion() {
         'whoami:Print active account email'
         'chrome:Show or set Claude in Chrome per account'
         'clone-settings:Copy ~/.claude/ config into account'
+        'clone-settings:Copy another account'\''s config into account'
         'import:Import an existing Claude config dir (no re-login)'
     )
 
@@ -111,6 +127,7 @@ _claude_acc_completion() {
             chrome) flags=('--on:Turn Claude in Chrome on' '--off:Turn Claude in Chrome off') ;;
             update) flags=('--check:Only check, do not download' '--version:Install a specific version') ;;
             session) flags=('--to:Destination account' '--from:Source account' '--force:Skip confirmation' '-f:Skip confirmation') ;;
+            clone-settings) flags=('--from:Account to copy from, or default for ~/.claude/') ;;
             vscode) flags=('--force:Replace a wrapper set to something else' '-f:Replace a wrapper set to something else') ;;
             desktop) flags=('--seed:Seed MCP config from the app profile' '-s:Seed MCP config from the app profile' '--from:Copy the config from this profile' '--force:Skip confirmation / replace / sign-in check' '-f:Skip confirmation / replace') ;;
         esac

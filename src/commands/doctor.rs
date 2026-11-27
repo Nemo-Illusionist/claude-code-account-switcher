@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 
 use crate::chrome;
 use crate::config::AppConfig;
@@ -69,6 +70,34 @@ fn shared_credential_store(securestorage: Option<&str>) -> Option<SharedStore> {
     }
 }
 
+/// The names for one of `doctor`'s two reports on what else is in
+/// `accounts/`, or `None` when that list is empty and the line must not be
+/// printed at all.
+fn joined(names: &[String]) -> Option<String> {
+    if names.is_empty() {
+        return None;
+    }
+    Some(names.join(", "))
+}
+
+/// A path with the home directory written as `~`, for a message a person
+/// reads. Printed in full it would carry the account name of whoever ran it
+/// into whatever the output gets pasted into.
+fn home_relative(path: &Path) -> String {
+    home_relative_to(path, dirs::home_dir().as_deref())
+}
+
+/// The decision, with the home directory passed in: `cargo test` runs tests
+/// in threads of one process, so a test that set `HOME` would be a test of
+/// scheduling.
+fn home_relative_to(path: &Path, home: Option<&Path>) -> String {
+    match home.and_then(|h| path.strip_prefix(h).ok().map(PathBuf::from)) {
+        Some(rel) if rel.as_os_str().is_empty() => "~".to_string(),
+        Some(rel) => format!("~/{}", rel.display()),
+        None => path.display().to_string(),
+    }
+}
+
 /// The audited accounts that have Claude in Chrome switched off, named the way
 /// `claude-acc run` takes them, or `None` when there is nothing to say.
 ///
@@ -113,10 +142,11 @@ fn chrome_off(
 }
 
 pub fn run(config: &AppConfig, i18n: &I18n, json: bool) -> i32 {
-    let accounts = match config.list_accounts() {
+    let read = match config.read_accounts_dir() {
         Ok(v) => v,
         Err(_) => return 1,
     };
+    let accounts = read.accounts;
 
     // The standard "default" line shows up if a login exists in ~/.claude/.
     // Otherwise it would just print noise on every doctor run, so we hide it
@@ -128,10 +158,24 @@ pub fn run(config: &AppConfig, i18n: &I18n, json: bool) -> i32 {
     if json {
         return run_json(config, &accounts, standard_present);
     }
-    run_human(config, i18n, &accounts, standard_present)
+    run_human(
+        config,
+        i18n,
+        &accounts,
+        &read.unnamed,
+        &read.linked,
+        standard_present,
+    )
 }
 
-fn run_human(config: &AppConfig, i18n: &I18n, accounts: &[String], standard_present: bool) -> i32 {
+fn run_human(
+    config: &AppConfig,
+    i18n: &I18n,
+    accounts: &[String],
+    unnamed: &[String],
+    linked: &[String],
+    standard_present: bool,
+) -> i32 {
     let standard_label = "~/.claude/";
 
     // The standard account earns a row when it has a token *or* when its pin
@@ -287,6 +331,18 @@ fn run_human(config: &AppConfig, i18n: &I18n, accounts: &[String], standard_pres
     if let Some(names) = chrome_off(config, &rows, standard_label) {
         i18n.print(Msg::DoctorChromeOff(names));
     }
+    // Everything `accounts/` holds that is not an account. Nothing else
+    // mentions these — the point of the filter is that they stay out of
+    // `list`, `usage` and completion — so without these lines such an entry
+    // would simply become invisible. Informational, like the Chrome line:
+    // neither is a wrong identity, and the exit code means only that.
+    let where_ = home_relative(&config.accounts_dir());
+    if let Some(names) = joined(unnamed) {
+        i18n.print(Msg::DoctorStrayEntries(names, where_.clone()));
+    }
+    if let Some(names) = joined(linked) {
+        i18n.print(Msg::DoctorLinkedEntries(names, where_));
+    }
     // Like the Chrome hint: informational, and deliberately not touching the
     // exit code. A shared credential store is a configuration someone chose,
     // not a wrong identity — and the exit code means only the latter.
@@ -422,6 +478,48 @@ mod tests {
 
     fn en() -> I18n {
         I18n { lang: Lang::En }
+    }
+
+    #[test]
+    fn an_empty_list_prints_no_line_at_all() {
+        // Both hints hang on this: an empty `accounts/` must not produce
+        // "Not accounts, in ~/.claude-switch/accounts: ".
+        assert_eq!(joined(&[]), None);
+        assert_eq!(
+            joined(&["work.lock".to_string(), "notes.txt".to_string()]),
+            Some("work.lock, notes.txt".to_string())
+        );
+    }
+
+    #[test]
+    fn a_path_under_home_is_printed_with_a_tilde() {
+        // The message names the directory, and `doctor` output gets pasted
+        // into issues — the home prefix carries the user's account name with
+        // it. Expected values written out by hand.
+        let home = Path::new("/Users/someone");
+        assert_eq!(
+            home_relative_to(
+                Path::new("/Users/someone/.claude-switch/accounts"),
+                Some(home)
+            ),
+            "~/.claude-switch/accounts"
+        );
+        assert_eq!(home_relative_to(home, Some(home)), "~");
+        // Not under home, and no home at all: printed as it is, never with a
+        // `~` that would point somewhere else.
+        assert_eq!(
+            home_relative_to(Path::new("/srv/switch/accounts"), Some(home)),
+            "/srv/switch/accounts"
+        );
+        assert_eq!(
+            home_relative_to(Path::new("/Users/someone/x"), None),
+            "/Users/someone/x"
+        );
+        // A different user's home is not this one's prefix.
+        assert_eq!(
+            home_relative_to(Path::new("/Users/someone-else/x"), Some(home)),
+            "/Users/someone-else/x"
+        );
     }
 
     #[test]

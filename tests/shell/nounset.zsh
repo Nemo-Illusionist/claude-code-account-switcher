@@ -128,7 +128,7 @@ check_usage "login"          "Usage: claude-acc login <name>" login
 check_usage "remove"         "Usage: claude-acc remove [-f] [--purge] <name>" remove
 check_usage "link"           "Usage: claude-acc link <name>" link
 check_usage "run"            "Usage: claude-acc run <name> [args...]" run
-check_usage "clone-settings" "Usage: claude-acc clone-settings <name>" clone-settings
+check_usage "clone-settings" "Usage: claude-acc clone-settings <name> [--from <account>]" clone-settings
 check_usage "import"         "Usage: claude-acc import <name> <path> [--move]" import
 check_usage "desktop" \
     "Usage: claude-acc desktop add|clone-config|clone-runtime|list|run|remove [<name>]" \

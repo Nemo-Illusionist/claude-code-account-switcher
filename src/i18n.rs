@@ -269,8 +269,26 @@ impl I18n {
             // seed / clone-settings
             (Msg::SeedCopied(ref s), Lang::En) => format!("  copied: {}", s),
             (Msg::SeedCopied(ref s), Lang::Ru) => format!("  скопировано: {}", s),
-            (Msg::SeedNothingToCopy, Lang::En) => s("  nothing to copy from ~/.claude/"),
-            (Msg::SeedNothingToCopy, Lang::Ru) => s("  нечего копировать из ~/.claude/"),
+            (Msg::CloneSettingsNoHome, Lang::En) => s(
+                "clone-settings: cannot determine the home directory, so there is no ~/.claude/ to copy from",
+            ),
+            (Msg::CloneSettingsNoHome, Lang::Ru) => s(
+                "clone-settings: не удалось определить домашний каталог, поэтому копировать из ~/.claude/ нечего",
+            ),
+            (Msg::CloneSettingsSameAccount(ref name), Lang::En) => format!(
+                "clone-settings: --from {} is the account being seeded. Name the account to copy from.",
+                name
+            ),
+            (Msg::CloneSettingsSameAccount(ref name), Lang::Ru) => format!(
+                "clone-settings: --from {} — это и есть аккаунт, который заполняем. Укажите, из какого аккаунта копировать.",
+                name
+            ),
+            (Msg::SeedNothingToCopy(ref source), Lang::En) => {
+                format!("  nothing to copy from {}", source)
+            }
+            (Msg::SeedNothingToCopy(ref source), Lang::Ru) => {
+                format!("  нечего копировать из {}", source)
+            }
 
             // doctor
             (Msg::RelativeTime(secs), lang) => relative_time(secs, lang),
@@ -1156,6 +1174,35 @@ impl I18n {
                  shell outside a Claude Code session.",
                 names
             ),
+            (Msg::DoctorStrayEntries(ref names, ref dir), Lang::En) => format!(
+                "Not accounts, in {}: {}. Nothing here created those, and no \
+                 command here can act on them — `remove` takes an account \
+                 directory and nothing else — so clearing them up is yours \
+                 to do.",
+                dir, names
+            ),
+            (Msg::DoctorStrayEntries(ref names, ref dir), Lang::Ru) => format!(
+                "Это не аккаунты, лежит в {}: {}. Их здесь никто не создавал, \
+                 и сделать с ними отсюда нельзя ничего — `remove` принимает \
+                 только папку аккаунта, — так что убирать их вам.",
+                dir, names
+            ),
+            (Msg::DoctorLinkedEntries(ref names, ref dir), Lang::En) => format!(
+                "Symlinks, in {}: {}. `run` and `remove` follow one, while \
+                 `list` skips it and the GUI refuses account storage behind \
+                 a symlink outright — so make it a real directory if it is \
+                 meant to be an account. Removing it should remove the link, \
+                 not whatever it leads to.",
+                dir, names
+            ),
+            (Msg::DoctorLinkedEntries(ref names, ref dir), Lang::Ru) => format!(
+                "Это симлинки, лежат в {}: {}. `run` и `remove` по ним идут, \
+                 а `list` их пропускает, GUI же отказывается от хранилища за \
+                 симлинком наотрез — так что если это задумано как аккаунт, \
+                 сделайте настоящий каталог. Удалять, если решите, нужно сам \
+                 симлинк, а не то, куда он ведёт.",
+                dir, names
+            ),
             (Msg::DoctorChromeOff(ref names), Lang::Ru) => format!(
                 "Claude in Chrome выключен в: {}. Claude Code хранит этот \
                  переключатель отдельно для каждой config-папки, поэтому \
@@ -1412,7 +1459,9 @@ pub enum Msg {
     DuplicateAccountWarning(String, String),
     RelativeTime(u64),
     SeedCopied(String),
-    SeedNothingToCopy,
+    SeedNothingToCopy(String),
+    CloneSettingsSameAccount(String),
+    CloneSettingsNoHome,
     UsageHeader,
     UsageResetsIn(String),
     UsageAvailableNow,
@@ -1497,6 +1546,8 @@ pub enum Msg {
     ChromeRefused(String, String),
     ChromeClaudeMissing(String),
     ChromeNoStandardAccount,
+    DoctorStrayEntries(String, String),
+    DoctorLinkedEntries(String, String),
     DoctorCredentialStoreShared(String),
     DoctorCredentialStoreLegacy,
     UsageFromCache(u64),
