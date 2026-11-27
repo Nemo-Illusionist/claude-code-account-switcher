@@ -27,6 +27,12 @@ trap 'rm -rf "$scratch"' EXIT
 export HOME="$scratch/home"
 mkdir -p "$HOME/.claude"
 export CLAUDE_ACC_LANG=en
+# Every expected list below is in byte order. The order itself comes from
+# zsh's glob, which sorts by collation, so the locale decides where `работа`
+# lands relative to the ASCII names: under en_US.UTF-8 it sorts first, under
+# C last. `LC_ALL` is what the runner may have set, and it overrides
+# `LC_COLLATE`, so this is the only setting that pins it.
+export LC_ALL=C
 
 source "${0:A:h:h:h}/claude-switch.sh" >/dev/null 2>&1
 
