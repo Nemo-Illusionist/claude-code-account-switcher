@@ -301,17 +301,33 @@ mod tests {
         // marketplace sourced from outside any config dir.
         fs::create_dir_all(src.join("plugins/cache/local/helper/1.0.0")).unwrap();
         fs::write(src.join("plugins/cache/local/helper/1.0.0/plugin.md"), "p").unwrap();
-        // Built through `serde_json`, not `format!`: on Windows a path holds
-        // backslashes, and pasting one into a JSON string literal makes it
-        // an invalid escape — which is how this first failed on the Windows
-        // runner and nowhere else.
+        // Two platform details, both of which the Windows runner caught and
+        // nothing here can:
+        //
+        // `serde_json`, not `format!`: a Windows path holds backslashes, and
+        // pasting one into a JSON string literal is an invalid escape, so
+        // the fixture was not JSON at all there.
+        //
+        // And `Path::join`, not a `/` glued onto a path: the rewrite takes
+        // its prefix from `source.join("plugins").to_string_lossy()` and
+        // compares strings, so a fixture mixing `\` with `/` would not match
+        // the prefix on Windows — the file would be left alone and the
+        // assertions below would fail against an unrewritten path. Same
+        // pattern as `an_install_path_inside_the_old_config_dir_is_repointed_at_the_new_one`.
+        let p = |root: &Path, rest: &[&str]| -> String {
+            let mut out = root.to_path_buf();
+            for part in rest {
+                out = out.join(part);
+            }
+            out.to_string_lossy().into_owned()
+        };
         fs::write(
             src.join("plugins/installed_plugins.json"),
             serde_json::json!({
                 "plugins": {
                     "helper@local": [{
                         "scope": "user",
-                        "installPath": format!("{}/plugins/cache/local/helper/1.0.0", src.display()),
+                        "installPath": p(&src, &["plugins", "cache", "local", "helper", "1.0.0"]),
                     }]
                 }
             })
@@ -322,7 +338,7 @@ mod tests {
             src.join("plugins/known_marketplaces.json"),
             serde_json::json!({
                 "local": {
-                    "installLocation": format!("{}/plugins/marketplaces/local", src.display())
+                    "installLocation": p(&src, &["plugins", "marketplaces", "local"])
                 },
                 "repo": { "installLocation": "/work/repo/.claude/plugins" }
             })
@@ -351,7 +367,7 @@ mod tests {
             installed["plugins"]["helper@local"][0]["installPath"]
                 .as_str()
                 .unwrap(),
-            format!("{}/plugins/cache/local/helper/1.0.0", dst.display())
+            p(&dst, &["plugins", "cache", "local", "helper", "1.0.0"])
         );
         assert_eq!(installed["plugins"]["helper@local"][0]["scope"], "user");
         let markets: serde_json::Value = serde_json::from_str(
@@ -360,7 +376,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             markets["local"]["installLocation"].as_str().unwrap(),
-            format!("{}/plugins/marketplaces/local", dst.display())
+            p(&dst, &["plugins", "marketplaces", "local"])
         );
         assert_eq!(
             markets["repo"]["installLocation"],
