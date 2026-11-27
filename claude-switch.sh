@@ -380,9 +380,17 @@ _msg() {
 # Allowed: ASCII letters, digits, hyphens, underscores. Rejects path
 # separators, regex metacharacters, whitespace, and unicode — anything
 # that could be unsafe inside file paths or grep/sed patterns.
+# The name rule itself, without prose: ASCII letters, digits, hyphen,
+# underscore. Enumeration needs to apply it per directory, where a message
+# would be wrong — so the rule lives here and `_claude_validate_name` is the
+# speaking wrapper, and the two can never drift apart.
+_claude_acc_name_ok() {
+    [[ "$1" =~ ^[a-zA-Z0-9_-]+$ ]]
+}
+
 _claude_validate_name() {
     local name="$1"
-    if [[ ! "$name" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+    if ! _claude_acc_name_ok "$name"; then
         _msg name_invalid
         return 1
     fi
@@ -403,13 +411,29 @@ _claude_switch_init() {
     _claude_ensure_wrapper
 }
 
+# --- Every managed account, one name per line ---
+# A directory whose name `add`, `login` and `import` would all reject is not
+# one of ours, so nothing here could have created it. Listing it anyway made
+# a stray `accounts/work.lock` a row of `list` and a finding of `doctor`,
+# which then advised `claude-acc login work.lock` — a name `login` refuses.
+# Same rule as `validate_name` in src/config.rs: ASCII letters, digits,
+# hyphen, underscore.
+_claude_acc_account_names() {
+    local name
+    for name in "$CLAUDE_SWITCH_ACCOUNTS_DIR"/*(N/:t); do
+        _claude_acc_name_ok "$name" && print -r -- "$name"
+    done
+}
+
 # --- Create ide/ symlinks for every account ---
 # Every account points at ~/.claude/ide/ so IDE plugins (PhpStorm, VSCode)
 # always find Claude Code's lock files in the canonical location.
 _claude_ensure_ide_symlinks() {
     local ide_dir="$HOME/.claude/ide"
     mkdir -p "$ide_dir"
-    for acc_dir in "$CLAUDE_SWITCH_ACCOUNTS_DIR"/*(N/); do
+    local name acc_dir
+    for name in ${(f)"$(_claude_acc_account_names)"}; do
+        acc_dir="$CLAUDE_SWITCH_ACCOUNTS_DIR/$name"
         local acc_ide="$acc_dir/ide"
         if [[ ! -L "$acc_ide" ]]; then
             rm -rf "$acc_ide"
@@ -663,7 +687,7 @@ _claude_acc_list() {
     local default_acc
     default_acc=$(_claude_default_account)
 
-    local accounts=("$CLAUDE_SWITCH_ACCOUNTS_DIR"/*(N:t))
+    local accounts=(${(f)"$(_claude_acc_account_names)"})
     if [[ ${#accounts} -eq 0 ]]; then
         _msg list_empty
         return
@@ -1265,7 +1289,7 @@ _claude_acc_desktop_signed_in() {
 # profile without a keychain prompt or a network call.
 _claude_acc_cli_identities() {
     local acc line
-    for acc in "$CLAUDE_SWITCH_ACCOUNTS_DIR"/*(N:t) default; do
+    for acc in ${(f)"$(_claude_acc_account_names)"} default; do
         line=$(_claude_acc_local_identity "$(_claude_acc_lock_paths "$acc" | tail -1)") || continue
         [[ "${line#*$'\t'}" == "" ]] || print -r -- "$line"
     done
@@ -2126,7 +2150,7 @@ _claude_acc_usage() {
 
     local default_acc
     default_acc=$(_claude_default_account)
-    local accounts=("$CLAUDE_SWITCH_ACCOUNTS_DIR"/*(N:t))
+    local accounts=(${(f)"$(_claude_acc_account_names)"})
     local standard_dir standard_present=0
     standard_dir=$(_claude_acc_default_token_dir)
     [[ -n "$(_claude_acc_token "$standard_dir")" ]] && standard_present=1
@@ -2518,7 +2542,7 @@ _claude_acc_doctor() {
         fi
     done
 
-    local accounts=("$CLAUDE_SWITCH_ACCOUNTS_DIR"/*(N:t))
+    local accounts=(${(f)"$(_claude_acc_account_names)"})
     local standard_label="~/.claude/"
     local standard_dir
     standard_dir=$(_claude_acc_default_token_dir)
@@ -2869,11 +2893,11 @@ _claude_acc_completion() {
     elif (( CURRENT == 3 )); then
         case "${words[2]}" in
             remove|clone-settings)
-                accounts=("$CLAUDE_SWITCH_ACCOUNTS_DIR"/*(N:t))
+                accounts=(${(f)"$(_claude_acc_account_names)"})
                 _describe 'account' accounts
                 ;;
             default|link|login|run)
-                accounts=("default" "$CLAUDE_SWITCH_ACCOUNTS_DIR"/*(N:t))
+                accounts=("default" ${(f)"$(_claude_acc_account_names)"})
                 _describe 'account' accounts
                 ;;
             desktop)

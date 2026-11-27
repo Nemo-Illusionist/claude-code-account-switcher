@@ -84,6 +84,15 @@ impl AppConfig {
         self.account_path(name).is_dir()
     }
 
+    /// Every managed account, by name.
+    ///
+    /// A directory whose name `validate_name` would reject is not one of
+    /// ours: `add`, `login` and `import` all refuse such a name, so nothing
+    /// here could have created it. Listing it anyway turned a stray
+    /// directory — `accounts/work.lock`, left behind by something writing
+    /// beside an account dir — into a row of `list` and a finding of
+    /// `doctor`, which then advised `claude-acc login work.lock`, a command
+    /// that rejects its own argument.
     pub fn list_accounts(&self) -> io::Result<Vec<String>> {
         let dir = self.accounts_dir();
         if !dir.exists() {
@@ -94,6 +103,7 @@ impl AppConfig {
             let entry = entry?;
             if entry.file_type()?.is_dir()
                 && let Some(name) = entry.file_name().to_str()
+                && validate_name(name)
             {
                 accounts.push(name.to_string());
             }
@@ -343,6 +353,27 @@ mod tests {
         let config = AppConfig { base_dir: base };
         config.init().unwrap();
         config
+    }
+
+    #[test]
+    fn a_directory_no_command_could_have_created_is_not_an_account() {
+        // Regression: `accounts/work.lock` — a directory left beside an
+        // account by something else — was listed as an account, and `doctor`
+        // told the user to run `claude-acc login work.lock`, which `login`
+        // rejects. Every name here is checked against `validate_name`'s own
+        // rules by hand, not by calling it.
+        let c = temp_config("list-accounts");
+        let dir = c.accounts_dir();
+        // No two names here differ only by case: macOS and Windows would
+        // fold them onto one directory and the fixture would not be what it
+        // reads as.
+        for name in ["work", "work-2", "a_b", "work.lock", "work lock", ".hidden"] {
+            fs::create_dir_all(dir.join(name)).unwrap();
+        }
+        fs::write(dir.join("notes.txt"), "not a directory").unwrap();
+
+        assert_eq!(c.list_accounts().unwrap(), vec!["a_b", "work", "work-2"]);
+        let _ = fs::remove_dir_all(&c.base_dir);
     }
 
     #[test]
