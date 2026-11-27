@@ -118,15 +118,43 @@ _claude_acc_chrome work --off >/dev/null 2>&1
 check "--off sends false, not true" 'stdin: {"enabledByDefault":false}' \
     "$(grep '^stdin:' "$CLAUDE_STUB_LOG")"
 
-# The standard account's config record sits beside ~/.claude, not inside it,
-# but the *config dir* handed to Claude Code is the directory itself.
+# The standard account is the variable *removed*, not pointed at
+# ~/.claude. Claude Code writes the file at `join(CLAUDE_CONFIG_DIR ??
+# homedir(), ".claude.json")`, so pointing it at the directory writes
+# ~/.claude/.claude.json — which nothing reads, while the command reports
+# success. Verified by running the real subcommand both ways under a scratch
+# HOME: unset puts the flag in ~/.claude.json, set puts it in
+# ~/.claude/.claude.json. `run default` and `login default` unset it too.
 mkdir -p "$HOME/.claude"
 : > "$CLAUDE_STUB_LOG"
 _claude_acc_chrome default --on >/dev/null 2>&1
-check "default aims at ~/.claude, never accounts/default" "dir: $HOME/.claude" \
+check "default writes with CLAUDE_CONFIG_DIR unset" "dir: " \
     "$(grep '^dir:' "$CLAUDE_STUB_LOG")"
 check "and nothing was created at accounts/default" "no" \
     "$([[ -e "$CLAUDE_SWITCH_ACCOUNTS_DIR/default" ]] && print -r -- yes || print -r -- no)"
+
+# A managed account still gets its own directory — the removal above must
+# not become the rule for everything.
+: > "$CLAUDE_STUB_LOG"
+_claude_acc_chrome work --on >/dev/null 2>&1
+check "a managed account still gets its dir" "dir: $work" \
+    "$(grep '^dir:' "$CLAUDE_STUB_LOG")"
+
+print -r -- ""
+print -r -- "both directions at once:"
+
+# Both orders: each flag has its own guard, and a test of one order leaves
+# the other's guard unpinned.
+out=$(_claude_acc_chrome work --on --off 2>&1)
+check "--on --off is refused" "1" \
+    "$(print -r -- "$out" | grep -c 'Usage: claude-acc chrome')"
+out=$(_claude_acc_chrome work --off --on 2>&1)
+check "--off --on is refused too" "1" \
+    "$(print -r -- "$out" | grep -c 'Usage: claude-acc chrome')"
+# And neither order reaches Claude Code at all.
+: > "$CLAUDE_STUB_LOG"
+_claude_acc_chrome work --on --off >/dev/null 2>&1
+check "and nothing was sent" "0" "$(grep -c '^args:' "$CLAUDE_STUB_LOG")"
 
 print -r -- ""
 print -r -- "when Claude Code says no:"

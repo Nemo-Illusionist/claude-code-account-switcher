@@ -2326,28 +2326,6 @@ _claude_acc_local_identity() {
     print -r -- "$out"
 }
 
-# Where Claude Code keeps its own config for an account — the second path
-# `_claude_acc_lock_paths` reports, kept in one place so the standard
-# account's odd location is decided once.
-_claude_acc_config_json() {
-    local paths
-    paths=("${(@f)$(_claude_acc_lock_paths "$1")}")
-    print -r -- "${paths[2]}"
-}
-
-# Whether Claude in Chrome is switched on for a config dir. Mirrors
-# src/chrome.rs.
-#
-# Claude Code wires the claude-in-chrome MCP server per config dir, from
-# `claudeInChromeDefaultEnabled` in that dir's own .claude.json. A value that
-# is present but not `true` also takes the account off Claude Code's
-# auto-enable path, which only fires when the key is absent — so such an
-# account never offers to turn it on by itself, and the browser tools are
-# just missing with nothing to say why.
-#
-# Exit 0 = on, 1 = off, 2 = no answer (no file yet, or it does not parse).
-# A config dir Claude Code has never written is a brand-new account, not an
-# account that said no, so it must not be reported as off.
 # --- claude-acc chrome [<account>] [--on|--off] ---
 # Claude Code keeps the Claude in Chrome switch per config dir, so a new
 # account has the browser tools missing with nothing on screen to say why.
@@ -2363,12 +2341,24 @@ _claude_acc_config_json() {
 #
 # It refuses to run from inside a Claude Code session. That guard is Claude
 # Code's own, keyed on CLAUDE_CODE_CHILD_SESSION, and is left alone.
+# $1 is the config dir, or empty for the standard account — and for that one
+# the variable is *removed*, not set to ~/.claude. Claude Code writes the
+# file at `join(CLAUDE_CONFIG_DIR ?? homedir(), ".claude.json")`, so pointing
+# it at the directory writes ~/.claude/.claude.json, which nothing reads,
+# and the command would have reported success. Checked by running the
+# subcommand both ways under a scratch HOME. `run default` and `login
+# default` unset it for the same reason.
 _claude_acc_chrome_set() {
     # `rc`, not `status`: in zsh `status` is a read-only alias for `$?`, and
     # assigning to it is an error that leaves the exit code unread.
     local dir="$1" on="$2" out rc
-    out=$(printf '{"enabledByDefault":%s}\n' "$on" |
-        CLAUDE_CONFIG_DIR="$dir" command claude edit-chrome-settings --json 2>&1)
+    if [[ -n "$dir" ]]; then
+        out=$(printf '{"enabledByDefault":%s}\n' "$on" |
+            CLAUDE_CONFIG_DIR="$dir" command claude edit-chrome-settings --json 2>&1)
+    else
+        out=$(printf '{"enabledByDefault":%s}\n' "$on" |
+            env -u CLAUDE_CONFIG_DIR command claude edit-chrome-settings --json 2>&1)
+    fi
     rc=$?
     if (( rc == 0 )); then
         print -r -- ""
@@ -2383,8 +2373,12 @@ _claude_acc_chrome() {
     local -a rest
     while (( $# > 0 )); do
         case "$1" in
-            --on)  want=true; shift ;;
-            --off) want=false; shift ;;
+            # Both at once is a mistake, not the last one winning — clap
+            # refuses the combination on the Rust side.
+            --on)  [[ "$want" == false ]] && { _msg chrome_usage; return 1 }
+                   want=true; shift ;;
+            --off) [[ "$want" == true ]] && { _msg chrome_usage; return 1 }
+                   want=false; shift ;;
             *)     rest+=("$1"); shift ;;
         esac
     done
@@ -2399,7 +2393,9 @@ _claude_acc_chrome() {
         return 1
     fi
 
-    local -a labels dirs
+    # `write_dirs` is what the write is aimed at: the same directory for a
+    # managed account, and empty for the standard one.
+    local -a labels dirs write_dirs
     if [[ -n "$name" ]]; then
         if [[ "$name" == "default" ]]; then
             local std
@@ -2408,7 +2404,7 @@ _claude_acc_chrome() {
                 _msg chrome_no_standard
                 return 1
             fi
-            labels=("~/.claude/"); dirs=("$std")
+            labels=("~/.claude/"); dirs=("$std"); write_dirs=("")
         else
             _claude_validate_name "$name" || return 1
             if [[ ! -d "$CLAUDE_SWITCH_ACCOUNTS_DIR/$name" ]]; then
@@ -2416,6 +2412,7 @@ _claude_acc_chrome() {
                 return 1
             fi
             labels=("$name"); dirs=("$CLAUDE_SWITCH_ACCOUNTS_DIR/$name")
+            write_dirs=("$CLAUDE_SWITCH_ACCOUNTS_DIR/$name")
         fi
     else
         local acc std
@@ -2424,9 +2421,12 @@ _claude_acc_chrome() {
         # of the two lands second has to convert this one too.
         for acc in "$CLAUDE_SWITCH_ACCOUNTS_DIR"/*(N/:t); do
             labels+=("$acc"); dirs+=("$CLAUDE_SWITCH_ACCOUNTS_DIR/$acc")
+            write_dirs+=("$CLAUDE_SWITCH_ACCOUNTS_DIR/$acc")
         done
         std=$(_claude_acc_default_token_dir)
-        [[ -n "$std" && -d "$std" ]] && { labels+=("~/.claude/"); dirs+=("$std") }
+        [[ -n "$std" && -d "$std" ]] && {
+            labels+=("~/.claude/"); dirs+=("$std"); write_dirs+=("")
+        }
     fi
 
     if (( ${#labels} == 0 )); then
@@ -2450,7 +2450,7 @@ _claude_acc_chrome() {
             _msg chrome_state "${labels[$i]}" "$state"
         else
             local said
-            if said=$(_claude_acc_chrome_set "${dirs[$i]}" "$want"); then
+            if said=$(_claude_acc_chrome_set "${write_dirs[$i]}" "$want"); then
                 _msg chrome_set "${labels[$i]}" "$([[ "$want" == true ]] && print -r -- on || print -r -- off)"
             else
                 _msg chrome_refused "${labels[$i]}" "$said"
@@ -2473,6 +2473,28 @@ _claude_acc_config_json_for() {
     fi
 }
 
+# Where Claude Code keeps its own config for an account — the second path
+# `_claude_acc_lock_paths` reports, kept in one place so the standard
+# account's odd location is decided once.
+_claude_acc_config_json() {
+    local paths
+    paths=("${(@f)$(_claude_acc_lock_paths "$1")}")
+    print -r -- "${paths[2]}"
+}
+
+# Whether Claude in Chrome is switched on for a config dir. Mirrors
+# src/chrome.rs.
+#
+# Claude Code wires the claude-in-chrome MCP server per config dir, from
+# `claudeInChromeDefaultEnabled` in that dir's own .claude.json. A value that
+# is present but not `true` also takes the account off Claude Code's
+# auto-enable path, which only fires when the key is absent — so such an
+# account never offers to turn it on by itself, and the browser tools are
+# just missing with nothing to say why.
+#
+# Exit 0 = on, 1 = off, 2 = no answer (no file yet, or it does not parse).
+# A config dir Claude Code has never written is a brand-new account, not an
+# account that said no, so it must not be reported as off.
 _claude_acc_chrome_enabled() {
     local f="$1"
     [[ -f "$f" ]] || return 2

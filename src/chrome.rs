@@ -9,9 +9,10 @@
 //! simply not among the tools, which reads as "this machine doesn't have the
 //! extension" rather than "this account never said yes".
 //!
-//! We only read. Turning it on writes to `.claude.json` — the file that also
-//! holds `oauthAccount`, and the one thing this tool must never put a wrong
-//! value into — so that stays with Claude Code's own `/chrome`.
+//! Reading is ours; writing is not. The flag lives in `.claude.json`, the
+//! file that also holds `oauthAccount` — the one value this tool must never
+//! get wrong — so `set_enabled` hands the write to Claude Code's own
+//! `edit-chrome-settings` rather than editing that file itself.
 
 use std::path::Path;
 
@@ -73,7 +74,55 @@ mod tests {
         assert_eq!(payload(true), "{\"enabledByDefault\":true}\n");
         assert_eq!(payload(false), "{\"enabledByDefault\":false}\n");
     }
-    use super::*;
+
+    #[test]
+    fn the_standard_account_is_the_variable_removed_not_the_directory() {
+        // Claude Code writes the file at `join(CLAUDE_CONFIG_DIR ??
+        // homedir(), ".claude.json")`. Pointing the variable at `~/.claude`
+        // therefore writes `~/.claude/.claude.json`, which nothing reads,
+        // and the command would have reported success: verified by running
+        // the subcommand both ways under a scratch HOME.
+        let managed = PathBuf::from("/switch/accounts/work");
+        let cmd = edit_command(Some(&managed)).expect("a command");
+        let envs: Vec<(String, Option<String>)> = cmd
+            .get_envs()
+            .map(|(k, v)| {
+                (
+                    k.to_string_lossy().into_owned(),
+                    v.map(|v| v.to_string_lossy().into_owned()),
+                )
+            })
+            .collect();
+        assert_eq!(
+            envs,
+            vec![(
+                "CLAUDE_CONFIG_DIR".to_string(),
+                Some("/switch/accounts/work".to_string())
+            )]
+        );
+
+        let cmd = edit_command(None).expect("a command");
+        let envs: Vec<(String, Option<String>)> = cmd
+            .get_envs()
+            .map(|(k, v)| {
+                (
+                    k.to_string_lossy().into_owned(),
+                    v.map(|v| v.to_string_lossy().into_owned()),
+                )
+            })
+            .collect();
+        // `None` is a removal, not an empty value: an empty one would be
+        // the working directory.
+        assert_eq!(envs, vec![("CLAUDE_CONFIG_DIR".to_string(), None)]);
+
+        // And the subcommand itself, which `claude --help` does not list.
+        let args: Vec<String> = cmd
+            .get_args()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(args, vec!["edit-chrome-settings", "--json"]);
+    }
+
     use std::fs;
     use std::path::PathBuf;
 
@@ -185,21 +234,9 @@ mod tests {
 /// keyed on `CLAUDE_CODE_CHILD_SESSION`. That guard is Claude Code's, so it
 /// is left alone and the message is passed through; the user runs the
 /// command from a plain shell.
-pub fn set_enabled(config_dir: &Path, on: bool) -> Result<(), SetError> {
+pub fn set_enabled(config_dir: Option<&Path>, on: bool) -> Result<(), SetError> {
     let payload = payload(on);
-    let mut cmd = crate::windows_invocation::claude_command(&[
-        "edit-chrome-settings".to_string(),
-        "--json".to_string(),
-    ])
-    .map_err(|e| match e {
-        // The only variant, and only reachable on Windows: a token cmd.exe
-        // cannot carry. Ours are two fixed literals, so this cannot fire —
-        // but it is not worth an `unwrap` to say so.
-        crate::windows_invocation::InvocationError::UnsupportedArg(token) => {
-            SetError::NotStarted(token)
-        }
-    })?;
-    cmd.env("CLAUDE_CONFIG_DIR", config_dir);
+    let mut cmd = edit_command(config_dir)?;
     cmd.stdin(std::process::Stdio::piped());
     cmd.stdout(std::process::Stdio::piped());
     cmd.stderr(std::process::Stdio::piped());
@@ -227,6 +264,39 @@ pub fn set_enabled(config_dir: &Path, on: bool) -> Result<(), SetError> {
         said = String::from_utf8_lossy(&out.stdout).trim().to_string();
     }
     Err(SetError::Refused(said))
+}
+
+/// The subcommand, aimed at one config dir.
+///
+/// `None` is the standard account, and the variable is **removed** rather
+/// than set to `~/.claude`. Claude Code writes the file at
+/// `join(CLAUDE_CONFIG_DIR ?? homedir(), ".claude.json")` — read out of
+/// 2.1.332, `configPath: ye(process.env.CLAUDE_CONFIG_DIR || We(),
+/// `.claude${…}.json`)`, and confirmed by running it: with the variable
+/// unset the flag lands in `~/.claude.json`, which is what a standard
+/// session reads, and with it pointed at `~/.claude` the flag lands in
+/// `~/.claude/.claude.json`, which nothing reads at all. So pointing it at
+/// the directory would have reported success and changed nothing. `run` and
+/// `login` remove the variable for the standard account for the same
+/// reason.
+fn edit_command(config_dir: Option<&Path>) -> Result<std::process::Command, SetError> {
+    let mut cmd = crate::windows_invocation::claude_command(&[
+        "edit-chrome-settings".to_string(),
+        "--json".to_string(),
+    ])
+    .map_err(|e| match e {
+        // The only variant, and only reachable on Windows: a token cmd.exe
+        // cannot carry. Ours are two fixed literals, so this cannot fire —
+        // but it is not worth an `unwrap` to say so.
+        crate::windows_invocation::InvocationError::UnsupportedArg(token) => {
+            SetError::NotStarted(token)
+        }
+    })?;
+    match config_dir {
+        Some(dir) => cmd.env("CLAUDE_CONFIG_DIR", dir),
+        None => cmd.env_remove("CLAUDE_CONFIG_DIR"),
+    };
+    Ok(cmd)
 }
 
 /// What `edit-chrome-settings` reads on stdin. Its schema is

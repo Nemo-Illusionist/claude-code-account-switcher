@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::chrome::{self, SetError};
 use crate::config::{AppConfig, is_reserved_name, validate_name};
@@ -16,7 +16,7 @@ use crate::identity;
 ///
 /// With no flag it reports, which is the same reader `doctor` uses.
 pub fn run(config: &AppConfig, i18n: &I18n, name: Option<&str>, on: Option<bool>) -> i32 {
-    let targets = match name {
+    let targets: Vec<Target> = match name {
         Some(name) => match one(config, name) {
             Some(target) => vec![target],
             None => {
@@ -42,21 +42,23 @@ pub fn run(config: &AppConfig, i18n: &I18n, name: Option<&str>, on: Option<bool>
 
     match on {
         None => {
-            for (label, dir) in &targets {
+            for t in &targets {
                 i18n.print(Msg::ChromeState(
-                    label.clone(),
-                    state_word(&chrome::enabled(dir)),
+                    t.label.clone(),
+                    state_word(&chrome::enabled(&t.dir)),
                 ));
             }
             0
         }
         Some(on) => {
             let mut failed = false;
-            for (label, dir) in &targets {
-                match chrome::set_enabled(dir, on) {
-                    Ok(()) => i18n.print(Msg::ChromeSet(label.clone(), on)),
+            for t in &targets {
+                // The standard account is the variable *removed*, not
+                // pointed at `~/.claude`: see `chrome::edit_command`.
+                match chrome::set_enabled(t.write_target(), on) {
+                    Ok(()) => i18n.print(Msg::ChromeSet(t.label.clone(), on)),
                     Err(SetError::Refused(said)) => {
-                        i18n.print(Msg::ChromeRefused(label.clone(), said));
+                        i18n.print(Msg::ChromeRefused(t.label.clone(), said));
                         failed = true;
                     }
                     Err(SetError::NotStarted(why)) => {
@@ -81,31 +83,62 @@ fn state_word(enabled: &Option<bool>) -> String {
     }
 }
 
+/// An account to act on: what to call it, where to read its state, and
+/// whether it is the standard one — which decides how the *write* is aimed,
+/// because for that one the variable has to be absent rather than set.
+#[derive(Debug, PartialEq)]
+struct Target {
+    label: String,
+    dir: PathBuf,
+    standard: bool,
+}
+
+impl Target {
+    /// What `chrome::set_enabled` should point `CLAUDE_CONFIG_DIR` at:
+    /// nothing, for the standard account.
+    fn write_target(&self) -> Option<&Path> {
+        (!self.standard).then_some(self.dir.as_path())
+    }
+}
+
 /// The one account a name designates, with the label to print for it.
-fn one(config: &AppConfig, name: &str) -> Option<(String, PathBuf)> {
+fn one(config: &AppConfig, name: &str) -> Option<Target> {
     if is_reserved_name(name) {
-        return identity::standard_token_dir().map(|dir| (STANDARD.to_string(), dir));
+        return identity::standard_token_dir().map(|dir| Target {
+            label: STANDARD.to_string(),
+            dir,
+            standard: true,
+        });
     }
     if !validate_name(name) {
         return None;
     }
     let dir = config.account_path(name);
-    dir.is_dir().then(|| (name.to_string(), dir))
+    dir.is_dir().then(|| Target {
+        label: name.to_string(),
+        dir,
+        standard: false,
+    })
 }
 
 /// Every account, managed ones first, then the standard one when it exists.
-fn all(config: &AppConfig) -> Vec<(String, PathBuf)> {
-    let mut out: Vec<(String, PathBuf)> = config
+fn all(config: &AppConfig) -> Vec<Target> {
+    let mut out: Vec<Target> = config
         .list_accounts()
         .unwrap_or_default()
         .into_iter()
-        .map(|name| {
-            let dir = config.account_path(&name);
-            (name, dir)
+        .map(|name| Target {
+            dir: config.account_path(&name),
+            label: name,
+            standard: false,
         })
         .collect();
     if let Some(dir) = identity::standard_token_dir() {
-        out.push((STANDARD.to_string(), dir));
+        out.push(Target {
+            label: STANDARD.to_string(),
+            dir,
+            standard: true,
+        });
     }
     out
 }
@@ -130,13 +163,30 @@ mod tests {
         let work = c.accounts_dir().join("work");
         std::fs::create_dir_all(&work).unwrap();
 
-        assert_eq!(one(&c, "work"), Some(("work".to_string(), work)));
+        assert_eq!(
+            one(&c, "work"),
+            Some(Target {
+                label: "work".to_string(),
+                dir: work.clone(),
+                standard: false
+            })
+        );
+        // A managed account's write is aimed at its directory; the standard
+        // account's is aimed at nothing, because Claude Code writes
+        // `join(CLAUDE_CONFIG_DIR ?? homedir(), ".claude.json")` and
+        // pointing it at `~/.claude` would write a file nothing reads.
+        assert_eq!(
+            one(&c, "work").unwrap().write_target(),
+            Some(work.as_path())
+        );
         // Not an account here, a name no command takes, and — whatever the
         // machine's standard dir turns out to be — never `accounts/default`.
         assert_eq!(one(&c, "nope"), None);
         assert_eq!(one(&c, "work.lock"), None);
-        assert!(one(&c, "default").is_none_or(|(label, dir)| {
-            label == "~/.claude/" && dir != c.accounts_dir().join("default")
+        assert!(one(&c, "default").is_none_or(|t| {
+            t.label == "~/.claude/"
+                && t.dir != c.accounts_dir().join("default")
+                && t.write_target().is_none()
         }));
         let _ = std::fs::remove_dir_all(&c.base_dir);
     }
@@ -159,11 +209,14 @@ mod tests {
             std::fs::create_dir_all(c.accounts_dir().join(n)).unwrap();
         }
         let listed = all(&c);
-        let names: Vec<&str> = listed.iter().map(|(n, _)| n.as_str()).collect();
+        let names: Vec<&str> = listed.iter().map(|t| t.label.as_str()).collect();
         assert_eq!(&names[..2], &["work", "work-2"]);
         // The standard account is appended when this machine has one; its
         // presence depends on the environment, so only the order is pinned.
         assert!(names.len() == 2 || (names.len() == 3 && names[2] == "~/.claude/"));
+        // Only the standard one, if present, writes with the variable gone.
+        assert!(listed[..2].iter().all(|t| t.write_target().is_some()));
+        assert!(listed.get(2).is_none_or(|t| t.write_target().is_none()));
         let _ = std::fs::remove_dir_all(&c.base_dir);
     }
 }
