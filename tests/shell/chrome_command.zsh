@@ -131,7 +131,12 @@ check "--off sends false, not true" 'stdin: {"enabledByDefault":false}' \
 # ~/.claude/.claude.json. `run default` and `login default` unset it too.
 mkdir -p "$HOME/.claude"
 : > "$CLAUDE_STUB_LOG"
+# Exported on purpose: without it in the environment, the check below would
+# pass whether or not the code removes the variable — the stub would log
+# `<unset>` either way, and CI never sets it.
+export CLAUDE_CONFIG_DIR="$scratch/should-not-be-used"
 _claude_acc_chrome default --on >/dev/null 2>&1
+unset CLAUDE_CONFIG_DIR
 # `<unset>`, not an empty value: the stub tells them apart on purpose,
 # because an empty one is the working directory as far as anything that
 # joins onto it is concerned.
@@ -152,9 +157,11 @@ check "a managed account still gets its dir" "dir: $work" \
 # wrapper around the builtin), Linux does not, so `env -u VAR command claude`
 # works here and fails there with "No such file or directory" — and the only
 # machine that would have caught it is the Linux runner.
+# Narrow by construction: it catches the two spellings of the mistake on one
+# line, not every way of writing it.
 check "the writer does not shell out through \`env … command\`" "0" \
     "$(grep -v '^[[:space:]]*#' "${0:A:h:h:h}/claude-switch.sh" |
-        grep -c 'env -u .* command ')"
+        grep -cE 'env (-u|--unset=)[^|]* command ')"
 
 print -r -- ""
 print -r -- "both directions at once:"
