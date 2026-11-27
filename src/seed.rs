@@ -1,4 +1,5 @@
-// Seed a managed account dir with the user's standard `~/.claude/` config.
+// Seed a managed account dir from another config dir — the user's standard
+// `~/.claude/` by default, or a named account with `clone-settings --from`.
 //
 // What gets copied: configuration / personalization that you'd want carried
 // over to a new account dir.
@@ -48,11 +49,22 @@ impl CopyReport {
     }
 }
 
+/// Seed `target` from the user's standard `~/.claude/`.
 pub fn copy_user_config(target: &Path) -> std::io::Result<CopyReport> {
     let source = match dirs::home_dir() {
         Some(h) => h.join(".claude"),
         None => return Err(std::io::Error::other("cannot determine home directory")),
     };
+    copy_config(&source, target)
+}
+
+/// Seed `target` from `source`.
+///
+/// The source used to be `~/.claude/` and nothing else, which made the
+/// obvious thing — "give this new account the same setup as the account I
+/// already use" — inexpressible: you had to copy the files by hand, and get
+/// the plugin registry's rewritten paths right by hand with them.
+pub fn copy_config(source: &Path, target: &Path) -> std::io::Result<CopyReport> {
     let mut report = CopyReport { copied: vec![] };
 
     if !source.exists() {
@@ -85,7 +97,7 @@ pub fn copy_user_config(target: &Path) -> std::io::Result<CopyReport> {
             .push(format!("{}/ ({} file{})", d, count, plural(count)));
     }
 
-    if let Some(count) = copy_plugins(&source, target)? {
+    if let Some(count) = copy_plugins(source, target)? {
         report
             .copied
             .push(format!("plugins/ ({} file{})", count, plural(count)));
@@ -258,6 +270,88 @@ mod tests {
         let _ = fs::remove_dir_all(&d);
         fs::create_dir_all(&d).unwrap();
         d
+    }
+
+    #[test]
+    fn an_account_can_be_seeded_from_another_account() {
+        // What `clone-settings --from` is for: give a new account the setup
+        // of the one already in use, with the plugin registry repointed at
+        // the new dir rather than loading the other account's cache.
+        let dir = scratch("from-account");
+        let src = dir.join("accounts/work");
+        let dst = dir.join("accounts/work-2");
+        fs::create_dir_all(&dst).unwrap();
+        fs::create_dir_all(src.join("agents")).unwrap();
+        fs::write(src.join("settings.json"), r#"{"theme":"dark"}"#).unwrap();
+        fs::write(src.join("CLAUDE.md"), "memory").unwrap();
+        fs::write(src.join("agents/one.md"), "agent").unwrap();
+        // A registry whose paths point into the source account, and a
+        // marketplace sourced from outside any config dir.
+        fs::create_dir_all(src.join("plugins/cache/local/helper/1.0.0")).unwrap();
+        fs::write(src.join("plugins/cache/local/helper/1.0.0/plugin.md"), "p").unwrap();
+        fs::write(
+            src.join("plugins/installed_plugins.json"),
+            format!(
+                r#"{{"plugins":{{"helper@local":[{{"scope":"user","installPath":"{}/plugins/cache/local/helper/1.0.0"}}]}}}}"#,
+                src.display()
+            ),
+        )
+        .unwrap();
+        fs::write(
+            src.join("plugins/known_marketplaces.json"),
+            format!(
+                r#"{{"local":{{"installLocation":"{}/plugins/marketplaces/local"}},"repo":{{"installLocation":"/work/repo/.claude/plugins"}}}}"#,
+                src.display()
+            ),
+        )
+        .unwrap();
+
+        let report = copy_config(&src, &dst).unwrap();
+        assert!(!report.is_empty(), "nothing was copied");
+
+        assert_eq!(fs::read_to_string(dst.join("CLAUDE.md")).unwrap(), "memory");
+        assert_eq!(
+            fs::read_to_string(dst.join("settings.json")).unwrap(),
+            r#"{"theme":"dark"}"#
+        );
+        assert!(dst.join("agents/one.md").is_file());
+
+        // The paths that pointed into the source now point into the target,
+        // and the one outside any config dir is untouched. Expected values
+        // written out here, not derived from the rewriter.
+        let installed: serde_json::Value = serde_json::from_str(
+            &fs::read_to_string(dst.join("plugins/installed_plugins.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            installed["plugins"]["helper@local"][0]["installPath"]
+                .as_str()
+                .unwrap(),
+            format!("{}/plugins/cache/local/helper/1.0.0", dst.display())
+        );
+        assert_eq!(installed["plugins"]["helper@local"][0]["scope"], "user");
+        let markets: serde_json::Value = serde_json::from_str(
+            &fs::read_to_string(dst.join("plugins/known_marketplaces.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            markets["local"]["installLocation"].as_str().unwrap(),
+            format!("{}/plugins/marketplaces/local", dst.display())
+        );
+        assert_eq!(
+            markets["repo"]["installLocation"],
+            "/work/repo/.claude/plugins"
+        );
+        assert!(
+            dst.join("plugins/cache/local/helper/1.0.0/plugin.md")
+                .is_file()
+        );
+
+        // A second run has nothing left to do: this is a seed, not a sync.
+        let again = copy_config(&src, &dst).unwrap();
+        assert!(again.is_empty(), "copied twice: {:?}", again.copied);
+
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

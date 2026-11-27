@@ -269,6 +269,14 @@ impl I18n {
             // seed / clone-settings
             (Msg::SeedCopied(ref s), Lang::En) => format!("  copied: {}", s),
             (Msg::SeedCopied(ref s), Lang::Ru) => format!("  скопировано: {}", s),
+            (Msg::CloneSettingsSameAccount(ref name), Lang::En) => format!(
+                "clone-settings: --from {} is the account being seeded. Name the account to copy from.",
+                name
+            ),
+            (Msg::CloneSettingsSameAccount(ref name), Lang::Ru) => format!(
+                "clone-settings: --from {} — это и есть аккаунт, который заполняем. Укажите, из какого аккаунта копировать.",
+                name
+            ),
             (Msg::SeedNothingToCopy, Lang::En) => s("  nothing to copy from ~/.claude/"),
             (Msg::SeedNothingToCopy, Lang::Ru) => s("  нечего копировать из ~/.claude/"),
 
@@ -1373,6 +1381,7 @@ pub enum Msg {
     RelativeTime(u64),
     SeedCopied(String),
     SeedNothingToCopy,
+    CloneSettingsSameAccount(String),
     UsageHeader,
     UsageResetsIn(String),
     UsageAvailableNow,

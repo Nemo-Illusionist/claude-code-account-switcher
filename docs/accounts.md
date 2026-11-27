@@ -40,7 +40,16 @@ claude-acc add -s work               # seed at creation time
 claude-acc clone-settings work       # seed an existing account
 ```
 
-Both copy a curated set of files from `~/.claude/`:
+Or from an account you already use, rather than from `~/.claude/` — which is usually what you want for a second work account:
+
+```bash
+claude-acc clone-settings work-2 --from work
+claude-acc clone-settings work-2 --from default   # the same as leaving it out
+```
+
+`--from` takes a managed account, or `default` for the standard `~/.claude/`. It refuses the account being seeded, and an account that does not exist. The plugin registry is repointed at the target either way, so the new account loads its own copy rather than the other account's cache.
+
+All of them copy the same curated set of files:
 
 **Copied** (configuration / personalization):
 - `settings.json` (env vars, permissions, hooks references, statusline, plugins, language)

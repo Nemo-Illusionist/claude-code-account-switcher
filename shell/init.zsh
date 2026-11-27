@@ -28,7 +28,10 @@ _claude_acc_accounts() {
     accounts=(${(f)"$('__CLAUDE_ACC_BIN__' completions accounts)"})
     # `default` is not a managed account directory but every command that
     # takes an account name accepts it as "the standard ~/.claude one".
-    [[ -n "$1" ]] && accounts=('default' $accounts)
+    # `${1-}`, not `$1`: the callers that want only managed accounts pass
+    # nothing, and under `setopt nounset` — which people do set — a bare
+    # `$1` aborts the whole completion.
+    [[ -n "${1-}" ]] && accounts=('default' $accounts)
     _describe 'account' accounts
 }
 
@@ -64,7 +67,7 @@ _claude_acc_completion() {
         'run:Run claude under a specific account'
         'doctor:Audit each account OAuth identity'
         'whoami:Print active account email'
-        'clone-settings:Copy ~/.claude/ config into account'
+        'clone-settings:Copy another account'\''s config into account'
         'import:Import an existing Claude config dir (no re-login)'
     )
 
@@ -109,6 +112,7 @@ _claude_acc_completion() {
             doctor) flags=('--json:Output as JSON') ;;
             update) flags=('--check:Only check, do not download' '--version:Install a specific version') ;;
             session) flags=('--to:Destination account' '--from:Source account' '--force:Skip confirmation' '-f:Skip confirmation') ;;
+            clone-settings) flags=('--from:Account to copy from, or default for ~/.claude/') ;;
             vscode) flags=('--force:Replace a wrapper set to something else' '-f:Replace a wrapper set to something else') ;;
             desktop) flags=('--seed:Seed MCP config from the app profile' '-s:Seed MCP config from the app profile' '--from:Copy the config from this profile' '--force:Skip confirmation / replace / sign-in check' '-f:Skip confirmation / replace') ;;
         esac
