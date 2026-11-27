@@ -113,10 +113,12 @@ fn chrome_off(
 }
 
 pub fn run(config: &AppConfig, i18n: &I18n, json: bool) -> i32 {
-    let accounts = match config.list_accounts() {
+    let read = match config.read_accounts_dir() {
         Ok(v) => v,
         Err(_) => return 1,
     };
+    let accounts = read.accounts;
+    let strays = read.others;
 
     // The standard "default" line shows up if a login exists in ~/.claude/.
     // Otherwise it would just print noise on every doctor run, so we hide it
@@ -128,10 +130,16 @@ pub fn run(config: &AppConfig, i18n: &I18n, json: bool) -> i32 {
     if json {
         return run_json(config, &accounts, standard_present);
     }
-    run_human(config, i18n, &accounts, standard_present)
+    run_human(config, i18n, &accounts, &strays, standard_present)
 }
 
-fn run_human(config: &AppConfig, i18n: &I18n, accounts: &[String], standard_present: bool) -> i32 {
+fn run_human(
+    config: &AppConfig,
+    i18n: &I18n,
+    accounts: &[String],
+    strays: &[String],
+    standard_present: bool,
+) -> i32 {
     let standard_label = "~/.claude/";
 
     // The standard account earns a row when it has a token *or* when its pin
@@ -286,6 +294,18 @@ fn run_human(config: &AppConfig, i18n: &I18n, accounts: &[String], standard_pres
     }
     if let Some(names) = chrome_off(config, &rows, standard_label) {
         i18n.print(Msg::DoctorChromeOff(names));
+    }
+    // Everything `accounts/` holds that is not an account. Nothing else
+    // mentions these — the point of the filter is that they stay out of
+    // `list`, `usage` and completion — so without this line a stray
+    // directory would simply become invisible, and `remove` cannot clear it
+    // either. Informational, like the Chrome line: junk beside an account is
+    // not a wrong identity, and the exit code means only that.
+    if !strays.is_empty() {
+        i18n.print(Msg::DoctorStrayEntries(
+            strays.join(", "),
+            config.accounts_dir().display().to_string(),
+        ));
     }
     // Like the Chrome hint: informational, and deliberately not touching the
     // exit code. A shared credential store is a configuration someone chose,

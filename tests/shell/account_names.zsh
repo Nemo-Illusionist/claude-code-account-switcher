@@ -53,6 +53,16 @@ listed() {
     print -r -- "${(j:,:)rows}"
 }
 
+# The account names `usage` prints: its rows are a name on one line and the
+# figure or reason indented under it, so the four-space rows are the names.
+used() {
+    local -a rows
+    rows=(${(f)"$(_claude_acc_usage 2>/dev/null |
+        awk '/^ {4}[^ ]/ { sub(/^[[:space:]]*(★ )?/, ""); print $1 }')"})
+    rows=("${(@)rows:#'~'/.claude/*}")
+    print -r -- "${(j:,:)rows}"
+}
+
 # The account column of `doctor`, same shape. `doctor` is where the bug was
 # loudest — it audited the stray directory and printed advice that cannot be
 # followed — and it reaches the accounts through a different call site than
@@ -85,16 +95,45 @@ check "whitespace, dotfiles and unicode are not listed" "a_b,work,work-2" "$(lis
 print -r -- "notes" > "$CLAUDE_SWITCH_ACCOUNTS_DIR/personal"
 check "a plain file with a valid name is not listed" "a_b,work,work-2" "$(listed)"
 
-# A directory reached through a symlink is one, though: the globs this
-# replaced matched any entry, so these were listed before.
+# A symlink is not an account either, matching the Rust side: `list_accounts`
+# never listed one, and `gui::account_dir` refuses storage reached through a
+# symlink outright.
 mkdir -p "$scratch/elsewhere"
 ln -s "$scratch/elsewhere" "$CLAUDE_SWITCH_ACCOUNTS_DIR/linked"
-check "a symlinked account dir is still listed" "a_b,linked,work,work-2" "$(listed)"
+check "a symlinked dir is not listed" "a_b,work,work-2" "$(listed)"
 
 print -r -- ""
 print -r -- "accounts audited by \`doctor\`:"
 
-check "the stray directory is not audited" "a_b,linked,work,work-2" "$(audited)"
+check "the stray directory is not audited" "a_b,work,work-2" "$(audited)"
+
+print -r -- ""
+print -r -- "accounts shown by \`usage\`:"
+
+check "the stray directory has no usage line" "a_b,work,work-2" "$(used)"
+
+print -r -- ""
+print -r -- "what \`doctor\` says about the rest:"
+
+# Filtered out of every listing, so `doctor` is the only thing left that can
+# say the directory is there at all — and `remove` refuses the name, so the
+# user has to know to delete it by hand.
+check "doctor names the stray entry" "1" \
+    "$(_claude_acc_doctor 2>/dev/null | grep -c 'work\.lock')"
+check "doctor names the symlink too" "1" \
+    "$(_claude_acc_doctor 2>/dev/null | grep -c 'linked')"
+
+print -r -- ""
+print -r -- "the ide/ symlink pass:"
+
+# The one site that writes rather than prints: on master the stray directory
+# got an `ide` symlink of its own, because the pass walked every
+# subdirectory. That is how the one on this machine came to hold anything.
+_claude_ensure_ide_symlinks
+check "an account gets its ide symlink" "yes" \
+    "$([[ -L "$CLAUDE_SWITCH_ACCOUNTS_DIR/work/ide" ]] && print -r -- yes || print -r -- no)"
+check "the stray directory does not" "no" \
+    "$([[ -e "$CLAUDE_SWITCH_ACCOUNTS_DIR/work.lock/ide" ]] && print -r -- yes || print -r -- no)"
 
 print -r -- ""
 if (( failures )); then

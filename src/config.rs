@@ -24,6 +24,16 @@ pub struct AppConfig {
     pub base_dir: PathBuf,
 }
 
+/// The contents of `accounts/`, as `read_accounts_dir` reads them.
+#[derive(Debug, Default, PartialEq)]
+pub struct AccountsDir {
+    /// Directories whose name a command here could have created.
+    pub accounts: Vec<String>,
+    /// Everything else: files, symlinks, and directories named something no
+    /// command here accepts. `doctor` reports these.
+    pub others: Vec<String>,
+}
+
 // Required, not gratuitous: since `config` became a library module, `new()`
 // is reachable as library API, so `clippy::new_without_default` fires and
 // `-D warnings` fails the build without this impl. Note it inherits `new()`'s
@@ -85,31 +95,53 @@ impl AppConfig {
     }
 
     /// Every managed account, by name.
-    ///
-    /// A directory whose name `validate_name` would reject is not one of
-    /// ours: `add`, `login` and `import` all refuse such a name, so nothing
-    /// here could have created it. Listing it anyway turned a stray
-    /// directory — `accounts/work.lock`, left behind by something writing
-    /// beside an account dir — into a row of `list` and a finding of
-    /// `doctor`, which then advised `claude-acc login work.lock`, a command
-    /// that rejects its own argument.
     pub fn list_accounts(&self) -> io::Result<Vec<String>> {
+        Ok(self.read_accounts_dir()?.accounts)
+    }
+
+    /// What is under `accounts/`, split into the accounts and everything
+    /// else.
+    ///
+    /// No command here can create an entry whose name `validate_name`
+    /// rejects — `add`, `login`, `import` and `clone-settings` all refuse one
+    /// before touching the filesystem. Enumerating them anyway turned a
+    /// stray `accounts/work.lock` into a row of `list`, a line of `usage`, a
+    /// completion candidate and a `doctor` finding that advised
+    /// `claude-acc login work.lock`, which rejects its own argument — and
+    /// into an account the `ide` pass then wrote a symlink into.
+    ///
+    /// The rest is kept rather than dropped, because the one command that
+    /// could clear such a directory up is the user's `rm`: `remove` refuses
+    /// the name too. `doctor` names them, so a filtered-out directory stays
+    /// discoverable instead of becoming invisible junk.
+    ///
+    /// A symlink counts as neither an account nor a name violation: it goes
+    /// to `others`. `file_type()` does not follow one, and that is
+    /// deliberate — `gui::account_dir` refuses account storage reached
+    /// through a symlink outright (`GuiError::SymlinkStorage`) — so such a
+    /// directory is not usable as an account by any command, which is
+    /// exactly the sort of thing `doctor` should say out loud rather than
+    /// skip in silence.
+    pub fn read_accounts_dir(&self) -> io::Result<AccountsDir> {
         let dir = self.accounts_dir();
+        let mut out = AccountsDir::default();
         if !dir.exists() {
-            return Ok(vec![]);
+            return Ok(out);
         }
-        let mut accounts = Vec::new();
         for entry in fs::read_dir(dir)? {
             let entry = entry?;
-            if entry.file_type()?.is_dir()
-                && let Some(name) = entry.file_name().to_str()
-                && validate_name(name)
-            {
-                accounts.push(name.to_string());
+            let Some(name) = entry.file_name().to_str().map(String::from) else {
+                continue;
+            };
+            if entry.file_type()?.is_dir() && validate_name(&name) {
+                out.accounts.push(name);
+            } else {
+                out.others.push(name);
             }
         }
-        accounts.sort();
-        Ok(accounts)
+        out.accounts.sort();
+        out.others.sort();
+        Ok(out)
     }
 
     // --- config file ---
@@ -353,6 +385,25 @@ mod tests {
         let config = AppConfig { base_dir: base };
         config.init().unwrap();
         config
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn an_account_dir_reached_through_a_symlink_is_neither() {
+        // Not an account, because `gui::account_dir` refuses storage behind
+        // a symlink outright — so it is reported instead of skipped, since
+        // no command can use it and nothing else would say so.
+        let c = temp_config("list-symlink");
+        let dir = c.accounts_dir();
+        fs::create_dir_all(dir.join("plain")).unwrap();
+        let outside = c.base_dir.join("elsewhere");
+        fs::create_dir_all(&outside).unwrap();
+        std::os::unix::fs::symlink(&outside, dir.join("linked")).unwrap();
+
+        let read = c.read_accounts_dir().unwrap();
+        assert_eq!(read.accounts, vec!["plain"]);
+        assert_eq!(read.others, vec!["linked"]);
+        let _ = fs::remove_dir_all(&c.base_dir);
     }
 
     #[test]

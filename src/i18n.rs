@@ -1117,6 +1117,18 @@ impl I18n {
                  you run `/chrome` once inside that account.",
                 names
             ),
+            (Msg::DoctorStrayEntries(ref names, ref dir), Lang::En) => format!(
+                "Not accounts, in {}: {}. No command here can create a name \
+                 like that, and none can remove one either — if it is junk, \
+                 delete the directory yourself.",
+                dir, names
+            ),
+            (Msg::DoctorStrayEntries(ref names, ref dir), Lang::Ru) => format!(
+                "Это не аккаунты, лежит в {}: {}. Такое имя ни одна команда \
+                 здесь не создаёт и удалить его тоже не может — если это \
+                 мусор, удалите каталог сами.",
+                dir, names
+            ),
             (Msg::DoctorChromeOff(ref names), Lang::Ru) => format!(
                 "Claude in Chrome выключен в: {}. Claude Code хранит этот \
                  переключатель отдельно для каждой config-папки, поэтому \
@@ -1452,6 +1464,7 @@ pub enum Msg {
     LockCorrupt(String, String, String),
     DoctorDriftHint,
     DoctorChromeOff(String),
+    DoctorStrayEntries(String, String),
     DoctorCredentialStoreShared(String),
     DoctorCredentialStoreLegacy,
     UsageFromCache(u64),

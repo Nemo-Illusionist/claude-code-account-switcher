@@ -120,6 +120,7 @@ _claude_msg_en=(
     doctor_lock_corrupt "⚠ pin unreadable — the drift check is off for this account"
     doctor_drift_hint   "Drift means this directory is signed in as an account it was not pinned to — work done here would go to the wrong one. Put it back with \`claude-acc login <name>\`, or accept the new identity with \`claude-acc lock <name> --force\`."
     doctor_chrome_off   "Claude in Chrome is off in: %s. Claude Code keeps that switch per config dir, so the browser tools stay missing there until you run \`/chrome\` once inside that account."
+    doctor_stray_entries "Not accounts, in %s: %s. No command here can create a name like that, and none can remove one either — if it is junk, delete the directory yourself."
     doctor_cred_shared  "CLAUDE_SECURESTORAGE_CONFIG_DIR is set to %s, so every account shares one stored credential instead of having its own. Whichever account signed in last is the one the Keychain holds, which is why accounts above may report the same identity. Unset it to get per-account credentials back."
     doctor_cred_legacy  "CLAUDE_SECURESTORAGE_CONFIG_DIR is set but empty, which makes Claude Code drop the per-directory suffix and store every account's credentials under the single legacy entry. Managed accounts are not allowed to read that entry, so they will report no token at all. Unset the variable entirely."
     help_lock           "Pin an account to its current identity"
@@ -271,6 +272,7 @@ _claude_msg_ru=(
     doctor_lock_corrupt "⚠ закрепление не читается — проверка расхождений для этого аккаунта не работает"
     doctor_drift_hint   "Расхождение значит, что каталог залогинен под аккаунтом, за которым он не закреплён, — работа отсюда уйдёт не туда. Вернуть: \`claude-acc login <name>\`. Принять новую личность: \`claude-acc lock <name> --force\`."
     doctor_chrome_off   "Claude in Chrome выключен в: %s. Claude Code хранит этот переключатель отдельно для каждой config-папки, поэтому браузерные инструменты там не появятся, пока вы один раз не выполните \`/chrome\` внутри этого аккаунта."
+    doctor_stray_entries "Это не аккаунты, лежит в %s: %s. Такое имя ни одна команда здесь не создаёт и удалить его тоже не может — если это мусор, удалите каталог сами."
     doctor_cred_shared  "CLAUDE_SECURESTORAGE_CONFIG_DIR выставлена в %s, поэтому все аккаунты делят одну сохранённую запись вместо собственной. В Keychain лежат креды того аккаунта, под которым логинились последними — отсюда и одинаковые личности в строках выше. Снимите переменную, чтобы вернуть раздельные креды."
     doctor_cred_legacy  "CLAUDE_SECURESTORAGE_CONFIG_DIR выставлена, но пуста — из-за этого Claude Code отбрасывает суффикс по папке и держит креды всех аккаунтов в одной legacy-записи. Управляемым аккаунтам читать её нельзя, поэтому они вообще сообщат об отсутствии токена. Снимите переменную совсем."
     help_lock           "Закрепить аккаунт за его текущей личностью"
@@ -411,21 +413,40 @@ _claude_switch_init() {
     _claude_ensure_wrapper
 }
 
-# --- Every managed account, one name per line ---
-# A directory whose name `add`, `login` and `import` would all reject is not
-# one of ours, so nothing here could have created it. Listing it anyway made
-# a stray `accounts/work.lock` a row of `list` and a finding of `doctor`,
-# which then advised `claude-acc login work.lock` — a name `login` refuses.
-# Same rule as `validate_name` in src/config.rs: ASCII letters, digits,
-# hyphen, underscore.
-# `-/` rather than `/`: a directory reached through a symlink still counts.
-# The globs this replaces were `*(N:t)`, which matched anything at all, so a
-# symlinked account dir was listed before and has to stay listed — dropping
-# plain files is the fix, dropping someone's symlink would be a new bug.
+# --- What accounts/ holds, split in two ---
+# No command here can create an entry whose name `_claude_acc_name_ok`
+# rejects. Enumerating them anyway made a stray `accounts/work.lock` a row of
+# `list`, a line of `usage`, a completion candidate and a finding of
+# `doctor`, which then advised `claude-acc login work.lock` — a name `login`
+# refuses — and an account `_claude_ensure_ide_symlinks` then wrote a symlink
+# into. Same rule as `validate_name` in src/config.rs: ASCII letters,
+# digits, hyphen, underscore.
+#
+# `(N/)` does not match a symlink, which matches the Rust side:
+# `list_accounts` never listed one either, and `gui::account_dir` refuses
+# account storage reached through a symlink outright. So a symlinked
+# directory is not an account here — and lands in the other list, because no
+# command can use it and nothing else would say so.
 _claude_acc_account_names() {
     local name
-    for name in "$CLAUDE_SWITCH_ACCOUNTS_DIR"/*(N-/:t); do
+    for name in "$CLAUDE_SWITCH_ACCOUNTS_DIR"/*(N/:t); do
         _claude_acc_name_ok "$name" && print -r -- "$name"
+    done
+}
+
+# Everything else under accounts/: files, symlinks, and directories named
+# something no command accepts. `doctor` reports these, so a directory the
+# filter above drops stays visible instead of becoming invisible junk —
+# `remove` refuses such a name too, so the user's own `rm` is the only way
+# out and they have to know it is there.
+_claude_acc_other_entries() {
+    local name entry
+    for name in "$CLAUDE_SWITCH_ACCOUNTS_DIR"/*(N:t); do
+        entry="$CLAUDE_SWITCH_ACCOUNTS_DIR/$name"
+        if [[ -d "$entry" && ! -L "$entry" ]] && _claude_acc_name_ok "$name"; then
+            continue
+        fi
+        print -r -- "$name"
     done
 }
 
@@ -2698,6 +2719,13 @@ _claude_acc_doctor() {
     done
     (( chrome_seen && ${#chrome_off} > 0 )) && \
         _msg doctor_chrome_off "${(j:, :)chrome_off}"
+    # Everything accounts/ holds that is not an account. Nothing else names
+    # these — keeping them out of `list`, `usage` and completion is the point
+    # — so without this line a stray directory just disappears.
+    local -a stray_entries
+    stray_entries=(${(f)"$(_claude_acc_other_entries)"})
+    (( ${#stray_entries} > 0 )) && \
+        _msg doctor_stray_entries "$CLAUDE_SWITCH_ACCOUNTS_DIR" "${(j:, :)stray_entries}"
     # Informational, like the Chrome hint: it must not reach the exit code
     # below, which means "wrong identity" and nothing else.
     # Names chosen not to collide with this function's existing locals: a
