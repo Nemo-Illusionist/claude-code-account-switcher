@@ -97,9 +97,17 @@ check "a plain file with a valid name is not listed" "a_b,work,work-2" "$(listed
 
 # A symlink is not an account either, matching the Rust side: `list_accounts`
 # never listed one, and `gui::account_dir` refuses storage reached through a
-# symlink outright.
+# symlink outright. Four shapes, because the hints make different claims
+# about them: a link to a directory, a link to a file, a dangling link, and
+# a link whose name no command would take.
 mkdir -p "$scratch/elsewhere"
+: > "$scratch/target.txt"
 ln -s "$scratch/elsewhere" "$CLAUDE_SWITCH_ACCOUNTS_DIR/linked"
+ln -s "$scratch/target.txt" "$CLAUDE_SWITCH_ACCOUNTS_DIR/tofile"
+ln -s "$scratch/gone" "$CLAUDE_SWITCH_ACCOUNTS_DIR/dangling"
+ln -s "$scratch/elsewhere" "$CLAUDE_SWITCH_ACCOUNTS_DIR/linked.2"
+# A dotted symlink, to pin that the symlink glob skips dotfiles too.
+ln -s "$scratch/elsewhere" "$CLAUDE_SWITCH_ACCOUNTS_DIR/.hidden-link"
 check "a symlinked dir is not listed" "a_b,work,work-2" "$(listed)"
 
 print -r -- ""
@@ -115,30 +123,37 @@ check "the stray directory has no usage line" "a_b,work,work-2" "$(used)"
 print -r -- ""
 print -r -- "what \`doctor\` says about the rest:"
 
-# Filtered out of every listing, so `doctor` is the only thing left that can
-# say the entry is there at all — and `remove` refuses the name, so the user
-# has to know to delete it by hand.
-check "doctor names the stray entry" "1" \
-    "$(_claude_acc_doctor 2>/dev/null | grep -c 'yours to delete')"
-check "the stray entry is named in that line" "1" \
-    "$(_claude_acc_doctor 2>/dev/null | grep 'yours to delete' | grep -c 'work\.lock')"
+# The names one hint lists, read out of the line itself: everything between
+# the first colon (which follows the directory) and the sentence after the
+# list. Compared as whole lists rather than greppped for, because `linked`
+# is a substring of `linked.2` and a count would pass for the wrong reason.
+named_in() {
+    _claude_acc_doctor 2>/dev/null | grep -- "$1" |
+        sed -E 's/^[^:]*: //; s/\. .*$//'
+}
 
-# A symlink gets the other line. It must not get the first one: `remove` and
-# `run` follow a symlink, so "nothing of ours can clear it up" is false, and
-# "delete it yourself" would point at `rm` on a link into live data.
-check "the symlink gets its own line" "1" \
-    "$(_claude_acc_doctor 2>/dev/null | grep -c 'Reached through a symlink')"
-check "the symlink is not called undeletable junk" "0" \
-    "$(_claude_acc_doctor 2>/dev/null | grep 'yours to delete' | grep -c 'linked')"
+# Untouchable: a name no command takes, whatever the entry is — and a name
+# they would take on something that is not a directory. `remove` refuses
+# both, so the user's own `rm` is the only way out and they must know.
+check "the entries nothing here can act on" \
+    "linked.2, personal, work lock, work.lock, работа" \
+    "$(named_in '^Not accounts, in ')"
+
+# Half an account: `run` and `remove` follow a symlink, so saying nothing
+# here can act on it would be false. Shapes that must all land here: a link
+# to a directory, a link to a file, and a dangling link.
+check "the symlinks under a usable name" "dangling, linked, tofile" \
+    "$(named_in '^Symlinks, in ')"
 
 # `.DS_Store` arrives whenever anyone opens the directory in Finder. A line
 # naming it every run, about a file that comes straight back, is worse than
 # silence — and the Rust side skips dotfiles for the same reason.
 : > "$CLAUDE_SWITCH_ACCOUNTS_DIR/.DS_Store"
-check "a dotfile is not reported" "0" \
+check "a dotfile is in neither line" "0" \
     "$(_claude_acc_doctor 2>/dev/null | grep -c 'DS_Store')"
+check "nor is a dotted symlink" "0" \
+    "$(_claude_acc_doctor 2>/dev/null | grep -c 'hidden-link')"
 
-print -r -- ""
 print -r -- "the ide/ symlink pass:"
 
 # The one site that writes rather than prints: on master the stray directory

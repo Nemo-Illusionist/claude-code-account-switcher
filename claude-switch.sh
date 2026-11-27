@@ -120,8 +120,8 @@ _claude_msg_en=(
     doctor_lock_corrupt "⚠ pin unreadable — the drift check is off for this account"
     doctor_drift_hint   "Drift means this directory is signed in as an account it was not pinned to — work done here would go to the wrong one. Put it back with \`claude-acc login <name>\`, or accept the new identity with \`claude-acc lock <name> --force\`."
     doctor_chrome_off   "Claude in Chrome is off in: %s. Claude Code keeps that switch per config dir, so the browser tools stay missing there until you run \`/chrome\` once inside that account."
-    doctor_stray_entries "Not accounts, in %s: %s. No command here creates or takes a name like that, so nothing of ours put it there and nothing of ours can clear it up — that one is yours to delete."
-    doctor_linked_entries "Reached through a symlink, in %s: %s. \`list\` and the GUI do not count those as accounts, while \`run\` and \`remove\` follow them — so make it a real directory if it is meant to be an account. Do not delete it blindly: it points at somebody's data, not at a copy."
+    doctor_stray_entries "Not accounts, in %s: %s. Nothing here created those, and no command here can act on them — \`remove\` takes an account directory and nothing else — so clearing them up is yours to do."
+    doctor_linked_entries "Symlinks, in %s: %s. \`run\` and \`remove\` follow one, while \`list\` skips it and the GUI refuses account storage behind a symlink outright — so make it a real directory if it is meant to be an account. Removing it should remove the link, not whatever it leads to."
     doctor_cred_shared  "CLAUDE_SECURESTORAGE_CONFIG_DIR is set to %s, so every account shares one stored credential instead of having its own. Whichever account signed in last is the one the Keychain holds, which is why accounts above may report the same identity. Unset it to get per-account credentials back."
     doctor_cred_legacy  "CLAUDE_SECURESTORAGE_CONFIG_DIR is set but empty, which makes Claude Code drop the per-directory suffix and store every account's credentials under the single legacy entry. Managed accounts are not allowed to read that entry, so they will report no token at all. Unset the variable entirely."
     help_lock           "Pin an account to its current identity"
@@ -273,8 +273,8 @@ _claude_msg_ru=(
     doctor_lock_corrupt "⚠ закрепление не читается — проверка расхождений для этого аккаунта не работает"
     doctor_drift_hint   "Расхождение значит, что каталог залогинен под аккаунтом, за которым он не закреплён, — работа отсюда уйдёт не туда. Вернуть: \`claude-acc login <name>\`. Принять новую личность: \`claude-acc lock <name> --force\`."
     doctor_chrome_off   "Claude in Chrome выключен в: %s. Claude Code хранит этот переключатель отдельно для каждой config-папки, поэтому браузерные инструменты там не появятся, пока вы один раз не выполните \`/chrome\` внутри этого аккаунта."
-    doctor_stray_entries "Это не аккаунты, лежит в %s: %s. Такое имя ни одна команда здесь не создаёт и не принимает, так что положили это не мы и убрать сами мы не можем — удалять вам."
-    doctor_linked_entries "Это симлинки, лежат в %s: %s. \`list\` и GUI за аккаунты их не считают, а \`run\` и \`remove\` по ним идут — так что если это задумано как аккаунт, сделайте настоящий каталог. Не удаляйте вслепую: симлинк ведёт на чьи-то данные, а не на их копию."
+    doctor_stray_entries "Это не аккаунты, лежит в %s: %s. Их здесь никто не создавал, и сделать с ними отсюда нельзя ничего — \`remove\` принимает только папку аккаунта, — так что убирать их вам."
+    doctor_linked_entries "Это симлинки, лежат в %s: %s. \`run\` и \`remove\` по ним идут, а \`list\` их пропускает, GUI же отказывается от хранилища за симлинком наотрез — так что если это задумано как аккаунт, сделайте настоящий каталог. Удалять, если решите, нужно сам симлинк, а не то, куда он ведёт."
     doctor_cred_shared  "CLAUDE_SECURESTORAGE_CONFIG_DIR выставлена в %s, поэтому все аккаунты делят одну сохранённую запись вместо собственной. В Keychain лежат креды того аккаунта, под которым логинились последними — отсюда и одинаковые личности в строках выше. Снимите переменную, чтобы вернуть раздельные креды."
     doctor_cred_legacy  "CLAUDE_SECURESTORAGE_CONFIG_DIR выставлена, но пуста — из-за этого Claude Code отбрасывает суффикс по папке и держит креды всех аккаунтов в одной legacy-записи. Управляемым аккаунтам читать её нельзя, поэтому они вообще сообщат об отсутствии токена. Снимите переменную совсем."
     help_lock           "Закрепить аккаунт за его текущей личностью"
@@ -449,10 +449,14 @@ _claude_acc_unnamed_entries() {
     local name entry
     for name in "$CLAUDE_SWITCH_ACCOUNTS_DIR"/*(N:t); do
         entry="$CLAUDE_SWITCH_ACCOUNTS_DIR/$name"
-        [[ -L "$entry" ]] && continue
-        if [[ -d "$entry" ]] && _claude_acc_name_ok "$name"; then
+        # The name first, as every command checks it first: a name no
+        # command takes is untouchable whatever the entry turns out to be.
+        if ! _claude_acc_name_ok "$name"; then
+            print -r -- "$name"
             continue
         fi
+        [[ -L "$entry" ]] && continue
+        [[ -d "$entry" ]] && continue
         print -r -- "$name"
     done
 }
@@ -460,7 +464,7 @@ _claude_acc_unnamed_entries() {
 _claude_acc_linked_entries() {
     local name
     for name in "$CLAUDE_SWITCH_ACCOUNTS_DIR"/*(N@:t); do
-        print -r -- "$name"
+        _claude_acc_name_ok "$name" && print -r -- "$name"
     done
 }
 

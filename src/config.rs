@@ -26,19 +26,26 @@ pub struct AppConfig {
 
 /// The contents of `accounts/`, as `read_accounts_dir` reads them.
 ///
-/// The two reported lists are kept apart because the right thing to say
-/// about them differs. A name no command accepts is junk only the user's
-/// `rm` can clear. A symlink is a path into someone else's data: `run` and
-/// `remove` follow it (`is_dir` does), `list` and the GUI do not treat it as
-/// an account, and telling anyone to delete it would be telling them to
-/// `rm` a link to a real account's files.
+/// The two reported lists are split by what the user can do about them, not
+/// by what the entry is, because that is what the hint has to say — and a
+/// hint that is false for part of its own list is worse than none.
+///
+/// The name decides first. Every command takes an account by name and
+/// checks the name before anything else, so an entry named something
+/// `validate_name` rejects is untouchable whatever it is: `run`, `remove`
+/// and `login` all refuse it, symlink or not. Only among names a command
+/// would accept does the kind of entry matter.
 #[derive(Debug, Default, PartialEq)]
 pub struct AccountsDir {
     /// Directories whose name a command here could have created.
     pub accounts: Vec<String>,
-    /// Entries named something no command here accepts, and plain files.
+    /// Entries no command can act on: a name `validate_name` rejects, or an
+    /// acceptable name on something that is not a directory. `remove` takes
+    /// only an account directory, so it cannot clear either kind up.
     pub unnamed: Vec<String>,
-    /// Symlinks, whatever they are named and wherever they point.
+    /// Symlinks whose name a command would accept, so `run` and `remove`
+    /// reach them — `is_dir` follows a symlink — while `list` skips them and
+    /// `gui::account_dir` refuses storage behind one outright.
     pub linked: Vec<String>,
 }
 
@@ -144,10 +151,17 @@ impl AppConfig {
             if name.starts_with('.') {
                 continue;
             }
+            // The name first: a command that refuses the name never gets
+            // as far as looking at the entry, so what the entry is cannot
+            // change the answer.
+            if !validate_name(&name) {
+                out.unnamed.push(name);
+                continue;
+            }
             let kind = entry.file_type()?;
             if kind.is_symlink() {
                 out.linked.push(name);
-            } else if kind.is_dir() && validate_name(&name) {
+            } else if kind.is_dir() {
                 out.accounts.push(name);
             } else {
                 out.unnamed.push(name);
@@ -416,14 +430,23 @@ mod tests {
         let outside = c.base_dir.join("elsewhere");
         fs::create_dir_all(&outside).unwrap();
         std::os::unix::fs::symlink(&outside, dir.join("linked")).unwrap();
-        // A symlink with a name no command accepts is still a symlink: the
-        // dangerous half of the advice is what decides.
+        // A symlink named something no command accepts belongs with the
+        // untouchable ones, not with the symlinks: `run` and `remove` stop
+        // at the name and never reach it, so "they follow them" would be
+        // false and "make it a real directory" would not help — a directory
+        // of that name is not an account either.
         std::os::unix::fs::symlink(&outside, dir.join("linked.2")).unwrap();
+        // Likewise by kind: an acceptable name on something that is not a
+        // directory is not an account, and `remove` refuses it too.
+        fs::write(c.base_dir.join("target.txt"), "x").unwrap();
+        std::os::unix::fs::symlink(c.base_dir.join("target.txt"), dir.join("tofile")).unwrap();
+        std::os::unix::fs::symlink(c.base_dir.join("gone"), dir.join("dangling")).unwrap();
+        fs::write(dir.join("personal"), "a file with a name add would take").unwrap();
 
         let read = c.read_accounts_dir().unwrap();
         assert_eq!(read.accounts, vec!["plain"]);
-        assert_eq!(read.unnamed, vec!["work.lock"]);
-        assert_eq!(read.linked, vec!["linked", "linked.2"]);
+        assert_eq!(read.unnamed, vec!["linked.2", "personal", "work.lock"]);
+        assert_eq!(read.linked, vec!["dangling", "linked", "tofile"]);
         let _ = fs::remove_dir_all(&c.base_dir);
     }
 

@@ -101,12 +101,12 @@ Only names made of letters, digits, `-` and `_` are accounts: `add`, `login`, `i
 Auditing 1 account(s):
   ? work  no token (run: claude-acc login work)
 
-Not accounts, in ~/.claude-switch/accounts: work.lock. No command here creates or takes a name like that, so nothing of ours put it there and nothing of ours can clear it up — that one is yours to delete.
-Reached through a symlink, in ~/.claude-switch/accounts: linked. `list` and the GUI do not count those as accounts, while `run` and `remove` follow them — so make it a real directory if it is meant to be an account. Do not delete it blindly: it points at somebody's data, not at a copy.
+Not accounts, in ~/.claude-switch/accounts: work.lock. Nothing here created those, and no command here can act on them — `remove` takes an account directory and nothing else — so clearing them up is yours to do.
+Symlinks, in ~/.claude-switch/accounts: linked. `run` and `remove` follow one, while `list` skips it and the GUI refuses account storage behind a symlink outright — so make it a real directory if it is meant to be an account. Removing it should remove the link, not whatever it leads to.
 0 of 1 accounts healthy.
 ```
 
-A symlink gets the second line rather than the first, because what to do about it is different. `remove` and `run` follow one — they test with `is_dir`, which does — while `list` skips it and the GUI interface refuses account storage behind a symlink outright. So it is half an account, and deleting it would remove a link to somebody's real files rather than a stray directory.
+Two lines, because what you can do about the two differs, and the name is what decides. Every command takes an account by name and checks the name first, so an entry named something they refuse is beyond all of them whatever it is — a directory, a file, a symlink — and clearing it up is yours. Among names they would accept, a symlink is the odd case: `run` and `remove` reach it, because they test with `is_dir`, which follows one, while `list` skips it and the GUI interface refuses account storage behind a symlink outright. So it half works, which is worth knowing before you act on it.
 
 Dotfiles are in neither line. `.DS_Store` appears the moment anyone opens the directory in Finder, and naming it on every run — about a file that comes straight back — is worse than saying nothing. Like the Chrome note, neither line touches the exit code.
 

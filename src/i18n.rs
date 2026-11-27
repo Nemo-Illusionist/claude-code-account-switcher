@@ -1118,30 +1118,32 @@ impl I18n {
                 names
             ),
             (Msg::DoctorStrayEntries(ref names, ref dir), Lang::En) => format!(
-                "Not accounts, in {}: {}. No command here creates or takes a \
-                 name like that, so nothing of ours put it there and nothing \
-                 of ours can clear it up — that one is yours to delete.",
+                "Not accounts, in {}: {}. Nothing here created those, and no \
+                 command here can act on them — `remove` takes an account \
+                 directory and nothing else — so clearing them up is yours \
+                 to do.",
                 dir, names
             ),
             (Msg::DoctorStrayEntries(ref names, ref dir), Lang::Ru) => format!(
-                "Это не аккаунты, лежит в {}: {}. Такое имя ни одна команда \
-                 здесь не создаёт и не принимает, так что положили это не мы \
-                 и убрать сами мы не можем — удалять вам.",
+                "Это не аккаунты, лежит в {}: {}. Их здесь никто не создавал, \
+                 и сделать с ними отсюда нельзя ничего — `remove` принимает \
+                 только папку аккаунта, — так что убирать их вам.",
                 dir, names
             ),
             (Msg::DoctorLinkedEntries(ref names, ref dir), Lang::En) => format!(
-                "Reached through a symlink, in {}: {}. `list` and the GUI do \
-                 not count those as accounts, while `run` and `remove` \
-                 follow them — so make it a real directory if it is meant to \
-                 be an account. Do not delete it blindly: it points at \
-                 somebody's data, not at a copy.",
+                "Symlinks, in {}: {}. `run` and `remove` follow one, while \
+                 `list` skips it and the GUI refuses account storage behind \
+                 a symlink outright — so make it a real directory if it is \
+                 meant to be an account. Removing it should remove the link, \
+                 not whatever it leads to.",
                 dir, names
             ),
             (Msg::DoctorLinkedEntries(ref names, ref dir), Lang::Ru) => format!(
-                "Это симлинки, лежат в {}: {}. `list` и GUI за аккаунты их не \
-                 считают, а `run` и `remove` по ним идут — так что если это \
-                 задумано как аккаунт, сделайте настоящий каталог. Не удаляйте \
-                 вслепую: симлинк ведёт на чьи-то данные, а не на их копию.",
+                "Это симлинки, лежат в {}: {}. `run` и `remove` по ним идут, \
+                 а `list` их пропускает, GUI же отказывается от хранилища за \
+                 симлинком наотрез — так что если это задумано как аккаунт, \
+                 сделайте настоящий каталог. Удалять, если решите, нужно сам \
+                 симлинк, а не то, куда он ведёт.",
                 dir, names
             ),
             (Msg::DoctorChromeOff(ref names), Lang::Ru) => format!(
