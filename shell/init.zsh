@@ -28,7 +28,13 @@ _claude_acc_accounts() {
     accounts=(${(f)"$('__CLAUDE_ACC_BIN__' completions accounts)"})
     # `default` is not a managed account directory but every command that
     # takes an account name accepts it as "the standard ~/.claude one".
-    [[ -n "$1" ]] && accounts=('default' $accounts)
+    #
+    # `${1-}`, not `$1`: the callers that want only managed accounts — the
+    # `remove` and `clone-settings` branches — pass nothing at all, and
+    # under `setopt nounset`, which people do set in .zshrc, a bare `$1`
+    # aborts the function. Completion then offers nothing and prints
+    # `_claude_acc_accounts:5: 1: parameter not set` over the prompt.
+    [[ -n "${1-}" ]] && accounts=('default' $accounts)
     _describe 'account' accounts
 }
 
