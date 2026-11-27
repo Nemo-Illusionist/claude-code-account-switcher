@@ -93,6 +93,25 @@ CLAUDE_SECURESTORAGE_CONFIG_DIR is set to /Users/x/.claude, so every account sha
 
 The empty-string case gets its own wording, because dropping the hash sends credentials to the one legacy entry that managed accounts are not allowed to read — there they report no token at all rather than someone else's. Either way it is a note, not an error: `doctor`'s exit code still means "wrong identity" and nothing else.
 
+### Something in `accounts/` that is not an account
+
+Only names made of letters, digits, `-` and `_` are accounts: `add`, `login`, `import` and `clone-settings` all refuse anything else, so nothing here can create one. An entry that turns up with such a name is skipped by `list`, `usage`, completion and the audit itself — and `doctor` names it, because otherwise it would simply be invisible:
+
+```
+Auditing 1 account(s):
+  ? work  no token (run: claude-acc login work)
+
+Not accounts, in ~/.claude-switch/accounts: work.lock. Nothing here created those, and no command here can act on them — `remove` takes an account directory and nothing else — so clearing them up is yours to do.
+Symlinks, in ~/.claude-switch/accounts: linked. `run` and `remove` follow one, while `list` skips it and the GUI refuses account storage behind a symlink outright — so make it a real directory if it is meant to be an account. Removing it should remove the link, not whatever it leads to.
+0 of 1 accounts healthy.
+```
+
+Two lines, because what you can do about the two differs. The split follows what a command would do with the entry, in the order it does it. The name first: every command takes an account by name and checks it before looking at anything, so an entry named something they refuse is beyond all of them, whatever it is. Then `is_dir`, which they all reach next and which follows a symlink — so a plain file, a symlink to a file and a dangling symlink are equally beyond them, and land in the same line.
+
+That leaves one case in the second line: a symlink to a directory, under a name they accept. `run` and `remove` do reach that one, while `list` skips it and the GUI interface refuses account storage behind a symlink outright. So it half works, which is worth knowing before you act on it.
+
+Dotfiles are in neither line. `.DS_Store` appears the moment anyone opens the directory in Finder, and naming it on every run — about a file that comes straight back — is worse than saying nothing. Like the Chrome note, neither line touches the exit code.
+
 ## Pinning an account to an identity (`lock`)
 
 `doctor` tells you which account a directory is signed in as. It cannot tell
