@@ -301,22 +301,24 @@ mod tests {
         // marketplace sourced from outside any config dir.
         fs::create_dir_all(src.join("plugins/cache/local/helper/1.0.0")).unwrap();
         fs::write(src.join("plugins/cache/local/helper/1.0.0/plugin.md"), "p").unwrap();
-        // Two platform details that nothing on this machine can catch — the
-        // local cross-check from CLAUDE.md is a clippy type-check and runs
-        // no tests. The runner caught the first; the second was found by
-        // reading the rewrite before CI got that far:
+        // Two platform details, neither of which a run on this machine can
+        // catch: the local cross-check from CLAUDE.md is a clippy
+        // type-check and runs no tests.
         //
         // `serde_json`, not `format!`: a Windows path holds backslashes, and
         // pasting one into a JSON string literal is an invalid escape, so
         // the fixture was not JSON at all there.
         //
-        // And `Path::join`, not a `/` glued onto a path: the rewrite takes
-        // its prefix from `source.join("plugins").to_string_lossy()` and
-        // compares strings, so a fixture mixing `\` with `/` would not match
-        // the prefix on Windows — the file would be left alone and the
-        // assertions below would fail against an unrewritten path. Same
-        // pattern as `seeding_copies_the_tree_and_repoints_the_registry`,
-        // which joins its fixture paths for the same reason.
+        // And the prefix must be built the way the rewrite builds it. It
+        // takes `source.join("plugins").to_string_lossy()` and compares
+        // strings, so a `/` written *inside* that part — `{src}/plugins/…`
+        // where the path itself uses `\` — does not match, the file is left
+        // alone, and the assertions below fail against an unrewritten path.
+        // After the prefix it does not matter:
+        // `seeding_copies_the_tree_and_repoints_the_registry` glues
+        // `cache/official/helper/abc` onto the joined prefix and matches
+        // fine. Joining every component is simply the form that cannot get
+        // it wrong.
         let p = |root: &Path, rest: &[&str]| -> String {
             let mut out = root.to_path_buf();
             for part in rest {
