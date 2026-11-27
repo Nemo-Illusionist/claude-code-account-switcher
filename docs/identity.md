@@ -93,6 +93,20 @@ CLAUDE_SECURESTORAGE_CONFIG_DIR is set to /Users/x/.claude, so every account sha
 
 The empty-string case gets its own wording, because dropping the hash sends credentials to the one legacy entry that managed accounts are not allowed to read — there they report no token at all rather than someone else's. Either way it is a note, not an error: `doctor`'s exit code still means "wrong identity" and nothing else.
 
+### Something in `accounts/` that is not an account
+
+Only names made of letters, digits, `-` and `_` are accounts: `add`, `login`, `import` and `clone-settings` all refuse anything else, so nothing here can create one. A directory that turns up with such a name — left by something writing beside an account dir — is skipped by `list`, `usage`, completion and the audit itself. `doctor` names it, because otherwise it would be invisible, and `remove` refuses the name too, so clearing it up is yours to do:
+
+```
+Auditing 1 account(s):
+  ? work  no token (run: claude-acc login work)
+
+Not accounts, in ~/.claude-switch/accounts: work.lock. No command here can create a name like that, and none can remove one either — if it is junk, delete the directory yourself.
+0 of 1 accounts healthy.
+```
+
+An account directory reached through a symlink is reported the same way. It is not usable as an account either: `claude-acc`'s GUI interface refuses storage behind a symlink outright, so the entry would otherwise sit there doing nothing with nothing on screen to say why. Like the Chrome note, neither line touches the exit code.
+
 ## Pinning an account to an identity (`lock`)
 
 `doctor` tells you which account a directory is signed in as. It cannot tell

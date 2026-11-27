@@ -2725,7 +2725,7 @@ _claude_acc_doctor() {
     local -a stray_entries
     stray_entries=(${(f)"$(_claude_acc_other_entries)"})
     (( ${#stray_entries} > 0 )) && \
-        _msg doctor_stray_entries "$CLAUDE_SWITCH_ACCOUNTS_DIR" "${(j:, :)stray_entries}"
+        _msg doctor_stray_entries "${CLAUDE_SWITCH_ACCOUNTS_DIR/#$HOME/~}" "${(j:, :)stray_entries}"
     # Informational, like the Chrome hint: it must not reach the exit code
     # below, which means "wrong identity" and nothing else.
     # Names chosen not to collide with this function's existing locals: a

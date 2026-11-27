@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 
 use crate::chrome;
 use crate::config::AppConfig;
@@ -66,6 +67,24 @@ fn shared_credential_store(securestorage: Option<&str>) -> Option<SharedStore> {
         None => None,
         Some("") => Some(SharedStore::Legacy),
         Some(dir) => Some(SharedStore::At(dir.to_string())),
+    }
+}
+
+/// A path with the home directory written as `~`, for a message a person
+/// reads. Printed in full it would carry the account name of whoever ran it
+/// into whatever the output gets pasted into.
+fn home_relative(path: &Path) -> String {
+    home_relative_to(path, dirs::home_dir().as_deref())
+}
+
+/// The decision, with the home directory passed in: `cargo test` runs tests
+/// in threads of one process, so a test that set `HOME` would be a test of
+/// scheduling.
+fn home_relative_to(path: &Path, home: Option<&Path>) -> String {
+    match home.and_then(|h| path.strip_prefix(h).ok().map(PathBuf::from)) {
+        Some(rel) if rel.as_os_str().is_empty() => "~".to_string(),
+        Some(rel) => format!("~/{}", rel.display()),
+        None => path.display().to_string(),
     }
 }
 
@@ -304,7 +323,7 @@ fn run_human(
     if !strays.is_empty() {
         i18n.print(Msg::DoctorStrayEntries(
             strays.join(", "),
-            config.accounts_dir().display().to_string(),
+            home_relative(&config.accounts_dir()),
         ));
     }
     // Like the Chrome hint: informational, and deliberately not touching the
@@ -442,6 +461,37 @@ mod tests {
 
     fn en() -> I18n {
         I18n { lang: Lang::En }
+    }
+
+    #[test]
+    fn a_path_under_home_is_printed_with_a_tilde() {
+        // The message names the directory, and `doctor` output gets pasted
+        // into issues — the home prefix carries the user's account name with
+        // it. Expected values written out by hand.
+        let home = Path::new("/Users/someone");
+        assert_eq!(
+            home_relative_to(
+                Path::new("/Users/someone/.claude-switch/accounts"),
+                Some(home)
+            ),
+            "~/.claude-switch/accounts"
+        );
+        assert_eq!(home_relative_to(home, Some(home)), "~");
+        // Not under home, and no home at all: printed as it is, never with a
+        // `~` that would point somewhere else.
+        assert_eq!(
+            home_relative_to(Path::new("/srv/switch/accounts"), Some(home)),
+            "/srv/switch/accounts"
+        );
+        assert_eq!(
+            home_relative_to(Path::new("/Users/someone/x"), None),
+            "/Users/someone/x"
+        );
+        // A different user's home is not this one's prefix.
+        assert_eq!(
+            home_relative_to(Path::new("/Users/someone-else/x"), Some(home)),
+            "/Users/someone-else/x"
+        );
     }
 
     #[test]
