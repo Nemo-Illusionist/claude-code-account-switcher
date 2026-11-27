@@ -26,8 +26,18 @@ trap 'rm -rf "$scratch"' EXIT
 
 export HOME="$scratch/home"
 mkdir -p "$HOME/.claude"
+export CLAUDE_ACC_LANG=en
 
 source "${0:A:h:h:h}/claude-switch.sh" >/dev/null 2>&1
+
+# `doctor` and `usage` refuse to run without `security`, which is macOS-only,
+# so on the Linux runner they printed nothing and four checks below failed on
+# an empty string — a failure of the test, not of the code. A stub satisfies
+# the dependency gate (`command -v` sees a shell function in zsh), and
+# non-zero means "no such Keychain entry", which is why every row reads
+# `no token`. Same approach as `cred_store_notice.zsh`, `token_lookup.zsh`
+# and `import_rekey.zsh`.
+security() { return 1 }
 
 check() {
     local label="$1" expected="$2" actual="$3"
