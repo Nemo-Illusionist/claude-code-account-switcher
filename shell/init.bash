@@ -32,7 +32,7 @@ _claude_acc_complete() {
     sub="${COMP_WORDS[2]}"
 
     if [[ $COMP_CWORD -eq 1 ]]; then
-        COMPREPLY=($(compgen -W "list add login remove default reset lock link unlink links status usage sessions session desktop vscode resume-hook statusline update install run doctor whoami clone-settings import help" -- "$cur"))
+        COMPREPLY=($(compgen -W "list add login remove default reset lock link unlink links status usage sessions session desktop vscode resume-hook statusline update install run doctor whoami chrome clone-settings import help" -- "$cur"))
         return
     fi
 
@@ -67,6 +67,7 @@ _claude_acc_complete() {
             statusline) COMPREPLY=($(compgen -W "--install" -- "$cur")) ;;
             sessions) COMPREPLY=($(compgen -W "--all" -- "$cur")) ;;
             doctor) COMPREPLY=($(compgen -W "--json" -- "$cur")) ;;
+            chrome) COMPREPLY=($(compgen -W "--on --off" -- "$cur")) ;;
             update) COMPREPLY=($(compgen -W "--check --version" -- "$cur")) ;;
             session) COMPREPLY=($(compgen -W "--to --from --force -f" -- "$cur")) ;;
             desktop) COMPREPLY=($(compgen -W "--seed -s --from --force -f" -- "$cur")) ;;
@@ -80,7 +81,7 @@ _claude_acc_complete() {
             remove|clone-settings)
                 COMPREPLY=($(compgen -W "$('__CLAUDE_ACC_BIN__' completions accounts)" -- "$cur"))
                 ;;
-            default|link|login|run|lock)
+            default|link|login|run|lock|chrome)
                 COMPREPLY=($(compgen -W "default $('__CLAUDE_ACC_BIN__' completions accounts)" -- "$cur"))
                 ;;
             session)

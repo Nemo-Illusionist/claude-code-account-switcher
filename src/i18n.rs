@@ -1111,17 +1111,57 @@ impl I18n {
             (Msg::UsageWindowHasReset, Lang::Ru) => {
                 s("окно с тех пор обнулилось — сохранённая цифра от прошлого")
             }
+            (Msg::ChromeState(ref account, ref state), Lang::En) => {
+                format!("  {}  Claude in Chrome: {}", account, state)
+            }
+            (Msg::ChromeState(ref account, ref state), Lang::Ru) => {
+                format!("  {}  Claude in Chrome: {}", account, state)
+            }
+            (Msg::ChromeSet(ref account, on), Lang::En) => format!(
+                "  {}  Claude in Chrome: {} (restart any session in that account)",
+                account,
+                if on { "on" } else { "off" }
+            ),
+            (Msg::ChromeSet(ref account, on), Lang::Ru) => format!(
+                "  {}  Claude in Chrome: {} (перезапустите сессии этого аккаунта)",
+                account,
+                if on { "on" } else { "off" }
+            ),
+            (Msg::ChromeRefused(ref account, ref said), Lang::En) => {
+                format!("  {}  Claude Code refused: {}", account, said)
+            }
+            (Msg::ChromeRefused(ref account, ref said), Lang::Ru) => {
+                format!("  {}  Claude Code отказался: {}", account, said)
+            }
+            (Msg::ChromeClaudeMissing(ref why), Lang::En) => format!(
+                "chrome: could not run `claude` — the write goes through its own \
+                 edit-chrome-settings, so Claude Code has to be on PATH ({})",
+                why
+            ),
+            (Msg::ChromeClaudeMissing(ref why), Lang::Ru) => format!(
+                "chrome: не удалось запустить `claude` — запись идёт через его же \
+                 edit-chrome-settings, поэтому Claude Code должен быть в PATH ({})",
+                why
+            ),
+            (Msg::ChromeNoStandardAccount, Lang::En) => {
+                s("chrome: no standard ~/.claude/ account on this machine")
+            }
+            (Msg::ChromeNoStandardAccount, Lang::Ru) => {
+                s("chrome: на этой машине нет стандартного аккаунта ~/.claude/")
+            }
             (Msg::DoctorChromeOff(ref names), Lang::En) => format!(
                 "Claude in Chrome is off in: {}. Claude Code keeps that switch \
                  per config dir, so the browser tools stay missing there until \
-                 you run `/chrome` once inside that account.",
+                 it is turned on: `claude-acc chrome <account> --on`, from a \
+                 shell outside a Claude Code session.",
                 names
             ),
             (Msg::DoctorChromeOff(ref names), Lang::Ru) => format!(
                 "Claude in Chrome выключен в: {}. Claude Code хранит этот \
                  переключатель отдельно для каждой config-папки, поэтому \
-                 браузерные инструменты там не появятся, пока вы один раз не \
-                 выполните `/chrome` внутри этого аккаунта.",
+                 браузерные инструменты там не появятся, пока его не включить: \
+                 `claude-acc chrome <аккаунт> --on`, из оболочки вне сессии \
+                 Claude Code.",
                 names
             ),
             // Two separate sentences rather than one with a hole in it: an
@@ -1452,6 +1492,11 @@ pub enum Msg {
     LockCorrupt(String, String, String),
     DoctorDriftHint,
     DoctorChromeOff(String),
+    ChromeState(String, String),
+    ChromeSet(String, bool),
+    ChromeRefused(String, String),
+    ChromeClaudeMissing(String),
+    ChromeNoStandardAccount,
     DoctorCredentialStoreShared(String),
     DoctorCredentialStoreLegacy,
     UsageFromCache(u64),

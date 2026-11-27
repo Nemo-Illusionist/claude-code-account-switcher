@@ -69,6 +69,7 @@ _claude_msg_en=(
     help_run            "Run claude under a specific account"
     help_doctor         "Audit each account OAuth identity (email, UUID)"
     help_whoami         "Print active account email (or name fallback)"
+    help_chrome         "Show or set Claude in Chrome per account"
     help_clone_settings "Copy ~/.claude/ config into an existing account"
     help_import         "Import an existing Claude config dir (no re-login)"
     help_help           "Help"
@@ -119,11 +120,17 @@ _claude_msg_en=(
     lock_corrupt        "Account '%s' has a pin that cannot be read: %s\n  Not replacing it — a corrupted pin is how this protection gets switched off unnoticed. Inspect it, then re-pin on purpose: claude-acc lock %s --force"
     doctor_lock_corrupt "⚠ pin unreadable — the drift check is off for this account"
     doctor_drift_hint   "Drift means this directory is signed in as an account it was not pinned to — work done here would go to the wrong one. Put it back with \`claude-acc login <name>\`, or accept the new identity with \`claude-acc lock <name> --force\`."
-    doctor_chrome_off   "Claude in Chrome is off in: %s. Claude Code keeps that switch per config dir, so the browser tools stay missing there until you run \`/chrome\` once inside that account."
+    doctor_chrome_off   "Claude in Chrome is off in: %s. Claude Code keeps that switch per config dir, so the browser tools stay missing there until it is turned on: \`claude-acc chrome <account> --on\`, from a shell outside a Claude Code session."
     doctor_cred_shared  "CLAUDE_SECURESTORAGE_CONFIG_DIR is set to %s, so every account shares one stored credential instead of having its own. Whichever account signed in last is the one the Keychain holds, which is why accounts above may report the same identity. Unset it to get per-account credentials back."
     doctor_cred_legacy  "CLAUDE_SECURESTORAGE_CONFIG_DIR is set but empty, which makes Claude Code drop the per-directory suffix and store every account's credentials under the single legacy entry. Managed accounts are not allowed to read that entry, so they will report no token at all. Unset the variable entirely."
     help_lock           "Pin an account to its current identity"
     clone_settings_usage "Usage: claude-acc clone-settings <name>"
+    chrome_usage        "Usage: claude-acc chrome [<account>] [--on|--off]"
+    chrome_state        "  %s  Claude in Chrome: %s"
+    chrome_set          "  %s  Claude in Chrome: %s (restart any session in that account)"
+    chrome_refused      "  %s  Claude Code refused: %s"
+    chrome_claude_missing "chrome: could not run \`claude\` — the write goes through its own edit-chrome-settings, so Claude Code has to be on PATH (%s)"
+    chrome_no_standard  "chrome: no standard ~/.claude/ account on this machine"
     import_usage        "Usage: claude-acc import <name> <path> [--move]"
     import_source_not_dir "Source '%s' is not a directory."
     import_source_managed "That path is already inside ~/.claude-switch/accounts/."
@@ -220,6 +227,7 @@ _claude_msg_ru=(
     help_run            "Запустить claude под конкретным аккаунтом"
     help_doctor         "Аудит OAuth-личности каждого аккаунта (email, UUID)"
     help_whoami         "Email активного аккаунта (или имя как fallback)"
+    help_chrome         "Показать или задать Claude in Chrome по аккаунтам"
     help_clone_settings "Скопировать конфиг ~/.claude/ в существующий аккаунт"
     help_import         "Импортировать существующую config-папку (без релогина)"
     help_help           "Справка"
@@ -270,11 +278,17 @@ _claude_msg_ru=(
     lock_corrupt        "У аккаунта '%s' закрепление не читается: %s\n  Не заменяю — повреждённое закрепление это и есть способ незаметно отключить защиту. Посмотрите файл, потом закрепите осознанно: claude-acc lock %s --force"
     doctor_lock_corrupt "⚠ закрепление не читается — проверка расхождений для этого аккаунта не работает"
     doctor_drift_hint   "Расхождение значит, что каталог залогинен под аккаунтом, за которым он не закреплён, — работа отсюда уйдёт не туда. Вернуть: \`claude-acc login <name>\`. Принять новую личность: \`claude-acc lock <name> --force\`."
-    doctor_chrome_off   "Claude in Chrome выключен в: %s. Claude Code хранит этот переключатель отдельно для каждой config-папки, поэтому браузерные инструменты там не появятся, пока вы один раз не выполните \`/chrome\` внутри этого аккаунта."
+    doctor_chrome_off   "Claude in Chrome выключен в: %s. Claude Code хранит этот переключатель отдельно для каждой config-папки, поэтому браузерные инструменты там не появятся, пока его не включить: \`claude-acc chrome <аккаунт> --on\`, из оболочки вне сессии Claude Code."
     doctor_cred_shared  "CLAUDE_SECURESTORAGE_CONFIG_DIR выставлена в %s, поэтому все аккаунты делят одну сохранённую запись вместо собственной. В Keychain лежат креды того аккаунта, под которым логинились последними — отсюда и одинаковые личности в строках выше. Снимите переменную, чтобы вернуть раздельные креды."
     doctor_cred_legacy  "CLAUDE_SECURESTORAGE_CONFIG_DIR выставлена, но пуста — из-за этого Claude Code отбрасывает суффикс по папке и держит креды всех аккаунтов в одной legacy-записи. Управляемым аккаунтам читать её нельзя, поэтому они вообще сообщат об отсутствии токена. Снимите переменную совсем."
     help_lock           "Закрепить аккаунт за его текущей личностью"
     clone_settings_usage "Использование: claude-acc clone-settings <name>"
+    chrome_usage        "Использование: claude-acc chrome [<аккаунт>] [--on|--off]"
+    chrome_state        "  %s  Claude in Chrome: %s"
+    chrome_set          "  %s  Claude in Chrome: %s (перезапустите сессии этого аккаунта)"
+    chrome_refused      "  %s  Claude Code отказался: %s"
+    chrome_claude_missing "chrome: не удалось запустить \`claude\` — запись идёт через его же edit-chrome-settings, поэтому Claude Code должен быть в PATH (%s)"
+    chrome_no_standard  "chrome: на этой машине нет стандартного аккаунта ~/.claude/"
     import_usage        "Использование: claude-acc import <name> <путь> [--move]"
     import_source_not_dir "Источник '%s' не является директорией."
     import_source_managed "Этот путь уже внутри ~/.claude-switch/accounts/."
@@ -654,6 +668,7 @@ _claude_acc_help() {
     echo "  claude-acc doctor [--json]   $(_msg help_doctor)"
     echo "  claude-acc whoami            $(_msg help_whoami)"
     echo "  claude-acc add -s <name>     $(_msg help_add) (seeded from ~/.claude/)"
+    echo "  claude-acc chrome [<account>] [--on|--off]  $(_msg help_chrome)"
     echo "  claude-acc clone-settings <name>  $(_msg help_clone_settings)"
     echo "  claude-acc import <name> <path>   $(_msg help_import)"
     echo "  claude-acc desktop add|clone-config|clone-runtime|list|run|remove [<name>]  $(_msg help_desktop)"
@@ -2333,6 +2348,131 @@ _claude_acc_config_json() {
 # Exit 0 = on, 1 = off, 2 = no answer (no file yet, or it does not parse).
 # A config dir Claude Code has never written is a brand-new account, not an
 # account that said no, so it must not be reported as off.
+# --- claude-acc chrome [<account>] [--on|--off] ---
+# Claude Code keeps the Claude in Chrome switch per config dir, so a new
+# account has the browser tools missing with nothing on screen to say why.
+# Setting it used to need an interactive session — `/chrome` inside that
+# account — which is the only thing in this tool's reach that did.
+#
+# The write is not ours: the flag lives in `.claude.json`, the file that also
+# holds `oauthAccount`, so it goes through Claude Code's own hidden
+# `edit-chrome-settings --json`, the way the VS Code extension does it —
+# `{"enabledByDefault": <bool>}` on stdin, `CLAUDE_CONFIG_DIR` read as
+# usual. Transcribed from Claude Code 2.1.332; `claude --help` does not list
+# it, so a failure is passed through verbatim rather than interpreted.
+#
+# It refuses to run from inside a Claude Code session. That guard is Claude
+# Code's own, keyed on CLAUDE_CODE_CHILD_SESSION, and is left alone.
+_claude_acc_chrome_set() {
+    # `rc`, not `status`: in zsh `status` is a read-only alias for `$?`, and
+    # assigning to it is an error that leaves the exit code unread.
+    local dir="$1" on="$2" out rc
+    out=$(printf '{"enabledByDefault":%s}\n' "$on" |
+        CLAUDE_CONFIG_DIR="$dir" command claude edit-chrome-settings --json 2>&1)
+    rc=$?
+    if (( rc == 0 )); then
+        print -r -- ""
+        return 0
+    fi
+    print -r -- "$out"
+    return 1
+}
+
+_claude_acc_chrome() {
+    local name="" want=""
+    local -a rest
+    while (( $# > 0 )); do
+        case "$1" in
+            --on)  want=true; shift ;;
+            --off) want=false; shift ;;
+            *)     rest+=("$1"); shift ;;
+        esac
+    done
+    if (( ${#rest} > 1 )); then
+        _msg chrome_usage
+        return 1
+    fi
+    name="${rest[1]:-}"
+
+    if ! command -v claude >/dev/null 2>&1 && [[ -n "$want" ]]; then
+        _msg chrome_claude_missing "not found in PATH"
+        return 1
+    fi
+
+    local -a labels dirs
+    if [[ -n "$name" ]]; then
+        if [[ "$name" == "default" ]]; then
+            local std
+            std=$(_claude_acc_default_token_dir)
+            if [[ -z "$std" || ! -d "$std" ]]; then
+                _msg chrome_no_standard
+                return 1
+            fi
+            labels=("~/.claude/"); dirs=("$std")
+        else
+            _claude_validate_name "$name" || return 1
+            if [[ ! -d "$CLAUDE_SWITCH_ACCOUNTS_DIR/$name" ]]; then
+                _msg login_not_found "$name"
+                return 1
+            fi
+            labels=("$name"); dirs=("$CLAUDE_SWITCH_ACCOUNTS_DIR/$name")
+        fi
+    else
+        local acc std
+        # The same inline glob every other enumeration in this file uses.
+        # #203 replaces them all with `_claude_acc_account_names`; whichever
+        # of the two lands second has to convert this one too.
+        for acc in "$CLAUDE_SWITCH_ACCOUNTS_DIR"/*(N/:t); do
+            labels+=("$acc"); dirs+=("$CLAUDE_SWITCH_ACCOUNTS_DIR/$acc")
+        done
+        std=$(_claude_acc_default_token_dir)
+        [[ -n "$std" && -d "$std" ]] && { labels+=("~/.claude/"); dirs+=("$std") }
+    fi
+
+    if (( ${#labels} == 0 )); then
+        _msg list_empty
+        return 0
+    fi
+
+    local i cj state failed=0
+    for (( i = 1; i <= ${#labels}; i++ )); do
+        if [[ -z "$want" ]]; then
+            # The same reader `doctor` reports from, and the same three
+            # answers: a config dir Claude Code has never written is a new
+            # account, not an account that said no.
+            cj=$(_claude_acc_config_json_for "${dirs[$i]}")
+            _claude_acc_chrome_enabled "$cj"
+            case $? in
+                0) state="on" ;;
+                1) state="off" ;;
+                *) state="unknown" ;;
+            esac
+            _msg chrome_state "${labels[$i]}" "$state"
+        else
+            local said
+            if said=$(_claude_acc_chrome_set "${dirs[$i]}" "$want"); then
+                _msg chrome_set "${labels[$i]}" "$([[ "$want" == true ]] && print -r -- on || print -r -- off)"
+            else
+                _msg chrome_refused "${labels[$i]}" "$said"
+                failed=1
+            fi
+        fi
+    done
+    return $failed
+}
+
+# `.claude.json` for a config dir. The standard account's record sits beside
+# ~/.claude rather than inside it, which is what `_claude_acc_config_json`
+# knows by account name; this one answers for a directory.
+_claude_acc_config_json_for() {
+    local dir="$1"
+    if [[ "$dir" == "$(_claude_acc_default_token_dir)" ]]; then
+        print -r -- "$HOME/.claude.json"
+    else
+        print -r -- "$dir/.claude.json"
+    fi
+}
+
 _claude_acc_chrome_enabled() {
     local f="$1"
     [[ -f "$f" ]] || return 2
@@ -2827,6 +2967,7 @@ claude-acc() {
         run)     _claude_acc_run "$@" ;;
         doctor)  _claude_acc_doctor "$@" ;;
         whoami)  _claude_acc_whoami ;;
+        chrome) _claude_acc_chrome "$@" ;;
         clone-settings) _claude_acc_clone_settings "$@" ;;
         import)  _claude_acc_import "$@" ;;
         desktop) _claude_acc_desktop "$@" ;;

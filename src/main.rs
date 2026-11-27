@@ -37,6 +37,23 @@ enum Commands {
         #[arg(short, long)]
         seed: bool,
     },
+    /// Show or set Claude in Chrome for an account
+    ///
+    /// Claude Code keeps that switch per config dir, so a new account has
+    /// the browser tools missing until it says yes once. With no flag this
+    /// reports the state of every account. The write goes through Claude
+    /// Code's own `edit-chrome-settings`, which refuses to run from inside
+    /// a Claude Code session.
+    Chrome {
+        /// Account to act on, or `default` for ~/.claude/. All, if omitted.
+        name: Option<String>,
+        /// Turn it on
+        #[arg(long, conflicts_with = "off")]
+        on: bool,
+        /// Turn it off
+        #[arg(long)]
+        off: bool,
+    },
     /// Seed an existing account dir from ~/.claude/
     ///
     /// Copies settings.json, CLAUDE.md, agents/, commands/, output-styles/,
@@ -342,6 +359,16 @@ fn main() {
         }
         Some(Commands::List) => commands::list::run(&config, &i18n),
         Some(Commands::Add { name, seed }) => commands::add::run(&config, &i18n, &name, seed),
+        Some(Commands::Chrome { name, on, off }) => {
+            let want = if on {
+                Some(true)
+            } else if off {
+                Some(false)
+            } else {
+                None
+            };
+            std::process::exit(commands::chrome::run(&config, &i18n, name.as_deref(), want))
+        }
         Some(Commands::CloneSettings { name }) => {
             commands::clone_settings::run(&config, &i18n, &name)
         }

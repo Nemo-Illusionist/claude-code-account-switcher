@@ -64,6 +64,7 @@ _claude_acc_completion() {
         'run:Run claude under a specific account'
         'doctor:Audit each account OAuth identity'
         'whoami:Print active account email'
+        'chrome:Show or set Claude in Chrome per account'
         'clone-settings:Copy ~/.claude/ config into account'
         'import:Import an existing Claude config dir (no re-login)'
     )
@@ -107,6 +108,7 @@ _claude_acc_completion() {
             statusline) flags=('--install:Write the statusLine config into settings.json') ;;
             sessions) flags=('--all:Every project, not just this directory') ;;
             doctor) flags=('--json:Output as JSON') ;;
+            chrome) flags=('--on:Turn Claude in Chrome on' '--off:Turn Claude in Chrome off') ;;
             update) flags=('--check:Only check, do not download' '--version:Install a specific version') ;;
             session) flags=('--to:Destination account' '--from:Source account' '--force:Skip confirmation' '-f:Skip confirmation') ;;
             vscode) flags=('--force:Replace a wrapper set to something else' '-f:Replace a wrapper set to something else') ;;
@@ -120,6 +122,9 @@ _claude_acc_completion() {
         case "$cmd" in
             remove|clone-settings)
                 _claude_acc_accounts
+                ;;
+            chrome)
+                _claude_acc_accounts with-default
                 ;;
             default|link|login|run|lock)
                 _claude_acc_accounts with-default

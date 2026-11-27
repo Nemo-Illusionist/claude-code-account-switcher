@@ -78,11 +78,33 @@ Existing files in the target are skipped — `clone-settings` is a one-shot seed
 
 Seeding copies files. It deliberately never touches `.claude.json` — the file that also holds `oauthAccount`, where a wrong value would hand an account somebody else's identity. A few user-facing features are recorded exactly there, so they start out unset in every new account.
 
-**Claude in Chrome** is the one you are most likely to meet. Claude Code wires that MCP server per config dir, from `claudeInChromeDefaultEnabled`. A new account has never said yes, so the browser tools are simply absent — which reads as "this machine has no extension" rather than "this account never enabled it". Run `/chrome` once inside the account and it sticks:
+**Claude in Chrome** is the one you are most likely to meet. Claude Code wires that MCP server per config dir, from `claudeInChromeDefaultEnabled`. A new account has never said yes, so the browser tools are simply absent — which reads as "this machine has no extension" rather than "this account never enabled it".
+
+`claude-acc chrome` shows where it stands, for every account at once:
+
+```
+$ claude-acc chrome
+  work  Claude in Chrome: off
+  ~/.claude/  Claude in Chrome: unknown
+```
+
+`unknown` is not `off`: a config dir Claude Code has never written has no answer yet, and reporting a brand-new account as switched off would be a statement about nothing.
+
+Name an account and a direction to change it:
 
 ```bash
-claude-acc run work        # then /chrome, once
+claude-acc chrome work --on
+claude-acc chrome work --off
 ```
+
+The write is not ours. The flag lives in `.claude.json`, the file that also holds `oauthAccount` — the one thing this tool must never put a wrong value into — so it goes through Claude Code's own `edit-chrome-settings`, the hidden subcommand its VS Code extension uses for the same setting. Two consequences worth knowing: `claude` has to be on `PATH`, and Claude Code refuses that subcommand from inside a Claude Code session, so run it from a plain shell. Its refusal is passed through verbatim rather than interpreted:
+
+```
+$ claude-acc chrome work --on
+  work  Claude Code refused: This setting cannot be changed from an editor started inside a Claude Code session. Start the editor outside the session and try again.
+```
+
+A session already running under that account does not pick the change up; start it again.
 
 `doctor` says so when it sees the mismatch — the extension known to this machine, the switch off in some account:
 
@@ -91,7 +113,7 @@ $ claude-acc doctor
 Auditing 1 account(s):
   ? work  no token (run: claude-acc login work)
 
-Claude in Chrome is off in: work. Claude Code keeps that switch per config dir, so the browser tools stay missing there until you run `/chrome` once inside that account.
+Claude in Chrome is off in: work. Claude Code keeps that switch per config dir, so the browser tools stay missing there until it is turned on: `claude-acc chrome <account> --on`, from a shell outside a Claude Code session.
 0 of 1 accounts healthy.
 ```
 
