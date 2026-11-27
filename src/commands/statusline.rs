@@ -596,7 +596,7 @@ fn settings_root(read: std::io::Result<String>) -> Option<Value> {
 /// badge. There was no way to install the line into a named account at all
 /// unless some directory happened to be linked to it.
 fn install_target(
-    ccd: Option<&Path>,
+    ccd: Option<&str>,
     accounts_dir: &Path,
     home: Option<&Path>,
     cwd_account: Option<&str>,
@@ -605,13 +605,24 @@ fn install_target(
         home.map(|h| h.join(".claude"))
             .unwrap_or_else(|| PathBuf::from(".claude"))
     };
+    // Empty or blank counts as unset, as it does in `session`'s
+    // `target_from_env` and in `shell/claude-wrapper.sh`. Taken literally it
+    // is the current directory: `create_dir_all("")` succeeds, and the line
+    // would be written to a `settings.json` beside whatever the user
+    // happened to be standing in, where Claude Code never looks.
+    let ccd = ccd.map(str::trim).filter(|v| !v.is_empty());
     if let Some(dir) = ccd {
+        let dir = Path::new(dir);
         return (
             name_of_config_dir(Some(dir), accounts_dir, home),
             dir.to_path_buf(),
         );
     }
     match cwd_account {
+        // A directory can be linked to `default`, and `get_default` can
+        // return it: that is the standard account, not `accounts/default`.
+        // `activate` has always read it that way.
+        Some(name) if crate::config::is_reserved_name(name) => ("default".to_string(), standard()),
         Some(name) => (name.to_string(), accounts_dir.join(name)),
         None => ("default".to_string(), standard()),
     }
@@ -619,9 +630,9 @@ fn install_target(
 
 fn install_into_settings(config: &AppConfig, i18n: &I18n) -> i32 {
     let cwd = std::env::current_dir().unwrap_or_default();
-    let ccd = std::env::var_os("CLAUDE_CONFIG_DIR");
+    let ccd = std::env::var("CLAUDE_CONFIG_DIR").ok();
     let (label, settings_dir) = install_target(
-        ccd.as_deref().map(Path::new),
+        ccd.as_deref(),
         &config.accounts_dir(),
         dirs::home_dir().as_deref(),
         resolve::resolve_account(config, &cwd).as_deref(),
@@ -684,7 +695,7 @@ mod tests {
         // The variable wins, whatever the directory resolves to.
         assert_eq!(
             install_target(
-                Some(Path::new("/switch/accounts/work-2")),
+                Some("/switch/accounts/work-2"),
                 accounts,
                 Some(home),
                 Some("work"),
@@ -698,18 +709,18 @@ mod tests {
         // still where the line goes — someone pointed the session there on
         // purpose.
         assert_eq!(
-            install_target(
-                Some(Path::new("/elsewhere/sandbox")),
-                accounts,
-                Some(home),
-                None,
-            ),
+            install_target(Some("/elsewhere/sandbox"), accounts, Some(home), None),
             ("sandbox".to_string(), PathBuf::from("/elsewhere/sandbox")),
         );
         // `CLAUDE_CONFIG_DIR` naming the standard dir is the standard
         // account, not a managed one called `.claude`.
         assert_eq!(
-            install_target(Some(&home.join(".claude")), accounts, Some(home), None),
+            install_target(
+                Some(home.join(".claude").to_str().unwrap()),
+                accounts,
+                Some(home),
+                None
+            ),
             ("default".to_string(), home.join(".claude")),
         );
         // Without the variable the directory decides, as before.
@@ -719,6 +730,21 @@ mod tests {
         );
         assert_eq!(
             install_target(None, accounts, Some(home), None),
+            ("default".to_string(), home.join(".claude")),
+        );
+        // Empty and blank count as unset. Taken literally the target is the
+        // working directory, where Claude Code never reads a settings file —
+        // the install would look like it worked and do nothing.
+        for blank in ["", "   ", "\t"] {
+            assert_eq!(
+                install_target(Some(blank), accounts, Some(home), Some("work")),
+                ("work".to_string(), PathBuf::from("/switch/accounts/work")),
+            );
+        }
+        // A directory can be linked to `default`, and that is the standard
+        // account, not `accounts/default`.
+        assert_eq!(
+            install_target(None, accounts, Some(home), Some("default")),
             ("default".to_string(), home.join(".claude")),
         );
     }
@@ -733,9 +759,11 @@ mod tests {
             "/switch/accounts/work-2/",
             "/elsewhere/sandbox",
         ] {
-            let p = Path::new(dir);
-            let (label, _) = install_target(Some(p), accounts, Some(home), Some("work"));
-            assert_eq!(label, name_of_config_dir(Some(p), accounts, Some(home)));
+            let (label, _) = install_target(Some(dir), accounts, Some(home), Some("work"));
+            assert_eq!(
+                label,
+                name_of_config_dir(Some(Path::new(dir)), accounts, Some(home))
+            );
         }
     }
 
