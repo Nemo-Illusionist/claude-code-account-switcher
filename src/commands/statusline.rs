@@ -22,25 +22,32 @@ use crate::resolve;
 const BAR_WIDTH: usize = 10;
 
 pub fn run(config: &AppConfig, i18n: &I18n, install: bool) -> i32 {
-    // The one place the variable is read. Everything below takes the
-    // resolved value as an argument, so a reader that went its own way
-    // would have to be written in, rather than merely forgotten — the
-    // badge, the settings files the meter consults and `--install` have to
-    // name the same account, and they did not.
+    // The one place the environment is read. Everything below takes the
+    // resolved values as arguments, so a reader that went its own way would
+    // have to be written in rather than merely forgotten — the badge, the
+    // settings files the meter consults and `--install` have to name the
+    // same account, and they did not — and a test does not have to set a
+    // variable in a process it shares with every other test.
     let ccd = config_dir_from_env();
     if install {
         return install_into_settings(config, i18n, ccd.as_deref());
     }
-    render(config, ccd.as_deref());
+    render(config, ccd.as_deref(), window_from_env());
     0
 }
 
-fn render(config: &AppConfig, ccd: Option<&Path>) {
+/// `CLAUDE_CODE_AUTO_COMPACT_WINDOW`, parsed, or `None` when it is unset or
+/// not a window Claude Code would accept.
+fn window_from_env() -> Option<f64> {
+    env_window(&std::env::var("CLAUDE_CODE_AUTO_COMPACT_WINDOW").ok()?)
+}
+
+fn render(config: &AppConfig, ccd: Option<&Path>, env_window: Option<f64>) {
     let mut input = String::new();
     let _ = std::io::stdin().read_to_string(&mut input);
     let v: Value = serde_json::from_str(&input).unwrap_or(Value::Null);
 
-    let segs = segments(&v, config, ccd);
+    let segs = segments(&v, config, ccd, env_window);
     if segs.is_empty() {
         return;
     }
@@ -54,7 +61,12 @@ fn render(config: &AppConfig, ccd: Option<&Path>) {
 /// `println!` are the only things left in the caller, and the two readers
 /// that take `ccd` — the account badge and the context meter — are reachable
 /// from a test.
-fn segments(v: &Value, config: &AppConfig, ccd: Option<&Path>) -> Vec<String> {
+fn segments(
+    v: &Value,
+    config: &AppConfig,
+    ccd: Option<&Path>,
+    env_window: Option<f64>,
+) -> Vec<String> {
     let mut segs: Vec<String> = Vec::new();
 
     if let Some(acc) = account_label(config, ccd) {
@@ -70,7 +82,7 @@ fn segments(v: &Value, config: &AppConfig, ccd: Option<&Path>) -> Vec<String> {
     if let Some(project) = project_name(v) {
         segs.push(paint("33", &project));
     }
-    if let Some(seg) = context_segment(v, ccd) {
+    if let Some(seg) = context_segment(v, ccd, env_window) {
         segs.push(seg);
     }
     segs
@@ -247,7 +259,7 @@ enum WindowSetting {
 /// kick in" rather than an arbitrary fraction of the window. So the digits
 /// answer "how full is this conversation" and the colour answers "how close is
 /// the wall".
-fn context_segment(v: &Value, ccd: Option<&Path>) -> Option<String> {
+fn context_segment(v: &Value, ccd: Option<&Path>, env_window: Option<f64>) -> Option<String> {
     let remaining = v
         .pointer("/context_window/remaining_percentage")
         .and_then(Value::as_f64)?;
@@ -260,7 +272,7 @@ fn context_segment(v: &Value, ccd: Option<&Path>) -> Option<String> {
         .filter(|t| *t > 0.0)
         .unwrap_or(1_000_000.0);
 
-    let effective = effective_window(total, configured_window(v, ccd));
+    let effective = effective_window(total, configured_window(v, ccd, env_window));
     let shown = used_share(used_tokens(v, remaining, total), effective);
     Some(usage_segment(shown, used_of_usable(100.0 - shown)))
 }
@@ -329,15 +341,13 @@ fn used_of_usable(remaining: f64) -> f64 {
 /// host passes in — Claude Code's own order is `userSettings`,
 /// `projectSettings`, `localSettings`, `flagSettings`, `policySettings` — and
 /// the server-side and experiment defaults it consults below the settings. A window lowered by one of those is not reflected in the meter.
-fn configured_window(v: &Value, ccd: Option<&Path>) -> Option<f64> {
+fn configured_window(v: &Value, ccd: Option<&Path>, env_window: Option<f64>) -> Option<f64> {
     let model = v
         .pointer("/model/id")
         .and_then(Value::as_str)
         .unwrap_or_default();
 
-    if let Ok(raw) = std::env::var("CLAUDE_CODE_AUTO_COMPACT_WINDOW")
-        && let Some(tokens) = env_window(&raw)
-    {
+    if let Some(tokens) = env_window {
         return Some(tokens);
     }
 
@@ -771,17 +781,20 @@ mod tests {
             }
         });
 
-        let with = segments(&payload, &config, Some(&account)).join(" | ");
+        let with = segments(&payload, &config, Some(&account), None).join(" | ");
         // 393.5k of the 400k this account is held to. Worked out by hand:
         // 393500 / 400000 = 98.375%, shown rounded.
         assert!(with.contains("work-2"), "badge: {}", with);
         assert!(with.contains("98%"), "meter: {}", with);
 
-        // Without the dir, the same payload is the model's 1M window and the
-        // standard account: 393500 / 1000000 = 39.35%.
-        let without = segments(&payload, &config, None).join(" | ");
+        // Without the dir the badge falls back to the standard account.
+        // Deliberately no assertion on the figure here: with no config dir
+        // the meter reads the *real* `~/.claude/settings.json`, so an
+        // `autoCompactWindow` in the settings of whoever runs the suite
+        // would decide it. `the_percentage_shown_is_the_one_the_application_shows`
+        // covers the 1M case from a payload alone.
+        let without = segments(&payload, &config, None, None).join(" | ");
         assert!(without.contains("default"), "badge: {}", without);
-        assert!(without.contains("39%"), "meter: {}", without);
 
         let _ = std::fs::remove_dir_all(&base);
     }
@@ -1032,7 +1045,7 @@ mod tests {
         )
         .unwrap();
         unsafe { std::env::set_var("NO_COLOR", "1") };
-        let seg = context_segment(&v, None).expect("a segment");
+        let seg = context_segment(&v, None, None).expect("a segment");
         assert!(seg.contains("39%"), "got {seg:?}");
         assert!(!seg.contains("47%"), "the old normalised figure: {seg:?}");
     }
@@ -1423,10 +1436,11 @@ mod tests {
 
     #[test]
     fn the_reserve_shows_in_the_colour_not_in_the_digits() {
-        unsafe {
-            std::env::set_var("NO_COLOR", "1");
-            std::env::remove_var("CLAUDE_CODE_AUTO_COMPACT_WINDOW");
-        }
+        // The window variable used to have to be cleared here, because
+        // `configured_window` read it itself and another test could have set
+        // it. It is a parameter now, so there is nothing process-wide left
+        // to clear.
+        unsafe { std::env::set_var("NO_COLOR", "1") };
         // remaining == the 16.5% reserve: the *usable* window is fully spent,
         // but 83.5% of the real window is what has been used and what Claude
         // Code reports. The digits say so; severity is the colour's job, and
@@ -1434,7 +1448,7 @@ mod tests {
         let v = serde_json::json!({
             "context_window": { "remaining_percentage": 16.5, "context_window_size": 1_000_000 }
         });
-        let seg = context_segment(&v, None).unwrap();
+        let seg = context_segment(&v, None, None).unwrap();
         assert!(seg.contains("84%"), "got {seg:?}");
         assert!(
             !seg.contains("100%"),
@@ -1445,19 +1459,19 @@ mod tests {
         let v = serde_json::json!({
             "context_window": { "remaining_percentage": 100.0, "context_window_size": 1_000_000 }
         });
-        assert!(context_segment(&v, None).unwrap().contains("0%"));
+        assert!(context_segment(&v, None, None).unwrap().contains("0%"));
 
         // And a full one reads as full rather than overflowing.
         let v = serde_json::json!({
             "context_window": { "remaining_percentage": 0.0, "context_window_size": 1_000_000 }
         });
-        assert!(context_segment(&v, None).unwrap().contains("100%"));
+        assert!(context_segment(&v, None, None).unwrap().contains("100%"));
     }
 
     #[test]
     fn context_segment_absent_without_context_window() {
         let v = serde_json::json!({ "model": { "display_name": "Opus" } });
-        assert!(context_segment(&v, None).is_none());
+        assert!(context_segment(&v, None, None).is_none());
     }
 
     #[test]
